@@ -26,10 +26,10 @@ dist-ssr
 # examples
 preset.example.json
 
-# Cloudflare / Wrangler — keep deployment-specific config & secrets out of git.
-# Each deployer creates their own from wrangler.toml.example.
-wrangler.toml
-wrangler.local.toml
+# Cloudflare / Wrangler — local secrets & build artifacts (never commit).
+# The committed config is wrangler.jsonc; these are local-only overrides.
 .dev.vars
 .dev.vars.*
 .wrangler/
+wrangler.toml
+wrangler.local.toml

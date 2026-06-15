@@ -1,0 +1,24 @@
+{
+  // Cloudflare Worker config. Committed on purpose and secret-free: the KV
+  // namespace below has no id, so Cloudflare auto-provisions a fresh one for
+  // each person who deploys (via the Deploy button or `wrangler deploy`) and
+  // writes the id into THEIR copy — never into this repo.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stpreseteditor",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-06-01",
+
+  // Serve the Vite build, with single-page-app fallback for client routes.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  // Cloud storage for presets. No "id" => auto-provisioned on first deploy.
+  "kv_namespaces": [
+    {
+      "binding": "PRESETS"
+    }
+  ]
+}

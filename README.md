@@ -10,7 +10,11 @@ A lightweight, user-friendly web editor for managing SillyTavern `preset.json` f
 
 **🌐 Try it online:** [https://stpe.nativus.workers.dev/](https://stpe.nativus.workers.dev/)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FNativu5%2FSTPresetEditor)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wanderer210899-spec/STPresetEditor)
+
+> This fork adds **private, cross-device cloud sync** on Cloudflare — see
+> [Private cloud sync](#-private-cloud-sync-cloudflare) below. The one-click button
+> deploys your own instance and auto-creates its storage.
 
 ## 🖼 Overview
 
@@ -96,17 +100,17 @@ shared by several people.
 
 ```
 Cloudflare Access  (each user signs in as themselves)
-  └─ Cloudflare Pages  (https://<project>.pages.dev)
-       ├─ static Vue app  (the built dist/)
+  └─ Cloudflare Worker  (https://<name>.<you>.workers.dev)
+       ├─ serves the built SPA  (via the ASSETS binding)
        └─ /api/presets  GET/PUT  ──►  Cloudflare KV   key: user:<email>
                                       (one isolated library per signed-in user)
 ```
 
-- `wrangler.toml.example` — template for Pages config + KV binding. Copy it to a
-  git-ignored `wrangler.toml` (or configure in the dashboard); no ids are committed.
-- `functions/api/presets.js` — the GET/PUT API. Authenticates every request via
-  Cloudflare Access and stores each user's library under its own key. Fails closed
-  (401) when there is no verified identity.
+- `worker/index.js` — the Worker: serves the built app **and** the GET/PUT API.
+  Authenticates every request via Cloudflare Access and stores each user's library
+  under its own key. Fails closed (401) when there is no verified identity.
+- `wrangler.jsonc` — Worker config. Committed and secret-free: the KV namespace has
+  no id, so Cloudflare **auto-provisions a fresh one for each deployer**.
 - `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
   as an offline cache). If the API is unreachable or unauthenticated the app
   silently runs local-only, so `npm run dev` is unaffected.
@@ -114,47 +118,46 @@ Cloudflare Access  (each user signs in as themselves)
 The toolbar shows a small dot: green = synced, amber = syncing, red = error,
 grey = local only.
 
-### Deploy your own private instance (~15 minutes)
+### Deploy your own private instance
 
-Every deployer runs this once on their own Cloudflare account; none of it touches
-the shared repo.
+**One click** —
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wanderer210899-spec/STPresetEditor)
 
-1. **Fork/clone this repo** and **create a free Cloudflare account** at
-   <https://dash.cloudflare.com/sign-up>.
-2. **Deploy with Pages.** Cloudflare's redesigned dashboard hides the Pages
-   button (it pushes you toward Workers), so use one of these entry points:
-   - **Direct link** — open
-     `https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/pages`
-     (paste the `:account` part verbatim; it auto-resolves to your account).
-   - **Hidden link** — on *Workers & Pages → Create application*, look **below the
-     tiles** for the small text *"Looking to deploy Pages? Get started"* and click it.
-   - **CLI fallback** (no dashboard) — `npx wrangler pages project create stpreseteditor`.
-
-   On the Pages wizard choose **Connect to Git** (a.k.a. *Import an existing Git
-   repository*), pick **your fork**, then set: build command `npm run build`, output
-   directory `dist`, project name `stpreseteditor`. First deploy gives you a
-   `https://<project>.pages.dev` URL.
-3. **Create your KV store and bind it.** Run
-   `npx wrangler kv namespace create PRESETS`, then bind it to **your** deployment
-   in the dashboard: project → Settings → Bindings → add a **KV namespace** binding
-   named `PRESETS` pointing at it. _(CLI deployers can instead copy
-   `wrangler.toml.example` → `wrangler.toml` and paste the id there — that file is
-   git-ignored, so your id never enters the repo.)_
-4. **Turn on authentication with Cloudflare Access.** This is what makes sync
-   private, and it is **required** — cloud sync stays off until it is in place:
-   *Zero Trust* → *Access* → *Applications* → add a **Self-hosted** app for your
-   `<project>.pages.dev` hostname, then add an **Allow** policy listing the
-   email(s) permitted to sign in:
+1. Click the button and sign in to Cloudflare. It copies this repo into **your**
+   GitHub account, **auto-creates your KV namespace**, builds, and deploys your
+   Worker at `https://<name>.<you>.workers.dev`.
+   _(The button deploys the repo's **default branch**, and the repo must be
+   **public** for the button to work.)_
+2. **Turn on authentication — required.** In the dashboard open your new Worker →
+   **Settings** → enable **Cloudflare Access for workers.dev** (one click; it sets
+   up free Zero Trust if needed). Then edit the auto-created Access policy to allow
+   only the email(s) you choose:
    - just **your own** email → a private, single-user instance, or
-   - several emails (or a whole identity provider) → a shared instance where each
-     person still gets their own isolated library.
+   - several emails / an identity provider → a shared instance where each person
+     still gets their own isolated library.
 
-   Sign-in works out of the box via one-time email PIN; you can also wire up
-   Google/GitHub under *Zero Trust → Settings → Authentication*.
+   Sign-in works out of the box via one-time email PIN; Google/GitHub can be added
+   under *Zero Trust → Settings → Authentication*.
+3. Open the URL on your phone and PC, sign in, and import a preset — it now syncs.
+
+**From the CLI instead:**
+
+```bash
+# in a clone of your fork
+npm install
+npm run deploy        # builds, then `wrangler deploy` (auto-provisions KV)
+```
+
+Then do step 2 to enable Access. To test the synced API locally without Access,
+run `npm run cf-preview` with a git-ignored `.dev.vars` file containing
+`LOCAL_DEV_EMAIL=you@example.com`.
 
 > **No public window:** with no Cloudflare Access identity the API fails closed and
 > the app runs **local-only**, so your presets are never exposed before Access is
 > set up. Cloud sync switches on the moment Access is in place.
+
+> **Not on Cloudflare?** `npm run build` still produces a static `dist/` you can host
+> anywhere (GitHub Pages, Netlify, Vercel) — it just runs in local-only mode.
 
 ## 📄 License
 
