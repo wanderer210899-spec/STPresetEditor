@@ -3,6 +3,25 @@ import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
 
 /**
+ * The state paths that make up a user's portable data and are synced to the
+ * cloud (Cloudflare KV) so the same library is available on every device.
+ * UI-only and derived state are intentionally excluded.
+ */
+export const SYNC_DATA_PATHS = [
+  'rawJson',
+  'originalFilename',
+  'prompts',
+  'promptOrder',
+  'macroDisplayMode',
+  'currentLanguage',
+  'promptCollapseStates',
+  'skipDeleteConfirmation',
+  'savedPresets',
+  'currentPresetId',
+  'defaultPresetId',
+];
+
+/**
  * @typedef {object} MacroData
  * @property {string} id - A unique identifier for this specific macro instance, e.g., "promptId-charIndex".
  * @property {string} full - The full, original macro string, e.g., "{{setvar::x::10}}".
@@ -1819,6 +1838,32 @@ export const usePresetStore = defineStore('preset', {
       this.batchReplaceHistory.push(entry);
       const distinctPrompts = new Set(entry.changes.map((c) => c.promptId)).size;
       return { prompts: distinctPrompts };
+    },
+
+    // --- Cloud sync helpers (used by stores/cloudSync.js) ---
+
+    /**
+     * Build a plain snapshot of just the portable data paths for upload.
+     * @returns {Object} snapshot keyed by SYNC_DATA_PATHS
+     */
+    buildSyncSnapshot() {
+      const snapshot = {};
+      SYNC_DATA_PATHS.forEach((key) => {
+        snapshot[key] = this[key];
+      });
+      return snapshot;
+    },
+
+    /**
+     * Replace local data with a snapshot pulled from the cloud, then re-analyze.
+     * @param {Object} data - snapshot previously produced by buildSyncSnapshot
+     */
+    applyCloudData(data) {
+      if (!data || typeof data !== 'object') return;
+      SYNC_DATA_PATHS.forEach((key) => {
+        if (key in data) this[key] = data[key];
+      });
+      this.analyzeAllMacros();
     },
   },
   persist: {

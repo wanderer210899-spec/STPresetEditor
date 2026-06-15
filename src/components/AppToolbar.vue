@@ -9,10 +9,28 @@ import {
     EllipsisVerticalIcon,
     InformationCircleIcon,
 } from '@heroicons/vue/24/outline';
+import { computed } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
+import { useSyncStore } from '../stores/syncStore';
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// Cloud sync status (Cloudflare KV) for the indicator
+const sync = useSyncStore();
+const syncDotClass = computed(() => {
+  if (!sync.cloudEnabled) return 'bg-gray-300';
+  switch (sync.status) {
+    case 'synced':
+      return 'bg-green-500';
+    case 'syncing':
+      return 'bg-amber-400 animate-pulse';
+    case 'error':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-300';
+  }
+});
 
 // Reset & Language now live in Settings modal
 </script>
@@ -36,6 +54,14 @@ const store = usePresetStore();
 
     <!-- Desktop: Action Buttons Group -->
     <div class="hidden items-center space-x-3 md:flex">
+      <!-- Cloud sync status indicator -->
+      <div
+        class="flex items-center gap-1.5 text-xs text-gray-500"
+        :title="sync.statusLabel"
+      >
+        <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
+        <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
+      </div>
       <!-- Language moved to Settings -->
       <!-- Import JSON Button -->
       <button
@@ -74,6 +100,12 @@ const store = usePresetStore();
 
     <!-- Mobile: Action Group with Right Sidebar Toggle and Menu -->
     <div class="flex items-center md:hidden">
+      <!-- Cloud sync status dot -->
+      <span
+        class="mr-1 inline-block h-2 w-2 rounded-full"
+        :class="syncDotClass"
+        :title="sync.statusLabel"
+      ></span>
       <!-- Right Sidebar Toggle Button -->
       <button class="p-2" @click="store.toggleRightSidebar()">
         <InformationCircleIcon class="h-6 w-6" />

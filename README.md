@@ -79,6 +79,51 @@ Use the bundled batch script to automate the local setup:
 3. The script installs dependencies when needed and starts the Vite development server.
 4. Open [http://localhost:5173](http://localhost:5173) in your browser, and press `Ctrl+C` in the terminal to stop the server when finished.
 
+## 🔐 Private cloud sync (Cloudflare)
+
+By default the editor stores everything in the browser's `localStorage`, which is
+**per-device** — your phone and PC would each keep a separate library. This fork
+adds an optional **Cloudflare** backend so your presets live in one central place
+and stay in sync across devices, gated so **only you** can reach them.
+
+### How it works
+
+```
+Cloudflare Access (only your email can log in)
+  └─ Cloudflare Pages  (https://<project>.pages.dev)
+       ├─ static Vue app  (the built dist/)
+       └─ /api/presets  GET/PUT  ◄──►  Cloudflare KV  (your presets)
+```
+
+- `wrangler.toml` — Pages project config + KV binding.
+- `functions/api/presets.js` — the GET/PUT API backed by KV.
+- `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
+  as an offline cache). If the API is unreachable the app silently runs local-only,
+  so `npm run dev` is unaffected.
+
+The toolbar shows a small dot: green = synced, amber = syncing, red = error,
+grey = local only.
+
+### Setup (one time, ~15 minutes)
+
+1. **Create a free Cloudflare account** at <https://dash.cloudflare.com/sign-up>.
+2. **Deploy with Pages** → *Workers & Pages* → *Create* → *Pages* → *Connect to Git*,
+   pick this repo. Build command `npm run build`, output directory `dist`. Name the
+   project `stpreseteditor` (matching `wrangler.toml`). First deploy gives you a
+   `https://<project>.pages.dev` URL.
+3. **Create the KV store**: run `npx wrangler kv namespace create PRESETS` and copy
+   the printed `id`. Uncomment the `[[kv_namespaces]]` block in `wrangler.toml`,
+   paste the `id`, commit and push — Pages redeploys automatically.
+   _(Or add it in the dashboard: project → Settings → Functions → KV bindings →
+   variable `PRESETS`.)_
+4. **Lock it down with Cloudflare Access**: *Zero Trust* → *Access* → *Applications*
+   → add a **Self-hosted** app for your `<project>.pages.dev` hostname, then add a
+   policy **Allow → Emails → your address only**. Everyone else is blocked at the
+   edge before the app loads, and the API receives your verified identity.
+
+> **Privacy note:** the app is fully open until step 4 is complete. Enable Access
+> before importing anything you want kept private.
+
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.

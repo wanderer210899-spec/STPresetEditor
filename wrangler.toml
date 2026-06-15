@@ -1,0 +1,24 @@
+# Cloudflare Pages configuration for STPresetEditor.
+#
+# This file lets Cloudflare Pages serve the built Vue app (from ./dist) AND run
+# the API in ./functions, all from one project. See README "Cloudflare setup".
+
+name = "stpreseteditor"
+compatibility_date = "2025-01-01"
+
+# The folder Vite outputs to (`npm run build`). Pages serves these static files.
+pages_build_output_dir = "dist"
+
+# --- KV storage (Phase 2) ---
+# Your presets are stored centrally in a Cloudflare KV namespace so they sync
+# across mobile and PC. Until you create the namespace and paste its id below,
+# the app still runs — it just falls back to per-device local storage.
+#
+# To enable cloud sync:
+#   1. Run:  npx wrangler kv namespace create PRESETS
+#   2. Uncomment the three lines below and paste the printed id.
+#   3. Commit + push (Git-connected Pages redeploys automatically).
+#
+# [[kv_namespaces]]
+# binding = "PRESETS"
+# id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"

@@ -4,6 +4,7 @@ import { createPinia } from 'pinia';
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import { createApp } from 'vue';
 import App from './App.vue';
+import { initCloudSync } from './stores/cloudSync';
 import './style.css';
 
 // Create Vue application instance
@@ -21,3 +22,7 @@ app.use(FloatingVue); // Tooltip and popover functionality
 
 // Mount the application to the DOM
 app.mount('#app');
+
+// Start cloud sync (Cloudflare KV) after mount so the store has restored from
+// its local cache first. No-ops gracefully to local-only if the API is absent.
+initCloudSync();
