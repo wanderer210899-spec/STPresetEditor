@@ -107,15 +107,24 @@ grey = local only.
 ### Setup (one time, ~15 minutes)
 
 1. **Create a free Cloudflare account** at <https://dash.cloudflare.com/sign-up>.
-2. **Deploy with Pages** → *Workers & Pages* → *Create* → *Pages* → *Connect to Git*,
-   pick this repo. Build command `npm run build`, output directory `dist`. Name the
-   project `stpreseteditor` (matching `wrangler.toml`). First deploy gives you a
-   `https://<project>.pages.dev` URL.
+2. **Deploy with Pages.** Cloudflare's redesigned dashboard hides the Pages
+   button (it pushes you toward Workers), so use one of these entry points:
+   - **Direct link** — open
+     `https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/pages`
+     (paste the `:account` part verbatim; it auto-resolves to your account).
+   - **Hidden link** — on *Workers & Pages → Create application*, look **below the
+     tiles** for the small text *"Looking to deploy Pages? Get started"* and click it.
+   - **CLI fallback** (no dashboard) — `npx wrangler pages project create stpreseteditor`.
+
+   On the Pages wizard choose **Connect to Git** (a.k.a. *Import an existing Git
+   repository*), pick this repo, then set: build command `npm run build`, output
+   directory `dist`, project name `stpreseteditor` (matching `wrangler.toml`). First
+   deploy gives you a `https://<project>.pages.dev` URL.
 3. **Create the KV store**: run `npx wrangler kv namespace create PRESETS` and copy
    the printed `id`. Uncomment the `[[kv_namespaces]]` block in `wrangler.toml`,
    paste the `id`, commit and push — Pages redeploys automatically.
-   _(Or add it in the dashboard: project → Settings → Functions → KV bindings →
-   variable `PRESETS`.)_
+   _(Or add it in the dashboard: project → Settings → Bindings → add a KV namespace
+   binding named `PRESETS`.)_
 4. **Lock it down with Cloudflare Access**: *Zero Trust* → *Access* → *Applications*
    → add a **Self-hosted** app for your `<project>.pages.dev` hostname, then add a
    policy **Allow → Emails → your address only**. Everyone else is blocked at the
