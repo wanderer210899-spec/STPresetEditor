@@ -1,6 +1,4 @@
 <script setup>
-import { onMounted } from 'vue';
-import presetData from './assets/example.json';
 import AppLayout from './components/AppLayout.vue';
 import AppToolbar from './components/AppToolbar.vue';
 import JsonExportModal from './components/JsonExportModal.vue';
@@ -12,16 +10,9 @@ import RightSidebar from './components/RightSidebar/RightSidebar.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import { usePresetStore } from './stores/presetStore';
 
-// Initialize the preset store
+// Initialize the preset store. App startup (cloud reconcile + example fallback)
+// is handled in main.js so the cloud library loads before any default content.
 const store = usePresetStore();
-
-// Initialize the application with default data if no persisted data exists
-onMounted(() => {
-  // Check if we have persisted data, if not, load the default example
-  if (!store.rawJson) {
-    store.initializeDefaultData(JSON.stringify(presetData));
-  }
-});
 </script>
 
 <template>

@@ -19,12 +19,19 @@ let syncedSerialized = null;
  */
 async function fetchCloudDocument() {
   try {
-    const res = await fetch(API_URL, { headers: { accept: 'application/json' } });
-    if (!res.ok) return null; // 503 (KV not configured), 404, 5xx -> local-only
+    // Bound the wait so a hung network can't delay first paint / example load.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(API_URL, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null; // 401 (no Access), 503 (no KV), 404, 5xx -> local-only
     const doc = await res.json();
     return doc && typeof doc === 'object' ? doc : null;
   } catch {
-    return null; // offline / network error
+    return null; // offline / network error / timeout
   }
 }
 
@@ -89,8 +96,17 @@ export async function initCloudSync() {
   const cloudIsNewer = cloudHasData && doc.updatedAt && doc.updatedAt !== sync.lastSyncedAt;
 
   if (!cloudHasData) {
-    // Cloud is empty -> seed it from this device.
-    await pushNow(preset, sync);
+    // Cloud is empty. Seed it only if this device already has real data;
+    // otherwise wait — the bundled example (loaded right after init) will sync
+    // through the subscription below, avoiding an empty write.
+    const hasLocalData =
+      Boolean(preset.rawJson) || Object.keys(preset.savedPresets || {}).length > 0;
+    if (hasLocalData) {
+      await pushNow(preset, sync);
+    } else {
+      syncedSerialized = JSON.stringify(preset.buildSyncSnapshot());
+      sync.set({ status: 'synced' });
+    }
   } else if (cloudIsNewer && !sync.pendingSync) {
     // Adopt the newer cloud copy (no un-pushed local edits to protect).
     suppressPush = true;

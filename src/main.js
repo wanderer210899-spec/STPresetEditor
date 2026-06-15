@@ -4,7 +4,9 @@ import { createPinia } from 'pinia';
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import { createApp } from 'vue';
 import App from './App.vue';
+import exampleData from './assets/example.json';
 import { initCloudSync } from './stores/cloudSync';
+import { usePresetStore } from './stores/presetStore';
 import './style.css';
 
 // Create Vue application instance
@@ -23,6 +25,20 @@ app.use(FloatingVue); // Tooltip and popover functionality
 // Mount the application to the DOM
 app.mount('#app');
 
-// Start cloud sync (Cloudflare KV) after mount so the store has restored from
-// its local cache first. No-ops gracefully to local-only if the API is absent.
-initCloudSync();
+// Bootstrap order matters for a seamless multi-device experience:
+//   1. Restore from the local cache (already done by the persist plugin).
+//   2. Reconcile with the cloud — adopt the user's library if signed in.
+//   3. Only if there is still nothing to show, load the bundled example.
+// This prevents briefly flashing the example over a real cloud library.
+async function bootstrap() {
+  const store = usePresetStore();
+  try {
+    await initCloudSync();
+  } catch (error) {
+    console.error('[cloudSync] initialization failed:', error);
+  }
+  if (!store.rawJson) {
+    store.initializeDefaultData(JSON.stringify(exampleData));
+  }
+}
+bootstrap();
