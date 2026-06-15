@@ -1,0 +1,28 @@
+# Cloudflare Pages config — TEMPLATE.
+#
+# This example is committed; the real `wrangler.toml` is git-ignored so your
+# deployment-specific values never enter the repo. Either:
+#   • deploy via Git integration and set everything in the Cloudflare dashboard
+#     (you can ignore this file entirely), or
+#   • copy it to `wrangler.toml` and fill in your own values for CLI deploys.
+#
+# Nothing here is a secret (a KV namespace id grants nothing without your
+# account), but it is specific to YOUR instance — keeping it out of the repo is
+# what makes this fork cleanly self-hostable by anyone.
+
+name = "stpreseteditor"          # your Pages project name
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "dist"  # Vite build output
+
+# Bind YOUR OWN KV namespace (the cloud storage for your presets):
+#   npx wrangler kv namespace create PRESETS
+# then paste the printed id below. For Git-connected deploys you can instead add
+# this binding in the dashboard: project → Settings → Bindings → KV namespace.
+[[kv_namespaces]]
+binding = "PRESETS"
+id = "YOUR_KV_NAMESPACE_ID"
+
+# Optional — ONLY for local `wrangler pages dev` (there is no Cloudflare Access
+# locally). Lets you exercise cloud sync as a fake user. Never set in production.
+# [vars]
+# LOCAL_DEV_EMAIL = "you@example.com"

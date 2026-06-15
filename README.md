@@ -84,29 +84,43 @@ Use the bundled batch script to automate the local setup:
 By default the editor stores everything in the browser's `localStorage`, which is
 **per-device** — your phone and PC would each keep a separate library. This fork
 adds an optional **Cloudflare** backend so your presets live in one central place
-and stay in sync across devices, gated so **only you** can reach them.
+and stay in sync across devices.
+
+It is **self-hostable and secret-free**: anyone who forks this repo can deploy
+their own private instance in minutes. No keys or deployment-specific ids are
+committed. Each user signs in with their **own** identity through Cloudflare
+Access, and every user's library is isolated to them — even if one instance is
+shared by several people.
 
 ### How it works
 
 ```
-Cloudflare Access (only your email can log in)
+Cloudflare Access  (each user signs in as themselves)
   └─ Cloudflare Pages  (https://<project>.pages.dev)
        ├─ static Vue app  (the built dist/)
-       └─ /api/presets  GET/PUT  ◄──►  Cloudflare KV  (your presets)
+       └─ /api/presets  GET/PUT  ──►  Cloudflare KV   key: user:<email>
+                                      (one isolated library per signed-in user)
 ```
 
-- `wrangler.toml` — Pages project config + KV binding.
-- `functions/api/presets.js` — the GET/PUT API backed by KV.
+- `wrangler.toml.example` — template for Pages config + KV binding. Copy it to a
+  git-ignored `wrangler.toml` (or configure in the dashboard); no ids are committed.
+- `functions/api/presets.js` — the GET/PUT API. Authenticates every request via
+  Cloudflare Access and stores each user's library under its own key. Fails closed
+  (401) when there is no verified identity.
 - `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
-  as an offline cache). If the API is unreachable the app silently runs local-only,
-  so `npm run dev` is unaffected.
+  as an offline cache). If the API is unreachable or unauthenticated the app
+  silently runs local-only, so `npm run dev` is unaffected.
 
 The toolbar shows a small dot: green = synced, amber = syncing, red = error,
 grey = local only.
 
-### Setup (one time, ~15 minutes)
+### Deploy your own private instance (~15 minutes)
 
-1. **Create a free Cloudflare account** at <https://dash.cloudflare.com/sign-up>.
+Every deployer runs this once on their own Cloudflare account; none of it touches
+the shared repo.
+
+1. **Fork/clone this repo** and **create a free Cloudflare account** at
+   <https://dash.cloudflare.com/sign-up>.
 2. **Deploy with Pages.** Cloudflare's redesigned dashboard hides the Pages
    button (it pushes you toward Workers), so use one of these entry points:
    - **Direct link** — open
@@ -117,21 +131,30 @@ grey = local only.
    - **CLI fallback** (no dashboard) — `npx wrangler pages project create stpreseteditor`.
 
    On the Pages wizard choose **Connect to Git** (a.k.a. *Import an existing Git
-   repository*), pick this repo, then set: build command `npm run build`, output
-   directory `dist`, project name `stpreseteditor` (matching `wrangler.toml`). First
-   deploy gives you a `https://<project>.pages.dev` URL.
-3. **Create the KV store**: run `npx wrangler kv namespace create PRESETS` and copy
-   the printed `id`. Uncomment the `[[kv_namespaces]]` block in `wrangler.toml`,
-   paste the `id`, commit and push — Pages redeploys automatically.
-   _(Or add it in the dashboard: project → Settings → Bindings → add a KV namespace
-   binding named `PRESETS`.)_
-4. **Lock it down with Cloudflare Access**: *Zero Trust* → *Access* → *Applications*
-   → add a **Self-hosted** app for your `<project>.pages.dev` hostname, then add a
-   policy **Allow → Emails → your address only**. Everyone else is blocked at the
-   edge before the app loads, and the API receives your verified identity.
+   repository*), pick **your fork**, then set: build command `npm run build`, output
+   directory `dist`, project name `stpreseteditor`. First deploy gives you a
+   `https://<project>.pages.dev` URL.
+3. **Create your KV store and bind it.** Run
+   `npx wrangler kv namespace create PRESETS`, then bind it to **your** deployment
+   in the dashboard: project → Settings → Bindings → add a **KV namespace** binding
+   named `PRESETS` pointing at it. _(CLI deployers can instead copy
+   `wrangler.toml.example` → `wrangler.toml` and paste the id there — that file is
+   git-ignored, so your id never enters the repo.)_
+4. **Turn on authentication with Cloudflare Access.** This is what makes sync
+   private, and it is **required** — cloud sync stays off until it is in place:
+   *Zero Trust* → *Access* → *Applications* → add a **Self-hosted** app for your
+   `<project>.pages.dev` hostname, then add an **Allow** policy listing the
+   email(s) permitted to sign in:
+   - just **your own** email → a private, single-user instance, or
+   - several emails (or a whole identity provider) → a shared instance where each
+     person still gets their own isolated library.
 
-> **Privacy note:** the app is fully open until step 4 is complete. Enable Access
-> before importing anything you want kept private.
+   Sign-in works out of the box via one-time email PIN; you can also wire up
+   Google/GitHub under *Zero Trust → Settings → Authentication*.
+
+> **No public window:** with no Cloudflare Access identity the API fails closed and
+> the app runs **local-only**, so your presets are never exposed before Access is
+> set up. Cloud sync switches on the moment Access is in place.
 
 ## 📄 License
 
