@@ -11,6 +11,14 @@ const PUSH_DEBOUNCE_MS = 1500;
 let suppressPush = false;
 // JSON of the snapshot currently mirrored in the cloud; used to skip no-op pushes.
 let syncedSerialized = null;
+// Ensures the change subscription is attached only once across reconnects.
+let subscribed = false;
+
+/** Auth header for passphrase mode (no-op when Cloudflare Access is used). */
+function authHeaders() {
+  const key = useSyncStore().syncKey;
+  return key ? { 'X-Sync-Key': key } : {};
+}
 
 /**
  * GET the cloud document.
@@ -23,7 +31,7 @@ async function fetchCloudDocument() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(API_URL, {
-      headers: { accept: 'application/json' },
+      headers: { accept: 'application/json', ...authHeaders() },
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -43,7 +51,7 @@ async function pushCloudDocument(payload) {
   try {
     const res = await fetch(API_URL, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
     });
     return res.ok;
@@ -123,11 +131,23 @@ export async function initCloudSync() {
     sync.set({ status: 'synced' });
   }
 
-  // Push (debounced) whenever the portable data changes from here on.
-  const debouncedPush = debounce(() => pushNow(preset, sync), PUSH_DEBOUNCE_MS);
-  preset.$subscribe(() => {
-    if (suppressPush || !sync.cloudEnabled) return;
-    if (!sync.pendingSync) sync.set({ pendingSync: true });
-    debouncedPush();
-  });
+  // Push (debounced) whenever the portable data changes — attach once.
+  if (!subscribed) {
+    subscribed = true;
+    const debouncedPush = debounce(() => pushNow(preset, sync), PUSH_DEBOUNCE_MS);
+    preset.$subscribe(() => {
+      if (suppressPush || !sync.cloudEnabled) return;
+      if (!sync.pendingSync) sync.set({ pendingSync: true });
+      debouncedPush();
+    });
+  }
+}
+
+/**
+ * Re-run reconciliation after credentials change (e.g. the user entered a
+ * passphrase in Settings). Safe to call repeatedly.
+ */
+export async function reconnectCloudSync() {
+  syncedSerialized = null; // force a fresh pull/seed with the new credentials
+  await initCloudSync();
 }

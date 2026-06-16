@@ -47,6 +47,33 @@
               </div>
             </div>
 
+            <!-- Cloud Sync Setting -->
+            <div class="py-6">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Cloud sync</label>
+              <div class="flex items-center space-x-2">
+                <input
+                  v-model="syncKeyInput"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Sync passphrase"
+                  class="block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                  @keyup.enter="connectSync"
+                />
+                <button
+                  class="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  @click="connectSync"
+                >
+                  Connect
+                </button>
+              </div>
+              <p class="mt-2 text-xs text-gray-500">
+                Status: <span class="font-medium">{{ sync.statusLabel }}</span>. Enter the same
+                passphrase on each device to sync. On your Worker, set it once with
+                <code class="rounded bg-gray-100 px-1">wrangler secret put SYNC_PASSWORD</code>
+                (or leave blank if you use Cloudflare Access instead).
+              </p>
+            </div>
+
             <!-- Delete Confirmation Setting -->
             <div class="py-6">
               <label class="flex items-center">
@@ -95,7 +122,10 @@
 
 <script setup>
 import { XMarkIcon } from '@heroicons/vue/24/outline';
+import { ref } from 'vue';
+import { reconnectCloudSync } from '../stores/cloudSync';
 import { usePresetStore } from '../stores/presetStore';
+import { useSyncStore } from '../stores/syncStore';
 
 defineProps({
   isOpen: {
@@ -105,6 +135,13 @@ defineProps({
 });
 
 const store = usePresetStore();
+const sync = useSyncStore();
+
+const syncKeyInput = ref(sync.syncKey || '');
+const connectSync = async () => {
+  sync.setSyncKey(syncKeyInput.value.trim());
+  await reconnectCloudSync();
+};
 
 const closeModal = () => {
   store.closeSettingsModal();

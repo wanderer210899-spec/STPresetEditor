@@ -15,23 +15,34 @@
 //   deployment. With no verified identity we FAIL CLOSED (401); the app then
 //   runs local-only. Enable Access on your workers.dev URL to turn sync on.
 
-/** Resolve the authenticated identity for this request, or null. */
-function identify(request, env) {
-  // Set by Cloudflare Access; once Access is on, Cloudflare sets it itself and
-  // strips any client-supplied copy, so it cannot be forged.
-  const email = request.headers.get('Cf-Access-Authenticated-User-Email');
-  if (email) return email;
-
-  // Escape hatch for local `wrangler dev` only (no Access locally). Provide via a
-  // git-ignored .dev.vars file; never configure this in production.
-  if (env.LOCAL_DEV_EMAIL) return env.LOCAL_DEV_EMAIL;
-
-  return null;
+/** Constant-time string comparison (avoids leaking the secret via timing). */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return mismatch === 0;
 }
 
-/** Per-identity KV key, so no two users ever share a bucket. */
-function kvKey(identity) {
-  return `user:${identity}`;
+/**
+ * Resolve the authenticated identity for this request, or null. Two ways in:
+ *   1. Cloudflare Access — trusted, un-forgeable, isolated per user email.
+ *   2. App passphrase — works without Access. The deployer sets SYNC_PASSWORD
+ *      (a Worker secret) once; every device that enters it shares one library.
+ * The returned value is used directly as the KV key, so identities never collide.
+ */
+function identify(request, env) {
+  const email = request.headers.get('Cf-Access-Authenticated-User-Email');
+  if (email) return `user:${email}`;
+
+  const key = request.headers.get('X-Sync-Key');
+  if (env.SYNC_PASSWORD && key && safeEqual(key, env.SYNC_PASSWORD)) {
+    return 'shared';
+  }
+
+  // Local `wrangler dev` escape hatch (set LOCAL_DEV_EMAIL in .dev.vars).
+  if (env.LOCAL_DEV_EMAIL) return `user:${env.LOCAL_DEV_EMAIL}`;
+
+  return null;
 }
 
 function json(body, status = 200) {
@@ -48,7 +59,7 @@ async function handlePresets(request, env) {
   if (!identity) return json({ error: 'unauthenticated' }, 401);
 
   if (request.method === 'GET') {
-    const stored = await env.PRESETS.get(kvKey(identity));
+    const stored = await env.PRESETS.get(identity);
     if (!stored) return json({ updatedAt: null, data: null });
     return new Response(stored, {
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
@@ -69,7 +80,7 @@ async function handlePresets(request, env) {
       return json({ error: 'invalid_shape' }, 400);
     }
 
-    await env.PRESETS.put(kvKey(identity), raw);
+    await env.PRESETS.put(identity, raw);
     return json({ ok: true, updatedAt: parsed.updatedAt });
   }
 

@@ -14,6 +14,7 @@ export const useSyncStore = defineStore('sync', {
     status: 'idle', // 'idle' | 'syncing' | 'synced' | 'offline' | 'error'
     lastSyncedAt: null, // ISO timestamp of the cloud document we last reconciled with
     pendingSync: false, // True when local has edits not yet pushed to the cloud
+    syncKey: '', // Optional passphrase sent as X-Sync-Key (auth without Cloudflare Access)
   }),
   getters: {
     /** Human-friendly label for a status indicator. */
@@ -41,8 +42,11 @@ export const useSyncStore = defineStore('sync', {
       if ('lastSyncedAt' in meta) this.lastSyncedAt = meta.lastSyncedAt;
       if ('pendingSync' in meta) this.pendingSync = meta.pendingSync;
     },
+    setSyncKey(key) {
+      this.syncKey = typeof key === 'string' ? key : '';
+    },
   },
   persist: {
-    paths: ['lastSyncedAt', 'pendingSync'],
+    paths: ['lastSyncedAt', 'pendingSync', 'syncKey'],
   },
 });
