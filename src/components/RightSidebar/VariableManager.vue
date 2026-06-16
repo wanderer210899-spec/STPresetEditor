@@ -41,12 +41,18 @@
                 <!-- Unused variable icon -->
                 <QuestionMarkCircleIcon
                   v-if="isDefinedButUnused(variable)"
-                  v-tooltip="{ content: store.t('variableManager.definedButNeverReferenced'), placement: 'top' }"
+                  v-tooltip="{
+                    content: store.t('variableManager.definedButNeverReferenced'),
+                    placement: 'top',
+                  }"
                   class="ml-2 h-4 w-4 text-yellow-500"
                 />
                 <ExclamationCircleIcon
                   v-if="isUnresolved(variable)"
-                  v-tooltip="{ content: store.t('variableManager.referencedButNeverDefined'), placement: 'top' }"
+                  v-tooltip="{
+                    content: store.t('variableManager.referencedButNeverDefined'),
+                    placement: 'top',
+                  }"
                   class="ml-2 h-4 w-4 text-red-500"
                 />
               </div>
@@ -65,12 +71,12 @@
       <div class="space-y-4">
         <Combobox v-model="selectedVariableForRename" nullable>
           <div class="relative">
-            <ComboboxLabel class="block text-sm font-medium text-gray-700">
+            <ComboboxLabel class="field-label">
               {{ store.t('variableManager.variableToRename') }}
             </ComboboxLabel>
             <div class="relative mt-1">
               <ComboboxInput
-                class="w-full rounded-md border border-gray-300 bg-white py-2 pr-10 pl-3 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none sm:text-sm"
+                class="input pr-10"
                 :display-value="(variable) => variable"
                 :placeholder="store.t('variableManager.selectVariable')"
                 @change="query = $event.target.value"
@@ -128,22 +134,20 @@
         </Combobox>
 
         <div>
-          <label for="new-var-name" class="block text-sm font-medium text-gray-700">{{ store.t('variableManager.newName') }}</label>
+          <label for="new-var-name" class="field-label">
+            {{ store.t('variableManager.newName') }}
+          </label>
           <input
             id="new-var-name"
             v-model="newName"
             type="text"
             :disabled="!selectedVariableForRename"
             :placeholder="store.t('variableManager.enterNewName')"
-            class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm transition focus:border-blue-500 focus:ring-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-100 sm:text-sm"
+            class="input mt-1"
           />
         </div>
 
-        <button
-          :disabled="!isRenameValid"
-          class="inline-flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-300"
-          @click="executeRename"
-        >
+        <button :disabled="!isRenameValid" class="btn btn-primary w-full" @click="executeRename">
           {{ store.t('variableManager.rename') }}
         </button>
       </div>
@@ -153,20 +157,20 @@
 
 <script setup>
 import {
-    Combobox,
-    ComboboxButton,
-    ComboboxInput,
-    ComboboxLabel,
-    ComboboxOption,
-    ComboboxOptions,
+  Combobox,
+  ComboboxButton,
+  ComboboxInput,
+  ComboboxLabel,
+  ComboboxOption,
+  ComboboxOptions,
 } from '@headlessui/vue';
 import {
-    ArrowTopRightOnSquareIcon,
-    CheckIcon,
-    ChevronUpDownIcon,
-    ExclamationCircleIcon,
-    QuestionMarkCircleIcon,
-    VariableIcon,
+  ArrowTopRightOnSquareIcon,
+  CheckIcon,
+  ChevronUpDownIcon,
+  ExclamationCircleIcon,
+  QuestionMarkCircleIcon,
+  VariableIcon,
 } from '@heroicons/vue/24/solid';
 import { computed, ref, watch } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';

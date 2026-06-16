@@ -6,8 +6,8 @@
       'border-blue-300 bg-blue-50': isSelectedInLibrary,
       'border-gray-200 bg-white hover:bg-gray-50': !isSelectedInLibrary,
     }"
-    @click="handleClick"
     draggable="true"
+    @click="handleClick"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
   >
@@ -22,22 +22,23 @@
       />
       <!-- 状态指示按钮 -->
       <button
-        :title="isInOrder ? store.t('promptLibraryItem.removeFromEditor') : store.t('promptLibraryItem.addToEditor')"
-        class="mr-3 rounded-full p-1 transition-all duration-200 flex-shrink-0"
+        :title="
+          isInOrder
+            ? store.t('promptLibraryItem.removeFromEditor')
+            : store.t('promptLibraryItem.addToEditor')
+        "
+        class="mr-3 flex-shrink-0 rounded-full p-1 transition-all duration-200"
         :class="{
           'bg-green-100 hover:bg-green-200': isInOrder,
-          'hover:bg-gray-200': !isInOrder
+          'hover:bg-gray-200': !isInOrder,
         }"
         @click.stop="addOrNavigate"
       >
         <CheckCircleIcon v-if="isInOrder" class="h-5 w-5 text-green-600" />
         <PlusCircleIcon v-else class="h-5 w-5 text-gray-500 hover:text-gray-700" />
       </button>
-      <div class="flex-grow min-w-0">
-        <p 
-          class="text-sm font-semibold truncate" 
-          :title="prompt.name"
-        >
+      <div class="min-w-0 flex-grow">
+        <p class="truncate text-sm font-semibold" :title="prompt.name">
           {{ prompt.name }}
         </p>
       </div>
@@ -97,7 +98,9 @@ const onDragStart = (event) => {
   // Mark source for drop target to optionally use
   try {
     event.dataTransfer.setData('application/x-stpe-source', 'library');
-  } catch (e) {}
+  } catch {
+    /* ignore: not supported in some browsers */
+  }
   event.dataTransfer.effectAllowed = 'copyMove';
 };
 

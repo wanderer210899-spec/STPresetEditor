@@ -1,7 +1,7 @@
 <template>
-  <!-- Render the getvar value in preview mode -->
+  <!-- Render the variable value in preview mode (getvar / getglobalvar) -->
   <span
-    v-if="macro.type === 'getvar' && displayMode === 'preview'"
+    v-if="isGet && displayMode === 'preview'"
     v-tooltip="{ content: macro.full, placement: 'top' }"
     class="mx-0.5 cursor-pointer rounded bg-yellow-100 px-1 py-0.5 font-mono text-yellow-800 ring-yellow-500 transition-all duration-150 hover:ring-2"
     :class="{ '!bg-red-100 !text-red-700': isUnresolved }"
@@ -10,9 +10,9 @@
     {{ currentValueForPopover }}
   </span>
 
-  <!-- Render the raw macro for all other cases -->
+  <!-- Render the raw getvar/getglobalvar with its value in a tooltip -->
   <span
-    v-else-if="macro.type === 'getvar'"
+    v-else-if="isGet"
     v-tooltip="{ content: currentValueForPopover, placement: 'top' }"
     :class="macroStyle"
     class="mx-0.5 cursor-pointer rounded px-1 py-0.5 font-mono transition-all duration-150"
@@ -21,6 +21,7 @@
     {{ macro.full }}
   </span>
 
+  <!-- Render the raw macro for all other cases -->
   <span
     v-else
     :class="macroStyle"
@@ -34,6 +35,7 @@
 <script setup>
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { categoryOf } from '../../utils/macros';
 
 const props = defineProps({
   /** @type {import('vue').PropType<import('../../stores/presetStore').MacroData>} */
@@ -49,8 +51,11 @@ const props = defineProps({
 
 const store = usePresetStore();
 
+// getvar / getglobalvar are the value-returning variable macros.
+const isGet = computed(() => props.macro.kind === 'get');
+
 const currentValue = computed(() => {
-  if (props.macro.type !== 'getvar') return undefined;
+  if (!isGet.value) return undefined;
   return store.macroStateSnapshots[props.macro.id];
 });
 
@@ -67,10 +72,22 @@ const isSelected = computed(() => {
 });
 
 const isUnresolved = computed(() => {
-  if (props.macro.type !== 'getvar') return false;
+  if (!isGet.value) return false;
   // A getvar is unresolved if its specific snapshot value is undefined.
   return currentValue.value === undefined;
 });
+
+const CATEGORY_STYLES = {
+  get: 'bg-green-100 text-green-700 hover:bg-green-200',
+  write: 'bg-blue-100 text-blue-700 hover:bg-blue-200',
+  random: 'bg-purple-100 text-purple-700 hover:bg-purple-200',
+  identity: 'bg-amber-100 text-amber-700 hover:bg-amber-200',
+  time: 'bg-teal-100 text-teal-700 hover:bg-teal-200',
+  control: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200',
+  comment: 'text-gray-500 italic',
+  noop: 'bg-gray-100 text-gray-500',
+  unknown: 'bg-gray-200 text-gray-800',
+};
 
 const macroStyle = computed(() => {
   const styles = [];
@@ -83,29 +100,7 @@ const macroStyle = computed(() => {
     return styles;
   }
 
-  switch (props.macro.type) {
-    case 'setvar':
-      styles.push('bg-blue-100 text-blue-700 hover:bg-blue-200');
-      break;
-    case 'getvar':
-      styles.push('bg-green-100 text-green-700 hover:bg-green-200');
-      break;
-    case 'random':
-    case 'roll':
-      styles.push('bg-purple-100 text-purple-700');
-      break;
-    case 'user':
-    case 'char':
-    case 'scenario':
-    case 'lastChatMessage':
-      styles.push('bg-yellow-100 text-yellow-700');
-      break;
-    case 'comment':
-      styles.push('text-gray-500 italic');
-      break;
-    default:
-      styles.push('bg-gray-200 text-gray-800');
-  }
+  styles.push(CATEGORY_STYLES[categoryOf(props.macro)] || CATEGORY_STYLES.unknown);
   return styles;
 });
 

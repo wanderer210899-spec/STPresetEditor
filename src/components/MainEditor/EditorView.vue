@@ -2,155 +2,158 @@
   <!-- Main editor container with full height layout -->
   <div class="flex h-full flex-col">
     <!-- Editor header with title and controls -->
-    <div class="mb-2 flex flex-shrink-0 flex-col">
-      <!-- First row: Title and main controls -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center space-x-3 flex-1">
-          <h2 class="text-lg font-semibold">{{ store.t('editor.title') }}</h2>
-          <!-- Inline Search Box next to title -->
-          <div class="relative flex-1 min-w-0">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-              <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
-            </div>
-            <input
-              type="text"
-              :value="store.editorSearchTerm"
-              class="block w-full rounded-md border-0 py-2 pl-10 text-gray-900 ring-1 ring-gray-300 transition ring-inset placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:ring-inset sm:text-sm sm:leading-6"
-              :placeholder="store.t('editor.searchPlaceholder')"
-              @input="onSearch"
-            />
+    <div class="mb-3 flex flex-shrink-0 flex-col gap-2">
+      <!-- Row 1: title, search, and view/action controls -->
+      <div class="flex items-center gap-3">
+        <h2 class="section-title shrink-0">{{ store.t('editor.title') }}</h2>
+        <!-- Inline search box -->
+        <div class="relative min-w-0 flex-1">
+          <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+            <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
           </div>
+          <input
+            type="text"
+            :value="store.editorSearchTerm"
+            class="input pl-10"
+            :placeholder="store.t('editor.searchPlaceholder')"
+            @input="onSearch"
+          />
         </div>
-        <div class="flex items-center space-x-2 flex-shrink-0">
-          <!-- Macro Display Mode Toggle Switch -->
-          <SwitchGroup as="div" class="mx-2 flex items-center">
-          <SwitchLabel as="span" class="mr-2 text-sm font-medium text-gray-900">
-            {{ isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode') }}
-          </SwitchLabel>
-          <Switch
-            :model-value="isPreviewMode"
-            :class="isPreviewMode ? 'bg-green-500' : 'bg-gray-400'"
-            class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out"
-            @update:model-value="store.toggleMacroDisplayMode()"
-          >
-            <span
-              aria-hidden="true"
-              :class="isPreviewMode ? 'translate-x-5' : 'translate-x-0'"
-              class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+
+        <!-- View + action controls -->
+        <div class="flex shrink-0 items-center gap-2">
+          <!-- Macro display mode toggle -->
+          <SwitchGroup as="div" class="flex items-center">
+            <SwitchLabel as="span" class="mr-2 hidden text-sm font-medium text-gray-700 lg:inline">
+              {{ isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode') }}
+            </SwitchLabel>
+            <Switch
+              :model-value="isPreviewMode"
+              :class="isPreviewMode ? 'bg-green-500' : 'bg-gray-400'"
+              class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out"
+              @update:model-value="store.toggleMacroDisplayMode()"
             >
-              <!-- Raw mode icon -->
               <span
-                :class="
-                  isPreviewMode
-                    ? 'opacity-0 duration-100 ease-out'
-                    : 'opacity-100 duration-200 ease-in'
-                "
-                class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
                 aria-hidden="true"
+                :class="isPreviewMode ? 'translate-x-5' : 'translate-x-0'"
+                class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
               >
-                <CodeBracketIcon class="h-3 w-3 text-gray-400" />
+                <span
+                  :class="
+                    isPreviewMode
+                      ? 'opacity-0 duration-100 ease-out'
+                      : 'opacity-100 duration-200 ease-in'
+                  "
+                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
+                  aria-hidden="true"
+                >
+                  <CodeBracketIcon class="h-3 w-3 text-gray-400" />
+                </span>
+                <span
+                  :class="
+                    isPreviewMode
+                      ? 'opacity-100 duration-200 ease-in'
+                      : 'opacity-0 duration-100 ease-out'
+                  "
+                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
+                  aria-hidden="true"
+                >
+                  <EyeIcon class="h-3 w-3 text-green-600" />
+                </span>
               </span>
-              <!-- Preview mode icon -->
-              <span
-                :class="
-                  isPreviewMode
-                    ? 'opacity-100 duration-200 ease-in'
-                    : 'opacity-0 duration-100 ease-out'
-                "
-                class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
-                aria-hidden="true"
-              >
-                <EyeIcon class="h-3 w-3 text-green-600" />
-              </span>
-            </span>
-          </Switch>
+            </Switch>
           </SwitchGroup>
+
+          <span class="mx-0.5 h-6 w-px bg-gray-200" aria-hidden="true"></span>
+
+          <!-- Primary action: new prompt -->
+          <button class="btn btn-sm btn-primary" @click="store.createNewPrompt()">
+            <PlusIcon class="h-4 w-4" />
+            {{ store.t('promptLibrary.newPrompt') }}
+          </button>
+          <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
+          <button
+            class="btn-icon btn-icon-sm"
+            :class="{ 'btn-icon-active': store.isEditorMultiSelectActive }"
+            :title="store.t('editor.multiSelect')"
+            :aria-pressed="store.isEditorMultiSelectActive"
+            @click="store.toggleEditorMultiSelect()"
+          >
+            <ClipboardDocumentCheckIcon class="h-5 w-5" />
+          </button>
+          <!-- Collapse / expand all -->
+          <button
+            class="btn-icon btn-icon-sm"
+            :title="store.t('editor.collapseAll')"
+            @click="store.collapseAllPrompts()"
+          >
+            <ChevronUpIcon class="h-4 w-4" />
+          </button>
+          <button
+            class="btn-icon btn-icon-sm"
+            :title="store.t('editor.expandAll')"
+            @click="store.expandAllPrompts()"
+          >
+            <ChevronDownIcon class="h-4 w-4" />
+          </button>
         </div>
       </div>
-      
-      <!-- Second row: Batch operations with select controls -->
-      <div class="mt-2 flex items-center space-x-1">
-        <span class="text-xs text-gray-500 mr-2">
-          {{ store.t('editor.selectedCount', { selected: store.selectedEditorPrompts.length, total: store.promptOrder.length }) }}
+
+      <!-- Contextual batch bar: only shown while in multi-select mode -->
+      <div
+        v-if="store.isEditorMultiSelectActive"
+        class="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5"
+      >
+        <span class="mr-1 text-xs font-medium text-gray-600">
+          {{
+            store.t('editor.selectedCount', {
+              selected: store.selectedEditorPrompts.length,
+              total: store.promptOrder.length,
+            })
+          }}
         </span>
-        <button
-          @click="store.selectAllEditorPrompts()"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"
-          :title="store.t('editor.selectAll')"
-        >
+        <button class="btn btn-sm btn-secondary" @click="store.selectAllEditorPrompts()">
           {{ store.t('editor.selectAll') }}
         </button>
-        <button
-          @click="store.deselectAllEditorPrompts()"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"
-          :title="store.t('editor.deselectAll')"
-        >
+        <button class="btn btn-sm btn-secondary" @click="store.deselectAllEditorPrompts()">
           {{ store.t('editor.deselectAll') }}
         </button>
+
+        <span class="mx-1 h-5 w-px bg-gray-300" aria-hidden="true"></span>
+
         <button
-          @click="store.batchMoveSelectedToTop()"
-          :disabled="store.selectedEditorPrompts.length === 0"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="btn-icon btn-icon-sm"
+          :disabled="!hasSelection"
           :title="store.t('editor.batchMoveToTop')"
+          @click="store.batchMoveSelectedToTop()"
         >
-          <ArrowUpIcon class="h-3.5 w-3.5" />
+          <ArrowUpIcon class="h-4 w-4" />
         </button>
         <button
-          @click="store.batchMoveSelectedToBottom()"
-          :disabled="store.selectedEditorPrompts.length === 0"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="btn-icon btn-icon-sm"
+          :disabled="!hasSelection"
           :title="store.t('editor.batchMoveToBottom')"
+          @click="store.batchMoveSelectedToBottom()"
         >
-          <ArrowDownIcon class="h-3.5 w-3.5" />
+          <ArrowDownIcon class="h-4 w-4" />
         </button>
         <button
+          class="btn btn-sm btn-secondary"
+          :disabled="!hasSelection"
           @click="store.openBatchReplaceModal()"
-          :disabled="store.selectedEditorPrompts.length === 0"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          :title="store.t('editor.batchReplace')"
         >
           {{ store.t('editor.batchReplace') }}
         </button>
         <button
-          @click="store.batchDeleteSelected()"
-          :disabled="store.selectedEditorPrompts.length === 0"
-          class="inline-flex items-center px-2 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="btn-icon btn-icon-sm btn-icon-danger ml-auto"
+          :disabled="!hasSelection"
           :title="store.t('editor.batchDelete')"
+          @click="store.batchDeleteSelected()"
         >
-          <TrashIcon class="h-3.5 w-3.5" />
+          <TrashIcon class="h-4 w-4" />
         </button>
-
-        <!-- Move: Quick actions (new/collapse/expand) to the right inside this row -->
-        <div class="ml-auto flex items-center space-x-1">
-          <!-- New Prompt button -->
-          <button
-            @click="store.createNewPrompt()"
-            class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"
-            :title="store.t('promptLibrary.newPrompt')"
-          >
-            <PlusIcon class="h-3.5 w-3.5" />
-          </button>
-          <!-- Collapse All button -->
-          <button
-            @click="store.collapseAllPrompts()"
-            class="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"
-            :title="store.t('editor.collapseAll')"
-          >
-            <ChevronUpIcon class="h-3.5 w-3.5" />
-          </button>
-          <!-- Expand All button -->
-          <button
-            @click="store.expandAllPrompts()"
-            class="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all duration-200"
-            :title="store.t('editor.expandAll')"
-          >
-            <ChevronDownIcon class="h-3.5 w-3.5" />
-          </button>
-        </div>
       </div>
     </div>
-
-    
 
     <!-- Prompt list container -->
     <div ref="scrollContainer" class="overflow-y-auto">
@@ -174,8 +177,18 @@
 
 <script setup>
 import { Switch, SwitchGroup, SwitchLabel } from '@headlessui/vue';
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronUpIcon, CodeBracketIcon, EyeIcon, TrashIcon } from '@heroicons/vue/20/solid';
-import { MagnifyingGlassIcon, PlusIcon } from '@heroicons/vue/24/outline';
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ClipboardDocumentCheckIcon,
+  CodeBracketIcon,
+  EyeIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@heroicons/vue/20/solid';
 import { debounce } from 'lodash-es';
 import { computed, onBeforeUpdate, ref, watch } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
@@ -190,6 +203,9 @@ const scrollContainer = ref(null);
 
 // Computed property for preview mode state
 const isPreviewMode = computed(() => store.macroDisplayMode === 'preview');
+
+// Whether any prompt is currently selected for batch operations
+const hasSelection = computed(() => store.selectedEditorPrompts.length > 0);
 
 // Debounced search function to avoid excessive API calls
 // Use lodash-es for a more robust and consistent debounce implementation
@@ -215,7 +231,7 @@ const scrollToTop = () => {
   if (scrollContainer.value) {
     scrollContainer.value.scrollTo({
       top: 0,
-      behavior: 'smooth'
+      behavior: 'smooth',
     });
   }
 };
@@ -225,7 +241,7 @@ const scrollToBottom = () => {
   if (scrollContainer.value) {
     scrollContainer.value.scrollTo({
       top: scrollContainer.value.scrollHeight,
-      behavior: 'smooth'
+      behavior: 'smooth',
     });
   }
 };
@@ -234,7 +250,7 @@ const scrollToBottom = () => {
 defineExpose({
   scrollToPrompt,
   scrollToTop,
-  scrollToBottom
+  scrollToBottom,
 });
 
 // Watch for scroll-to-prompt requests and handle smooth scrolling with animation
@@ -243,28 +259,35 @@ watch(
   (newId) => {
     if (newId) {
       console.log('[EditorView] Received scroll request. Target prompt ID:', newId);
-      
+
       // Only query inside the right editor container to avoid matching left list items
       const element = scrollContainer.value?.querySelector(`[data-id="${newId}"]`);
       console.log('[EditorView] Found DOM element in the editor:', element);
-      
+
       if (element && scrollContainer.value) {
         console.log('[EditorView] Scrolling to prompt:', newId);
-        
+
         // Compute element position relative to scroll container
         const containerRect = scrollContainer.value.getBoundingClientRect();
         const elementRect = element.getBoundingClientRect();
-        
+
         // Calculate required scroll distance
         const scrollTop = elementRect.top - containerRect.top + scrollContainer.value.scrollTop;
-        console.log('[EditorView] Scroll calc - containerTop:', containerRect.top, 'elementTop:', elementRect.top, 'scrollTop:', scrollTop);
-        
+        console.log(
+          '[EditorView] Scroll calc - containerTop:',
+          containerRect.top,
+          'elementTop:',
+          elementRect.top,
+          'scrollTop:',
+          scrollTop,
+        );
+
         // Perform smooth scroll
         scrollContainer.value.scrollTo({
           top: scrollTop,
-          behavior: 'smooth'
+          behavior: 'smooth',
         });
-        
+
         // Flash animation
         element.classList.add('flash-highlight');
         window.setTimeout(() => {
@@ -272,12 +295,20 @@ watch(
           store.clearScrollToRequest();
         }, 1500);
       } else {
-        console.warn('[EditorView] Unable to find DOM element in the right editor. Prompt ID:', newId);
-        console.warn('[EditorView] element exists:', !!element, 'scroll container exists:', !!scrollContainer.value);
+        console.warn(
+          '[EditorView] Unable to find DOM element in the right editor. Prompt ID:',
+          newId,
+        );
+        console.warn(
+          '[EditorView] element exists:',
+          !!element,
+          'scroll container exists:',
+          !!scrollContainer.value,
+        );
         store.clearScrollToRequest();
       }
     }
-  }
+  },
 );
 </script>
 

@@ -30,8 +30,8 @@
     <transition name="fade">
       <div v-if="store.isBatchReplaceModalOpen" class="absolute inset-0 z-40">
         <div class="absolute inset-0 flex">
-          <div class="ml-auto h-full w-full max-w-xl bg-gray-50 p-4 overflow-auto">
-            <BatchReplaceModal :embedded="true" />
+          <div class="ml-auto h-full w-full max-w-xl overflow-auto bg-gray-50 p-4">
+            <BatchReplaceModal />
           </div>
         </div>
       </div>
@@ -66,6 +66,12 @@ const changeTab = (index) => {
 </script>
 
 <style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 </style>

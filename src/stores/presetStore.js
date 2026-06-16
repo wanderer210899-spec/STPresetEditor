@@ -1,6 +1,16 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
+import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
+
+/**
+ * Holders for the in-app confirmation dialog's callbacks. Kept out of reactive
+ * Pinia state because they are transient function references, not data.
+ * @type {null | ((result: { skip: boolean }) => void)}
+ */
+let confirmCallback = null;
+/** @type {null | (() => void)} */
+let confirmCancelCallback = null;
 
 /**
  * The state paths that make up a user's portable data and are synced to the
@@ -19,16 +29,37 @@ export const SYNC_DATA_PATHS = [
   'savedPresets',
   'currentPresetId',
   'defaultPresetId',
+  'customMacros',
+  'customWraps',
+];
+
+/**
+ * Seed set of wrapping/paired autocomplete snippets. Users can add their own and
+ * delete these from Settings. `open`/`close` are inserted around the caret (or
+ * the current selection). Kept as a factory so a fresh copy is used on reset.
+ * @returns {{ label: string, open: string, close: string, hint: string }[]}
+ */
+export const defaultCustomWraps = () => [
+  { label: 'HTML comment', open: '<!-- ', close: ' -->', hint: 'comment ignored by the model' },
+  { label: 'Block comment', open: '{{// ', close: ' /// }}', hint: 'multi-line ST comment' },
+  { label: 'if … /if', open: '{{if }}', close: '{{/if}}', hint: 'conditional block' },
+  { label: 'XML example', open: '<example>\n', close: '\n</example>', hint: 'wrap an example' },
 ];
 
 /**
  * @typedef {object} MacroData
  * @property {string} id - A unique identifier for this specific macro instance, e.g., "promptId-charIndex".
  * @property {string} full - The full, original macro string, e.g., "{{setvar::x::10}}".
+ * @property {number} [start] - Start offset of `full` within the prompt content.
+ * @property {number} [end] - End offset (exclusive) of `full` within the prompt content.
  * @property {string} type - The parsed type of the macro, e.g., "setvar", "getvar", "comment", "random".
- * @property {string|null} varName - The variable name, if applicable (for "setvar" and "getvar").
- * @property {string|null} value - The value being set, if applicable (for "setvar").
+ * @property {string|null} varName - The variable name, if applicable (variable macros).
+ * @property {string|null} value - The value being set, if applicable (set/add macros).
  * @property {string[]} params - An array of parameters for other macro types like "random::a::b".
+ * @property {'local'|'global'|null} [scope] - Variable scope for variable macros.
+ * @property {'get'|'set'|'mutate'|null} [kind] - Whether the variable macro reads, writes, or both.
+ * @property {string|null} [op] - Normalised variable operation (get/set/add/sub/inc/dec/setIfNull/setIfFalsy/has/delete/control).
+ * @property {string[]} [refs] - Variable names referenced inside a conditional/nested macro.
  */
 
 /**
@@ -78,7 +109,7 @@ export const usePresetStore = defineStore('preset', {
     selectedLibraryPrompts: [], // Array of selected prompt IDs in library view
 
     // Editor multi-selection state
-    isEditorMultiSelectActive: true, // Whether editor multi-selection mode is active (default ON)
+    isEditorMultiSelectActive: false, // Off by default; toggled to reveal checkboxes + the contextual batch bar
     selectedEditorPrompts: [], // Array of selected prompt IDs in editor view
 
     // Search functionality
@@ -101,6 +132,24 @@ export const usePresetStore = defineStore('preset', {
     isDetailsModalOpen: false, // Whether details modal is visible
     isSettingsModalOpen: false, // Whether settings modal is visible
     isBatchReplaceModalOpen: false, // Whether batch replace modal is visible
+    focusEditorPromptId: null, // Prompt being edited in the distraction-free focus editor
+
+    // In-app confirmation dialog (replaces native window.confirm)
+    confirmState: {
+      open: false,
+      title: '',
+      message: '',
+      confirmLabel: '',
+      cancelLabel: '',
+      danger: false,
+      showSkip: false, // Show a "don't ask again" checkbox
+      skipLabel: '',
+      skipChecked: false,
+    },
+
+    // Transient toast notifications (replaces native alert)
+    toasts: [], // Array of { id, message, type: 'info' | 'success' | 'error' }
+    _toastSeq: 0,
 
     // Responsive state
     isMobile: false, // Whether the app is in mobile view
@@ -114,6 +163,10 @@ export const usePresetStore = defineStore('preset', {
 
     // User preferences
     skipDeleteConfirmation: false, // Whether to skip delete confirmation dialog
+
+    // Custom autocomplete dictionary (additive; persisted + synced)
+    customMacros: [], // Array<{ name, hint }> — extra {{name}} macros for the {{ menu
+    customWraps: defaultCustomWraps(), // Array<{ label, open, close, hint }> — paired notations
 
     // Preset management
     savedPresets: {}, // Object containing saved presets: { presetId: { name, data, createdAt, updatedAt } }
@@ -565,46 +618,22 @@ export const usePresetStore = defineStore('preset', {
       });
 
       // --- Pass 1: Parse macros only for prompts currently in the order ---
-      const macroRegex = /{{\s*(.*?)\s*}}/gs;
+      // tokenizeMacros balances nested braces, so a macro whose value contains
+      // another macro (or XML, or spans lines) is captured whole.
       this.promptOrder.forEach((promptId) => {
         /** @type {PartialPrompt} */
         const prompt = this.prompts[promptId];
         if (!prompt) return;
 
-        /** @type {MacroData[]} */
-        const macros = [];
         const content = prompt.content || '';
-        let match;
-        while ((match = macroRegex.exec(content)) !== null) {
-          const fullMatch = match[0];
-          const innerContent = match[1].trim();
-
-          /** @type {MacroData} */
-          const macroData = {
-            id: `${prompt.id}-${match.index}`,
-            full: fullMatch,
-            type: 'unknown',
-            varName: null,
-            value: null,
-            params: [],
-          };
-          if (innerContent.startsWith('//')) {
-            macroData.type = 'comment';
-          } else if (innerContent.startsWith('setvar::')) {
-            const parts = innerContent.substring('setvar::'.length).split('::');
-            macroData.type = 'setvar';
-            macroData.varName = parts[0]?.trim() || null;
-            macroData.value = parts[1]?.trim() || null;
-          } else if (innerContent.startsWith('getvar::')) {
-            macroData.type = 'getvar';
-            macroData.varName = innerContent.substring('getvar::'.length).trim();
-          } else {
-            const [type, ...params] = innerContent.split('::').map((p) => p.trim());
-            macroData.type = type || 'unknown';
-            macroData.params = params;
-          }
-          macros.push(macroData);
-        }
+        /** @type {MacroData[]} */
+        const macros = tokenizeMacros(content).map((token) => ({
+          id: `${prompt.id}-${token.start}`,
+          full: token.full,
+          start: token.start,
+          end: token.end,
+          ...classifyMacro(token.inner),
+        }));
 
         prompt.macros = macros; // Attach parsed macros
       });
@@ -624,29 +653,89 @@ export const usePresetStore = defineStore('preset', {
         (promptId) => this.prompts[promptId]?.macros || [],
       );
 
-      executionFlowMacros.forEach((macro) => {
-        // Static analysis part: build full definition/reference maps
-        if (macro.varName) {
-          allVarNames.add(macro.varName);
-          const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
-          const refInfo = { promptId: prompt.id, enabled: prompt.enabled !== false };
+      // Numeric add when both sides parse as numbers, else string concatenation
+      // (mirrors SillyTavern's addvar behaviour).
+      const addValues = (prev, delta) => {
+        const a = parseFloat(prev);
+        const b = parseFloat(delta);
+        if (!Number.isNaN(a) && !Number.isNaN(b)) return String(a + b);
+        return `${prev ?? ''}${delta ?? ''}`;
+      };
+      const stepValue = (prev, step) => String((parseFloat(prev) || 0) + step);
+      const subValues = (prev, delta) => String((parseFloat(prev) || 0) - (parseFloat(delta) || 0));
 
-          if (macro.type === 'setvar') {
-            if (!definitions[macro.varName]) definitions[macro.varName] = [];
-            definitions[macro.varName].push(refInfo);
-          } else if (macro.type === 'getvar') {
-            if (!references[macro.varName]) references[macro.varName] = [];
-            references[macro.varName].push(refInfo);
-          }
+      executionFlowMacros.forEach((macro) => {
+        const ownerPrompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
+        const ownerEnabled = ownerPrompt?.enabled !== false;
+
+        // Variables read inside conditionals / nested macros (e.g. {{if .flag}})
+        // count as references so they are not flagged unresolved.
+        if (macro.refs && macro.refs.length && ownerPrompt) {
+          macro.refs.forEach((refName) => {
+            allVarNames.add(refName);
+            if (!references[refName]) references[refName] = [];
+            references[refName].push({ promptId: ownerPrompt.id, enabled: ownerEnabled });
+          });
         }
 
-        // Simulation part: update state only if the parent prompt is enabled
-        if (macro.type === 'setvar') {
-          const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
-          if (prompt.enabled !== false) {
-            currentVarState[macro.varName] = macro.value;
+        // Only variable macros (get/set/add/inc/dec/has/delete) participate below.
+        if (!macro.varName || !macro.kind) return;
+
+        allVarNames.add(macro.varName);
+        const prompt = ownerPrompt;
+        const enabled = prompt.enabled !== false;
+        const refInfo = { promptId: prompt.id, enabled };
+
+        // set/add/inc/dec define (assign); get/add/inc/dec reference (read).
+        const writes = macro.kind === 'set' || macro.kind === 'mutate';
+        const reads = macro.kind === 'get' || macro.kind === 'mutate';
+        if (writes) {
+          if (!definitions[macro.varName]) definitions[macro.varName] = [];
+          definitions[macro.varName].push(refInfo);
+        }
+        if (reads) {
+          if (!references[macro.varName]) references[macro.varName] = [];
+          references[macro.varName].push(refInfo);
+        }
+
+        // Simulation: only enabled prompts mutate the simulated state.
+        if (macro.kind === 'get') {
+          // hasvar/hasglobalvar report existence rather than the stored value.
+          newSnapshots[macro.id] =
+            macro.op === 'has'
+              ? String(currentVarState[macro.varName] !== undefined)
+              : currentVarState[macro.varName];
+        } else if (enabled) {
+          const prev = currentVarState[macro.varName];
+          switch (macro.op) {
+            case 'set':
+              currentVarState[macro.varName] = macro.value;
+              break;
+            case 'delete':
+              delete currentVarState[macro.varName];
+              break;
+            case 'add':
+              currentVarState[macro.varName] = addValues(prev, macro.value);
+              break;
+            case 'sub':
+              currentVarState[macro.varName] = subValues(prev, macro.value);
+              break;
+            case 'inc':
+              currentVarState[macro.varName] = stepValue(prev, 1);
+              break;
+            case 'dec':
+              currentVarState[macro.varName] = stepValue(prev, -1);
+              break;
+            case 'setIfNull':
+              if (prev === undefined) currentVarState[macro.varName] = macro.value;
+              break;
+            case 'setIfFalsy':
+              if (!prev) currentVarState[macro.varName] = macro.value;
+              break;
           }
-        } else if (macro.type === 'getvar') {
+          if (macro.kind === 'mutate') newSnapshots[macro.id] = currentVarState[macro.varName];
+        } else if (macro.kind === 'mutate') {
+          // A disabled mutate still reports the value it would have read.
           newSnapshots[macro.id] = currentVarState[macro.varName];
         }
       });
@@ -825,20 +914,31 @@ export const usePresetStore = defineStore('preset', {
         trimmedNewName.includes(' ') ||
         (this.variables[trimmedNewName] && trimmedNewName !== oldName)
       ) {
-        window.alert(this.t('variableManager.invalidVariableName'));
+        this.showToast(this.t('variableManager.invalidVariableName'), 'error');
         return false;
       }
 
       const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\\]]/g, '\\$&');
       const oldNameEscaped = escapeRegExp(oldName);
-      const setvarRegex = new RegExp(`({{\\s*setvar\\s*::)${oldNameEscaped}(\\s*::.*?\\s*}})`, 'g');
-      const getvarRegex = new RegExp(`({{\\s*getvar\\s*::)${oldNameEscaped}(\\s*}})`, 'g');
+      // Match any variable macro (get/set/add/inc/dec, local or global) whose
+      // first argument is the old name; replace just the name, keep the rest.
+      const varMacroNames = VAR_MACRO_NAMES.join('|');
+      const renameRegex = new RegExp(
+        `({{\\s*(?:${varMacroNames})\\s*::\\s*)${oldNameEscaped}(\\s*(?:::|}}))`,
+        'g',
+      );
+      // Macros 2.0 shorthand: {{.name}} / {{$name = …}} / {{.name++}} etc.
+      const shorthandRegex = new RegExp(
+        `({{\\s*[.$]\\s*)${oldNameEscaped}(?=\\s*(?:\\?\\?=|\\|\\|=|\\+=|-=|\\+\\+|--|==|!=|>=|<=|=|>|<|}}))`,
+        'g',
+      );
 
       for (const promptId in this.prompts) {
         const prompt = this.prompts[promptId];
         if (prompt.content) {
-          prompt.content = prompt.content.replace(setvarRegex, `$1${trimmedNewName}$2`);
-          prompt.content = prompt.content.replace(getvarRegex, `$1${trimmedNewName}$2`);
+          prompt.content = prompt.content
+            .replace(renameRegex, `$1${trimmedNewName}$2`)
+            .replace(shorthandRegex, `$1${trimmedNewName}`);
         }
       }
 
@@ -848,6 +948,56 @@ export const usePresetStore = defineStore('preset', {
       }
       return true;
     },
+
+    // --- Custom autocomplete dictionary (additive; persisted + synced) ---
+
+    /**
+     * Add a custom `{{name}}` macro to the autocomplete catalog.
+     * @param {{ name: string, hint?: string }} entry
+     * @returns {boolean} whether it was added
+     */
+    addCustomMacro({ name, hint = '' }) {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return false;
+      if (this.customMacros.some((m) => m.name === trimmed)) {
+        this.showToast(this.t('settings.autocomplete.duplicateMacro'), 'error');
+        return false;
+      }
+      this.customMacros.push({ name: trimmed, hint: (hint || '').trim() });
+      return true;
+    },
+    removeCustomMacro(name) {
+      this.customMacros = this.customMacros.filter((m) => m.name !== name);
+    },
+
+    /**
+     * Add a wrapping/paired notation (e.g. `<!-- … -->`).
+     * @param {{ label?: string, open: string, close?: string, hint?: string }} entry
+     * @returns {boolean} whether it was added
+     */
+    addCustomWrap({ label = '', open, close = '', hint = '' }) {
+      const o = open || '';
+      if (!o.trim() && !label.trim()) return false;
+      this.customWraps.push({
+        label: (label || '').trim() || o.trim(),
+        open: o,
+        close: close || '',
+        hint: (hint || '').trim(),
+      });
+      return true;
+    },
+    removeCustomWrap(index) {
+      if (index >= 0 && index < this.customWraps.length) {
+        this.customWraps.splice(index, 1);
+      }
+    },
+
+    /** Restore the seed wrapping pairs and clear custom macros. */
+    resetCustomDictionary() {
+      this.customMacros = [];
+      this.customWraps = defaultCustomWraps();
+    },
+
     createNewPrompt() {
       const newId = window.crypto.randomUUID();
       const newPrompt = {
@@ -875,15 +1025,21 @@ export const usePresetStore = defineStore('preset', {
     },
     deleteSelectedPrompts() {
       if (this.selectedLibraryPrompts.length === 0) return;
-      if (window.confirm(this.t('delete.confirm', { count: this.selectedLibraryPrompts.length }))) {
-        this.selectedLibraryPrompts.forEach((promptId) => {
-          delete this.prompts[promptId];
-          this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
-        });
-        this.selectedLibraryPrompts = [];
-        this.isMultiSelectActive = false;
-        this.analyzeAllMacros();
-      }
+      this.requestConfirm({
+        message: this.t('delete.confirm', { count: this.selectedLibraryPrompts.length }),
+        confirmLabel: this.t('common.delete'),
+        danger: true,
+        onConfirm: () => this._performDeleteSelectedPrompts(),
+      });
+    },
+    _performDeleteSelectedPrompts() {
+      this.selectedLibraryPrompts.forEach((promptId) => {
+        delete this.prompts[promptId];
+        this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
+      });
+      this.selectedLibraryPrompts = [];
+      this.isMultiSelectActive = false;
+      this.analyzeAllMacros();
     },
     addPromptToOrder(promptId) {
       if (!this.promptOrder.includes(promptId)) {
@@ -932,8 +1088,12 @@ export const usePresetStore = defineStore('preset', {
 
     // Editor multi-selection methods
     toggleEditorMultiSelect() {
-      // Deprecated: multi-select is always on. Keep method for backward compatibility.
-      this.isEditorMultiSelectActive = true;
+      this.isEditorMultiSelectActive = !this.isEditorMultiSelectActive;
+      // Leaving selection mode clears any pending selection so the editor
+      // returns to a clean, distraction-free canvas.
+      if (!this.isEditorMultiSelectActive) {
+        this.selectedEditorPrompts = [];
+      }
     },
     toggleEditorSelection(promptId) {
       const index = this.selectedEditorPrompts.indexOf(promptId);
@@ -977,27 +1137,30 @@ export const usePresetStore = defineStore('preset', {
       });
 
       if (deletablePrompts.length === 0) {
-        alert(this.t('editor.noDeletablePrompts'));
+        this.showToast(this.t('editor.noDeletablePrompts'), 'error');
         return;
       }
 
-      const selectedCount = deletablePrompts.length;
-      const message = this.t('editor.batchDeleteConfirm', { count: selectedCount });
+      this.requestConfirm({
+        message: this.t('editor.batchDeleteConfirm', { count: deletablePrompts.length }),
+        confirmLabel: this.t('common.delete'),
+        danger: true,
+        onConfirm: () => this._performBatchDelete(deletablePrompts),
+      });
+    },
+    _performBatchDelete(deletablePrompts) {
+      // Delete only deletable prompts
+      deletablePrompts.forEach((promptId) => {
+        delete this.prompts[promptId];
+      });
 
-      if (window.confirm(message)) {
-        // Delete only deletable prompts
-        deletablePrompts.forEach((promptId) => {
-          delete this.prompts[promptId];
-        });
+      // Remove from prompt order
+      this.promptOrder = this.promptOrder.filter((id) => !deletablePrompts.includes(id));
 
-        // Remove from prompt order
-        this.promptOrder = this.promptOrder.filter((id) => !deletablePrompts.includes(id));
+      // Clear selection but keep multi-select active
+      this.selectedEditorPrompts = [];
 
-        // Clear selection but keep multi-select active
-        this.selectedEditorPrompts = [];
-
-        this.analyzeAllMacros();
-      }
+      this.analyzeAllMacros();
     },
     // Editor selection helpers
     selectAllEditorPrompts() {
@@ -1080,6 +1243,74 @@ export const usePresetStore = defineStore('preset', {
     },
     closeBatchReplaceModal() {
       this.isBatchReplaceModalOpen = false;
+    },
+
+    // Distraction-free focus editor (a large, content-only writing surface)
+    openFocusEditor(promptId) {
+      if (!this.prompts[promptId]) return;
+      this.focusEditorPromptId = promptId;
+      this.selectPrompt(promptId);
+    },
+    closeFocusEditor() {
+      this.focusEditorPromptId = null;
+    },
+
+    // In-app confirmation dialog (replaces native window.confirm) ----------
+    requestConfirm({
+      title,
+      message,
+      confirmLabel,
+      cancelLabel,
+      danger = false,
+      showSkip = false,
+      skipLabel = '',
+      onConfirm = null,
+      onCancel = null,
+    }) {
+      this.confirmState = {
+        open: true,
+        title: title || this.t('common.confirmTitle'),
+        message: message || '',
+        confirmLabel: confirmLabel || this.t('common.confirm'),
+        cancelLabel: cancelLabel || this.t('common.cancel'),
+        danger,
+        showSkip,
+        skipLabel,
+        skipChecked: false,
+      };
+      confirmCallback = typeof onConfirm === 'function' ? onConfirm : null;
+      confirmCancelCallback = typeof onCancel === 'function' ? onCancel : null;
+    },
+    setConfirmSkip(value) {
+      this.confirmState.skipChecked = !!value;
+    },
+    cancelConfirm() {
+      const cb = confirmCancelCallback;
+      this.confirmState.open = false;
+      confirmCallback = null;
+      confirmCancelCallback = null;
+      if (cb) cb();
+    },
+    resolveConfirm() {
+      const cb = confirmCallback;
+      const skip = this.confirmState.skipChecked;
+      this.confirmState.open = false;
+      confirmCallback = null;
+      confirmCancelCallback = null;
+      if (cb) cb({ skip });
+    },
+
+    // Transient toast notifications (replaces native alert) ----------------
+    showToast(message, type = 'info', timeout = 3000) {
+      const id = ++this._toastSeq;
+      this.toasts.push({ id, message, type });
+      if (timeout > 0) {
+        setTimeout(() => this.dismissToast(id), timeout);
+      }
+      return id;
+    },
+    dismissToast(id) {
+      this.toasts = this.toasts.filter((toast) => toast.id !== id);
     },
 
     // Responsive state management
@@ -1325,40 +1556,49 @@ export const usePresetStore = defineStore('preset', {
       const existingId = findPresetIdByName(baseName);
 
       if (existingId) {
-        const confirmText = this.t('importModal.overwriteConfirm', { name: baseName });
-        if (window.confirm(confirmText)) {
-          this.savedPresets[existingId].data = presetData;
-          this.savedPresets[existingId].updatedAt = now;
-          return { result: 'overwritten', name: baseName };
-        }
-
-        // Generate a unique name like "Name (2)", "Name (3)"...
-        let index = 2;
-        let uniqueName = `${baseName} (${index})`;
-        while (findPresetIdByName(uniqueName)) {
-          index += 1;
-          uniqueName = `${baseName} (${index})`;
-        }
-
-        const newId = window.crypto.randomUUID();
-        this.savedPresets[newId] = {
-          name: uniqueName,
-          data: presetData,
-          createdAt: now,
-          updatedAt: now,
-        };
-        return { result: 'saved', name: uniqueName };
+        // Defer to the in-app confirm dialog; the result is reported via toast.
+        this.requestConfirm({
+          message: this.t('importModal.overwriteConfirm', { name: baseName }),
+          onConfirm: () => {
+            this.savedPresets[existingId].data = presetData;
+            this.savedPresets[existingId].updatedAt = now;
+            this.showToast(this.t('importModal.overwriteDone', { name: baseName }), 'success');
+            this.closeImportModal();
+          },
+          onCancel: () => {
+            // Cancelling overwrite keeps both copies under a unique name.
+            const uniqueName = this._uniquePresetName(baseName, findPresetIdByName);
+            this.savedPresets[window.crypto.randomUUID()] = {
+              name: uniqueName,
+              data: presetData,
+              createdAt: now,
+              updatedAt: now,
+            };
+            this.showToast(this.t('importModal.savedDone', { name: uniqueName }), 'success');
+            this.closeImportModal();
+          },
+        });
+        return { result: 'deferred' };
       }
 
       // No duplicate, save directly under baseName
-      const newId = window.crypto.randomUUID();
-      this.savedPresets[newId] = {
+      this.savedPresets[window.crypto.randomUUID()] = {
         name: baseName,
         data: presetData,
         createdAt: now,
         updatedAt: now,
       };
       return { result: 'saved', name: baseName };
+    },
+    // Generate a unique preset name like "Name (2)", "Name (3)"...
+    _uniquePresetName(baseName, findPresetIdByName) {
+      let index = 2;
+      let uniqueName = `${baseName} (${index})`;
+      while (findPresetIdByName(uniqueName)) {
+        index += 1;
+        uniqueName = `${baseName} (${index})`;
+      }
+      return uniqueName;
     },
     savePreset(name = null) {
       console.log('[savePreset] Starting to save preset...');
@@ -1566,24 +1806,27 @@ export const usePresetStore = defineStore('preset', {
     },
     deleteSelectedPresets() {
       if (this.selectedPresets.size === 0) return;
-
-      if (
-        window.confirm(
-          this.t('presetManager.deleteSelectedConfirm', { count: this.selectedPresets.size }),
-        )
-      ) {
-        this.selectedPresets.forEach((presetId) => {
-          delete this.savedPresets[presetId];
-          if (this.currentPresetId === presetId) {
-            this.currentPresetId = null;
-          }
-          if (this.defaultPresetId === presetId) {
-            this.defaultPresetId = null;
-          }
-        });
-        this.selectedPresets = new Set();
-        this.presetMultiSelectActive = false;
-      }
+      this.requestConfirm({
+        message: this.t('presetManager.deleteSelectedConfirm', {
+          count: this.selectedPresets.size,
+        }),
+        confirmLabel: this.t('common.delete'),
+        danger: true,
+        onConfirm: () => this._performDeleteSelectedPresets(),
+      });
+    },
+    _performDeleteSelectedPresets() {
+      this.selectedPresets.forEach((presetId) => {
+        delete this.savedPresets[presetId];
+        if (this.currentPresetId === presetId) {
+          this.currentPresetId = null;
+        }
+        if (this.defaultPresetId === presetId) {
+          this.defaultPresetId = null;
+        }
+      });
+      this.selectedPresets = new Set();
+      this.presetMultiSelectActive = false;
     },
     /**
      * Batch replace prompt titles and/or contents.
@@ -1880,6 +2123,8 @@ export const usePresetStore = defineStore('preset', {
       'savedPresets',
       'currentPresetId',
       'defaultPresetId',
+      'customMacros',
+      'customWraps',
     ],
     beforeRestore: () => {
       console.log('[Persistence] About to restore store from localStorage');
