@@ -1,10 +1,5 @@
 <script setup>
-import {
-    Dialog,
-    DialogPanel,
-    TransitionChild,
-    TransitionRoot,
-} from '@headlessui/vue';
+import { Dialog, DialogPanel, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useBreakpoints } from '@vueuse/core';
 import { Pane, Splitpanes } from 'splitpanes';
 import 'splitpanes/dist/splitpanes.css';
@@ -36,12 +31,13 @@ watchEffect(() => {
         </div>
       </pane>
       <pane :size="50" min-size="30">
-        <div class="h-full overflow-auto p-4">
+        <!-- The editor is the focus: a bright white canvas against muted sidebars -->
+        <div class="h-full overflow-auto bg-white p-4">
           <slot name="main" />
         </div>
       </pane>
       <pane :size="30" min-size="20">
-        <div class="h-full overflow-auto bg-gray-50 p-4 relative">
+        <div class="relative h-full overflow-auto bg-gray-50 p-4">
           <slot name="right" />
         </div>
       </pane>
@@ -51,7 +47,7 @@ watchEffect(() => {
   <!-- MOBILE LAYOUT: Main view with off-canvas drawers -->
   <div v-else class="flex-grow overflow-hidden">
     <!-- Main content is always visible -->
-    <div class="h-full overflow-auto p-2">
+    <div class="h-full overflow-auto bg-white p-2">
       <slot name="main" />
     </div>
 

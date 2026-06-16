@@ -2,15 +2,15 @@
   <!-- Main prompt card container with conditional styling -->
   <div
     :data-id="prompt.id"
-    class="relative mx-1 my-2 rounded-lg border p-4 shadow-md transition-shadow duration-200"
+    class="relative mx-1 my-2 rounded-lg border p-4 shadow-sm transition-shadow duration-200"
     :class="[
       isSelected ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-gray-200',
       !isEnabled ? 'bg-gray-100' : 'bg-white',
-      isDragging ? 'opacity-50 scale-105 shadow-lg' : '',
+      isDragging ? 'scale-105 opacity-50 shadow-lg' : '',
       dragOver ? 'border-blue-400 ring-2 ring-blue-400/30' : '',
     ]"
-    @click="selectPrompt"
     draggable="true"
+    @click="selectPrompt"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
     @dragover="onDragOver"
@@ -19,28 +19,28 @@
   >
     <!-- Header: Title and Actions -->
     <div class="mb-2 flex items-center justify-between">
-      <div class="flex items-center">
+      <div class="flex min-w-0 items-center">
         <!-- Multi-select checkbox (only show when multi-select is active) -->
         <div v-if="store.isEditorMultiSelectActive" class="mr-3" @click.stop>
           <input
             type="checkbox"
             :checked="isSelectedForBatch"
             :disabled="prompt.system_prompt"
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             @change="toggleBatchSelection"
-            class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
         <!-- Collapse toggle button with prompt title -->
         <button
+          class="flex min-w-0 items-center rounded p-1 transition-colors hover:bg-gray-100"
           @click.stop="toggleCollapse"
-          class="flex items-center hover:bg-gray-100 rounded p-1 transition-colors"
         >
-          <ChevronDownIcon 
-            class="mr-2 h-4 w-4 text-gray-500 transition-transform duration-200"
+          <ChevronDownIcon
+            class="mr-2 h-4 w-4 flex-shrink-0 text-gray-500 transition-transform duration-200"
             :class="{ 'rotate-[-90deg]': finalCollapsedState }"
           />
-          <h3 
-            class="text-base font-bold truncate" 
+          <h3
+            class="truncate text-base font-bold"
             :class="{ 'text-gray-500': !isEnabled }"
             :title="prompt.name"
           >
@@ -48,17 +48,12 @@
           </h3>
         </button>
       </div>
-      <div class="flex items-center space-x-2">
+      <div class="flex flex-shrink-0 items-center gap-1">
+        <!-- Role selector -->
         <Menu as="div" class="relative inline-block text-left">
-          <v-tooltip>
-            <MenuButton
-              class="inline-flex w-full justify-center rounded-md p-1 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              @click.stop
-            >
-              <component :is="RoleIcon" class="h-5 w-5" aria-hidden="true" />
-            </MenuButton>
-            <template #popper>{{ store.t('promptCard.roleLabel') }}: {{ store.t(`promptCard.role.${currentRole}`) }}</template>
-          </v-tooltip>
+          <MenuButton class="btn-icon btn-icon-sm" :title="roleTitle" @click.stop>
+            <component :is="RoleIcon" class="h-5 w-5" aria-hidden="true" />
+          </MenuButton>
 
           <transition
             enter-active-class="transition duration-100 ease-out"
@@ -74,37 +69,28 @@
               <div class="px-1 py-1">
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-blue-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="setRole('system')"
                   >
-                    <Cog6ToothIcon class="mr-2 h-5 w-5" />
+                    <Cog6ToothIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.role.system') }}
                   </button>
                 </MenuItem>
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-blue-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="setRole('user')"
                   >
-                    <UserIcon class="mr-2 h-5 w-5" />
+                    <UserIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.role.user') }}
                   </button>
                 </MenuItem>
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-blue-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="setRole('assistant')"
                   >
-                    <ChatBubbleOvalLeftIcon class="mr-2 h-5 w-5" />
+                    <ChatBubbleOvalLeftIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.role.assistant') }}
                   </button>
                 </MenuItem>
@@ -113,43 +99,40 @@
           </transition>
         </Menu>
 
-        <div class="flex items-center space-x-2">
-          <div @click.stop>
-            <Switch
-              v-model="isEnabled"
-              :class="isEnabled ? 'bg-blue-600' : 'bg-gray-300'"
-              class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
-            >
-              <span
-                :class="isEnabled ? 'translate-x-6' : 'translate-x-1'"
-                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
-              />
-            </Switch>
-          </div>
-          <!-- Delete button -->
-          <button
-            @click.stop="removePrompt"
-            :disabled="prompt.system_prompt"
-            class="inline-flex items-center justify-center rounded-md p-1.5 text-sm font-medium transition-colors"
-            :class="[
-              prompt.system_prompt
-                ? 'cursor-not-allowed text-gray-300'
-                : 'text-red-600 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1'
-            ]"
-            :title="prompt.system_prompt ? store.t('promptCard.systemPromptCannotDelete') : store.t('promptCard.delete')"
+        <!-- Enable / disable -->
+        <div @click.stop>
+          <Switch
+            v-model="isEnabled"
+            :class="isEnabled ? 'bg-blue-600' : 'bg-gray-300'"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
           >
-            <TrashIcon class="h-4 w-4" />
-          </button>
+            <span
+              :class="isEnabled ? 'translate-x-6' : 'translate-x-1'"
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+            />
+          </Switch>
         </div>
+
+        <!-- Delete -->
+        <button
+          :disabled="prompt.system_prompt"
+          class="btn-icon btn-icon-sm"
+          :class="{ 'btn-icon-danger': !prompt.system_prompt }"
+          :title="
+            prompt.system_prompt
+              ? store.t('promptCard.systemPromptCannotDelete')
+              : store.t('promptCard.delete')
+          "
+          @click.stop="removePrompt"
+        >
+          <TrashIcon class="h-4 w-4" />
+        </button>
+
+        <!-- Overflow menu -->
         <Menu as="div" class="relative inline-block text-left">
-          <div>
-            <MenuButton
-              class="inline-flex w-full justify-center rounded-md p-1 text-sm font-medium text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              @click.stop
-            >
-              <EllipsisVerticalIcon class="h-5 w-5" aria-hidden="true" />
-            </MenuButton>
-          </div>
+          <MenuButton class="btn-icon btn-icon-sm" @click.stop>
+            <EllipsisVerticalIcon class="h-5 w-5" aria-hidden="true" />
+          </MenuButton>
           <transition
             enter-active-class="transition duration-100 ease-out"
             enter-from-class="transform scale-95 opacity-0"
@@ -164,25 +147,19 @@
               <div class="px-1 py-1">
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-blue-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="store.movePromptTop(prompt.id)"
                   >
-                    <ArrowUpCircleIcon class="mr-2 h-5 w-5 text-blue-400" />
+                    <ArrowUpCircleIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.moveToTop') }}
                   </button>
                 </MenuItem>
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-blue-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="store.movePromptBottom(prompt.id)"
                   >
-                    <ArrowDownCircleIcon class="mr-2 h-5 w-5 text-blue-400" />
+                    <ArrowDownCircleIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.moveToBottom') }}
                   </button>
                 </MenuItem>
@@ -190,25 +167,19 @@
               <div class="px-1 py-1">
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-green-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="store.duplicatePrompt(prompt.id)"
                   >
-                    <DocumentDuplicateIcon class="mr-2 h-5 w-5 text-green-400" />
+                    <DocumentDuplicateIcon class="h-5 w-5 text-gray-500" />
                     {{ store.t('promptCard.duplicate') }}
                   </button>
                 </MenuItem>
                 <MenuItem v-slot="{ active }">
                   <button
-                    :class="[
-                      active ? 'bg-yellow-500 text-white' : 'text-gray-900',
-                      'group flex w-full items-center rounded-md px-2 py-2 text-sm',
-                    ]"
+                    :class="[active ? 'bg-gray-100' : '', menuItemClass]"
                     @click.stop="hidePrompt"
                   >
-                    <EyeSlashIcon class="mr-2 h-5 w-5 text-yellow-400" aria-hidden="true" />
+                    <EyeSlashIcon class="h-5 w-5 text-gray-500" aria-hidden="true" />
                     {{ store.t('promptCard.hide') }}
                   </button>
                 </MenuItem>
@@ -219,9 +190,9 @@
       </div>
     </div>
     <!-- Text -->
-    <div 
+    <div
       v-show="!finalCollapsedState"
-      class="px-8 text-sm whitespace-pre-wrap" 
+      class="px-8 text-sm whitespace-pre-wrap"
       :class="{ 'text-gray-600': !isEnabled }"
     >
       <template v-for="(part, index) in contentParts" :key="index">
@@ -239,16 +210,16 @@
 <script setup>
 import { Menu, MenuButton, MenuItem, MenuItems, Switch } from '@headlessui/vue';
 import {
-    ArrowDownCircleIcon,
-    ArrowUpCircleIcon,
-    ChatBubbleOvalLeftIcon,
-    ChevronDownIcon,
-    Cog6ToothIcon,
-    DocumentDuplicateIcon,
-    EllipsisVerticalIcon,
-    EyeSlashIcon,
-    TrashIcon,
-    UserIcon,
+  ArrowDownCircleIcon,
+  ArrowUpCircleIcon,
+  ChatBubbleOvalLeftIcon,
+  ChevronDownIcon,
+  Cog6ToothIcon,
+  DocumentDuplicateIcon,
+  EllipsisVerticalIcon,
+  EyeSlashIcon,
+  TrashIcon,
+  UserIcon,
 } from '@heroicons/vue/20/solid';
 import { computed, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
@@ -265,6 +236,10 @@ const props = defineProps({
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// Shared class for dropdown menu items (kept neutral for a restrained palette)
+const menuItemClass =
+  'group flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-900';
 
 // Drag and drop state
 const isDragging = ref(false);
@@ -303,6 +278,11 @@ const roleIcons = {
 
 // Get the appropriate icon for the current role
 const RoleIcon = computed(() => roleIcons[currentRole.value]);
+
+// Tooltip text for the role selector
+const roleTitle = computed(
+  () => `${store.t('promptCard.roleLabel')}: ${store.t('promptCard.role.' + currentRole.value)}`,
+);
 
 /**
  * Update the prompt role
@@ -381,28 +361,28 @@ const hidePrompt = () => {
 
 const removePrompt = () => {
   if (props.prompt.system_prompt) {
-    alert(store.t('promptCard.systemPromptCannotDelete'));
+    store.showToast(store.t('promptCard.systemPromptCannotDelete'), 'error');
     return;
   }
-  
+
   // If skipping confirmation is enabled, delete immediately
   if (store.skipDeleteConfirmation) {
     store.removePrompt(props.prompt.id);
     return;
   }
-  
-  // Show a confirmation dialog, then optionally "do not ask again"
-  const message = `${store.t('promptCard.deleteConfirm', { name: props.prompt.name })}\n\n${store.t('promptCard.deleteConfirmNote')}`;
-  const result = window.confirm(message);
-  
-  if (result) {
-    // Ask whether to set skip confirmation for next time
-    const skipConfirm = window.confirm(store.t('promptCard.skipDeleteConfirmation'));
-    if (skipConfirm) {
-      store.setSkipDeleteConfirmation(true);
-    }
-    store.removePrompt(props.prompt.id);
-  }
+
+  // Otherwise show the in-app confirm dialog with a "don't ask again" option
+  store.requestConfirm({
+    message: store.t('promptCard.deleteConfirm', { name: props.prompt.name }),
+    confirmLabel: store.t('common.delete'),
+    danger: true,
+    showSkip: true,
+    skipLabel: store.t('promptCard.skipDeleteConfirmation'),
+    onConfirm: ({ skip }) => {
+      if (skip) store.setSkipDeleteConfirmation(true);
+      store.removePrompt(props.prompt.id);
+    },
+  });
 };
 
 // Toggle collapsed state; state management is centralized in the store
@@ -415,7 +395,7 @@ const onDragStart = (event) => {
   isDragging.value = true;
   event.dataTransfer.setData('text/plain', props.prompt.id);
   event.dataTransfer.effectAllowed = 'move';
-  
+
   // Apply dragging cursor style
   event.target.style.cursor = 'grabbing';
 };
@@ -442,22 +422,22 @@ const onDragLeave = (event) => {
 const onDrop = (event) => {
   event.preventDefault();
   dragOver.value = false;
-  
+
   const draggedPromptId = event.dataTransfer.getData('text/plain');
   const source = (() => {
     try {
       return event.dataTransfer.getData('application/x-stpe-source');
-    } catch (e) {
+    } catch {
       return '';
     }
   })();
   const targetPromptId = props.prompt.id;
-  
+
   // No-op when dragging onto the same element
   if (draggedPromptId === targetPromptId) {
     return;
   }
-  
+
   // Choose behavior based on drag source
   if (source === 'library') {
     // Insert from the left library after the target prompt

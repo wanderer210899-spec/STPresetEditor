@@ -1,6 +1,7 @@
 <script setup>
 import AppLayout from './components/AppLayout.vue';
 import AppToolbar from './components/AppToolbar.vue';
+import ConfirmDialog from './components/ConfirmDialog.vue';
 import JsonExportModal from './components/JsonExportModal.vue';
 import JsonImportModal from './components/JsonImportModal.vue';
 import LeftSidebar from './components/LeftSidebar/PromptLibrary.vue';
@@ -8,6 +9,7 @@ import EditorView from './components/MainEditor/EditorView.vue';
 import PresetManagerModal from './components/PresetManagerModal.vue';
 import RightSidebar from './components/RightSidebar/RightSidebar.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import ToastHost from './components/ToastHost.vue';
 import { usePresetStore } from './stores/presetStore';
 
 // Initialize the preset store. App startup (cloud reconcile + example fallback)
@@ -46,6 +48,10 @@ const store = usePresetStore();
     <JsonExportModal />
     <PresetManagerModal :is-open="store.isPresetManagerOpen" />
     <SettingsModal :is-open="store.isSettingsModalOpen" />
+
+    <!-- Global in-app confirmation dialog + toast notifications -->
+    <ConfirmDialog />
+    <ToastHost />
   </div>
 </template>
 

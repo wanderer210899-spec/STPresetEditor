@@ -1,134 +1,102 @@
 <template>
-  <!-- Modal backdrop -->
-  <div
-    v-if="isOpen"
-    class="fixed inset-0 z-50 overflow-y-auto"
-    @click="closeModal"
+  <BaseModal
+    :show="isOpen"
+    :title="store.t('settings.title')"
+    size="md"
+    @close="store.closeSettingsModal()"
   >
-    <!-- Backdrop -->
-    <div class="fixed inset-0 bg-black/30 transition-opacity" />
-    
-    <!-- Modal container -->
-    <div class="flex min-h-full items-center justify-center p-4">
-      <div
-        class="relative w-full max-w-lg transform overflow-hidden rounded-2xl bg-white p-0 shadow-2xl ring-1 ring-black/5 transition-all"
-        @click.stop
-      >
-        <!-- Modal header -->
-        <div class="flex items-center justify-between bg-gray-50 px-6 py-4 border-b border-gray-200">
-          <h3 class="text-base font-semibold text-gray-900">
-            {{ store.t('settings.title') }}
-          </h3>
+    <div class="divide-y divide-gray-200">
+      <!-- Language Setting -->
+      <div class="pb-6">
+        <label class="field-label mb-2">{{ store.t('toolbar.settings') }} - Language</label>
+        <div class="flex items-center gap-2">
           <button
-            class="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            @click="closeModal"
+            class="btn btn-sm"
+            :class="store.currentLanguage === 'en' ? 'btn-primary' : 'btn-secondary'"
+            @click="store.setLanguage('en')"
           >
-            <XMarkIcon class="h-6 w-6" />
+            EN
+          </button>
+          <button
+            class="btn btn-sm"
+            :class="store.currentLanguage === 'zh' ? 'btn-primary' : 'btn-secondary'"
+            @click="store.setLanguage('zh')"
+          >
+            中文
           </button>
         </div>
-        
-        <!-- Modal content -->
-        <div class="px-6 py-6">
-          <div class="divide-y divide-gray-200">
-            <!-- Language Setting -->
-            <div class="pb-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">{{ store.t('toolbar.settings') }} - Language</label>
-              <div class="flex items-center space-x-2">
-                <button
-                  class="inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium"
-                  :class="store.currentLanguage === 'en' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
-                  @click="store.setLanguage('en')"
-                >EN</button>
-                <button
-                  class="inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium"
-                  :class="store.currentLanguage === 'zh' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
-                  @click="store.setLanguage('zh')"
-                >中文</button>
-              </div>
-            </div>
+      </div>
 
-            <!-- Cloud Sync Setting -->
-            <div class="py-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Cloud sync</label>
-              <div class="flex items-center space-x-2">
-                <input
-                  v-model="syncKeyInput"
-                  type="password"
-                  autocomplete="off"
-                  placeholder="Sync passphrase"
-                  class="block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
-                  @keyup.enter="connectSync"
-                />
-                <button
-                  class="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  @click="connectSync"
-                >
-                  Connect
-                </button>
-              </div>
-              <p class="mt-2 text-xs text-gray-500">
-                Status: <span class="font-medium">{{ sync.statusLabel }}</span>. Enter the same
-                passphrase on each device to sync. On your Worker, set it once with
-                <code class="rounded bg-gray-100 px-1">wrangler secret put SYNC_PASSWORD</code>
-                (or leave blank if you use Cloudflare Access instead).
-              </p>
-            </div>
-
-            <!-- Delete Confirmation Setting -->
-            <div class="py-6">
-              <label class="flex items-center">
-                <input
-                  type="checkbox"
-                  :checked="!store.skipDeleteConfirmation"
-                  class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  @change="toggleDeleteConfirmation"
-                />
-                <span class="ml-3 text-sm font-medium text-gray-700">
-                  {{ store.t('settings.showDeleteConfirmation') }}
-                </span>
-              </label>
-              <p class="mt-1 text-xs text-gray-500">
-                {{ store.t('settings.showDeleteConfirmationNote') }}
-              </p>
-            </div>
-
-            <!-- Reset to Factory Default -->
-            <div class="pt-6">
-              <label class="block text-sm font-medium text-gray-700 mb-2">{{ store.t('toolbar.resetToDefault') }}</label>
-              <button
-                class="inline-flex items-center rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
-                @click="onResetToDefault"
-              >{{ store.t('toolbar.reset') }}</button>
-              <p class="mt-2 text-xs text-gray-500">{{ store.t('reset.confirm') }}</p>
-            </div>
-          </div>
+      <!-- Cloud Sync Setting -->
+      <div class="py-6">
+        <label class="field-label mb-2">Cloud sync</label>
+        <div class="flex items-center gap-2">
+          <input
+            v-model="syncKeyInput"
+            type="password"
+            autocomplete="off"
+            placeholder="Sync passphrase"
+            class="input"
+            @keyup.enter="connectSync"
+          />
+          <button class="btn btn-primary shrink-0" @click="connectSync">Connect</button>
         </div>
-        
-        <!-- Modal footer -->
-        <div class="border-t border-gray-200 px-6 py-4">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-400" title="Deployed build (commit)">
-              Build {{ appVersion }}
-            </span>
-            <button
-              class="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              @click="closeModal"
-            >
-              {{ store.t('common.close') }}
-            </button>
-          </div>
-        </div>
+        <p class="mt-2 text-xs text-gray-500">
+          Status:
+          <span class="font-medium">{{ sync.statusLabel }}</span>
+          . Enter the same passphrase on each device to sync. On your Worker, set it once with
+          <code class="rounded bg-gray-100 px-1">wrangler secret put SYNC_PASSWORD</code>
+          (or leave blank if you use Cloudflare Access instead).
+        </p>
+      </div>
+
+      <!-- Delete Confirmation Setting -->
+      <div class="py-6">
+        <label class="flex items-center">
+          <input
+            type="checkbox"
+            :checked="!store.skipDeleteConfirmation"
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            @change="toggleDeleteConfirmation"
+          />
+          <span class="ml-3 text-sm font-medium text-gray-700">
+            {{ store.t('settings.showDeleteConfirmation') }}
+          </span>
+        </label>
+        <p class="mt-1 text-xs text-gray-500">
+          {{ store.t('settings.showDeleteConfirmationNote') }}
+        </p>
+      </div>
+
+      <!-- Reset to Factory Default -->
+      <div class="pt-6">
+        <label class="field-label mb-2">{{ store.t('toolbar.resetToDefault') }}</label>
+        <button class="btn btn-danger" @click="onResetToDefault">
+          {{ store.t('toolbar.reset') }}
+        </button>
+        <p class="mt-2 text-xs text-gray-500">{{ store.t('reset.confirm') }}</p>
       </div>
     </div>
-  </div>
+
+    <template #footer-start>
+      <span class="text-xs text-gray-400" title="Deployed build (commit)">
+        Build {{ appVersion }}
+      </span>
+    </template>
+    <template #footer>
+      <button class="btn btn-secondary" @click="store.closeSettingsModal()">
+        {{ store.t('common.close') }}
+      </button>
+    </template>
+  </BaseModal>
 </template>
 
 <script setup>
-import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { ref } from 'vue';
 import { reconnectCloudSync } from '../stores/cloudSync';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
+import BaseModal from './BaseModal.vue';
 
 defineProps({
   isOpen: {
@@ -148,18 +116,19 @@ const connectSync = async () => {
   await reconnectCloudSync();
 };
 
-const closeModal = () => {
-  store.closeSettingsModal();
-};
-
 const toggleDeleteConfirmation = (event) => {
   store.setSkipDeleteConfirmation(!event.target.checked);
 };
 
 const onResetToDefault = () => {
-  if (window.confirm(store.t('reset.confirm'))) {
-    store.resetToFactoryDefault();
-    store.closeSettingsModal();
-  }
+  store.requestConfirm({
+    message: store.t('reset.confirm'),
+    confirmLabel: store.t('toolbar.reset'),
+    danger: true,
+    onConfirm: () => {
+      store.resetToFactoryDefault();
+      store.closeSettingsModal();
+    },
+  });
 };
 </script>

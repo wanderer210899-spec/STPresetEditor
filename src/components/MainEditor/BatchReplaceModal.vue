@@ -1,6 +1,6 @@
 <template>
-  <!-- Embedded inline panel for right-pane overlay -->
-  <div v-if="embedded" class="h-full flex flex-col space-y-2">
+  <!-- Inline panel rendered inside the right-pane overlay -->
+  <div class="flex h-full flex-col space-y-2">
     <TabGroup>
       <TabList class="flex flex-shrink-0 space-x-1 rounded-xl bg-gray-200 p-1">
         <Tab v-for="tab in tabs" :key="tab.key" v-slot="{ selected }" as="template">
@@ -11,7 +11,6 @@
               selected ? 'bg-white text-blue-700 shadow' : 'text-blue-700/60 hover:text-blue-700',
             ]"
           >
-            <component v-if="tab.icon" :is="tab.icon" class="-mt-0.5 mr-1.5 inline-block h-5 w-5" />
             {{ tab.label }}
           </button>
         </Tab>
@@ -22,58 +21,76 @@
         <TabPanel :key="'replace'" class="p-4">
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">{{ store.t('batchReplaceModal.find') }}</label>
-              <input v-model="form.find" type="text" class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
+              <label class="field-label mb-1">{{ store.t('batchReplaceModal.find') }}</label>
+              <input v-model="form.find" type="text" class="input" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">{{ store.t('batchReplaceModal.replaceWith') }}</label>
-              <input v-model="form.replace" type="text" class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
+              <label class="field-label mb-1">{{ store.t('batchReplaceModal.replaceWith') }}</label>
+              <input v-model="form.replace" type="text" class="input" />
             </div>
           </div>
 
           <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="space-y-4">
               <div>
-                <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.targetFields') }}</div>
+                <div class="field-label mb-2">{{ store.t('batchReplaceModal.targetFields') }}</div>
                 <div class="space-y-2">
-                  <label class="flex items-center space-x-2">
-                    <input type="checkbox" v-model="form.targetFields.title" />
+                  <label class="flex items-center gap-2">
+                    <input v-model="form.targetFields.title" type="checkbox" />
                     <span>{{ store.t('batchReplaceModal.fieldTitle') }}</span>
                   </label>
-                  <label class="flex items-center space-x-2">
-                    <input type="checkbox" v-model="form.targetFields.content" />
+                  <label class="flex items-center gap-2">
+                    <input v-model="form.targetFields.content" type="checkbox" />
                     <span>{{ store.t('batchReplaceModal.fieldContent') }}</span>
                   </label>
                 </div>
               </div>
               <div>
-                <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.scope') }}</div>
+                <div class="field-label mb-2">{{ store.t('batchReplaceModal.scope') }}</div>
                 <div class="space-y-2">
-                  <label class="flex items-center space-x-2">
-                    <input type="radio" name="scope" value="selected" v-model="form.scope" :disabled="!store.isEditorMultiSelectActive || store.selectedEditorPrompts.length === 0" />
-                    <span :class="{ 'text-gray-400': !store.isEditorMultiSelectActive || store.selectedEditorPrompts.length === 0 }">{{ store.t('batchReplaceModal.scopeSelected') }}</span>
+                  <label class="flex items-center gap-2">
+                    <input
+                      v-model="form.scope"
+                      type="radio"
+                      name="scope"
+                      value="selected"
+                      :disabled="
+                        !store.isEditorMultiSelectActive || store.selectedEditorPrompts.length === 0
+                      "
+                    />
+                    <span
+                      :class="{
+                        'text-gray-400':
+                          !store.isEditorMultiSelectActive ||
+                          store.selectedEditorPrompts.length === 0,
+                      }"
+                    >
+                      {{ store.t('batchReplaceModal.scopeSelected') }}
+                    </span>
                   </label>
-                  <label class="flex items-center space-x-2">
-                    <input type="radio" name="scope" value="all" v-model="form.scope" />
+                  <label class="flex items-center gap-2">
+                    <input v-model="form.scope" type="radio" name="scope" value="all" />
                     <span>{{ store.t('batchReplaceModal.scopeAll') }}</span>
                   </label>
                 </div>
               </div>
             </div>
             <div>
-              <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.options') }}</div>
+              <div class="field-label mb-2">{{ store.t('batchReplaceModal.options') }}</div>
               <div class="space-y-2">
-                <label class="flex items-center space-x-2">
-                  <input type="checkbox" v-model="form.useRegex" />
+                <label class="flex items-center gap-2">
+                  <input v-model="form.useRegex" type="checkbox" />
                   <span>{{ store.t('batchReplaceModal.useRegex') }}</span>
                 </label>
-                <label class="flex items-center space-x-2">
-                  <input type="checkbox" v-model="form.caseSensitive" />
+                <label class="flex items-center gap-2">
+                  <input v-model="form.caseSensitive" type="checkbox" />
                   <span>{{ store.t('batchReplaceModal.caseSensitive') }}</span>
                 </label>
-                <label class="flex items-center space-x-2">
-                  <input type="checkbox" v-model="form.wholeWord" :disabled="form.useRegex" />
-                  <span :class="{ 'text-gray-400': form.useRegex }">{{ store.t('batchReplaceModal.wholeWord') }}</span>
+                <label class="flex items-center gap-2">
+                  <input v-model="form.wholeWord" type="checkbox" :disabled="form.useRegex" />
+                  <span :class="{ 'text-gray-400': form.useRegex }">
+                    {{ store.t('batchReplaceModal.wholeWord') }}
+                  </span>
                 </label>
               </div>
             </div>
@@ -84,33 +101,33 @@
         <TabPanel :key="'additions'" class="p-4">
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addPrefix') }}</div>
+              <div class="field-label mb-2">{{ store.t('batchReplaceModal.addPrefix') }}</div>
               <div class="space-y-2">
-                <label class="flex items-center space-x-2">
-                  <input type="checkbox" v-model="form.addPrefix" />
+                <label class="flex items-center gap-2">
+                  <input v-model="form.addPrefix" type="checkbox" />
                   <span>{{ store.t('batchReplaceModal.addPrefix') }}</span>
                 </label>
                 <input
                   v-model="form.prefixText"
                   type="text"
                   :placeholder="store.t('batchReplaceModal.prefixText')"
-                  class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                  class="input"
                   :disabled="!form.addPrefix"
                 />
               </div>
             </div>
             <div>
-              <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addSuffix') }}</div>
+              <div class="field-label mb-2">{{ store.t('batchReplaceModal.addSuffix') }}</div>
               <div class="space-y-2">
-                <label class="flex items-center space-x-2">
-                  <input type="checkbox" v-model="form.addSuffix" />
+                <label class="flex items-center gap-2">
+                  <input v-model="form.addSuffix" type="checkbox" />
                   <span>{{ store.t('batchReplaceModal.addSuffix') }}</span>
                 </label>
                 <input
                   v-model="form.suffixText"
                   type="text"
                   :placeholder="store.t('batchReplaceModal.suffixText')"
-                  class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                  class="input"
                   :disabled="!form.addSuffix"
                 />
               </div>
@@ -118,40 +135,56 @@
           </div>
 
           <div class="mt-4">
-            <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addSerial') }}</div>
+            <div class="field-label mb-2">{{ store.t('batchReplaceModal.addSerial') }}</div>
             <div class="space-y-2">
-              <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="form.addSerial" />
+              <label class="flex items-center gap-2">
+                <input v-model="form.addSerial" type="checkbox" />
                 <span>{{ store.t('batchReplaceModal.addSerial') }}</span>
               </label>
-              <div class="flex items-center space-x-4" :class="{ 'opacity-50': !form.addSerial }">
-                <label class="flex items-center space-x-2">
-                  <input type="radio" name="serialPosition" value="before" v-model="form.serialPosition" :disabled="!form.addSerial" />
+              <div class="flex items-center gap-4" :class="{ 'opacity-50': !form.addSerial }">
+                <label class="flex items-center gap-2">
+                  <input
+                    v-model="form.serialPosition"
+                    type="radio"
+                    name="serialPosition"
+                    value="before"
+                    :disabled="!form.addSerial"
+                  />
                   <span>{{ store.t('batchReplaceModal.serialBefore') }}</span>
                 </label>
-                <label class="flex items-center space-x-2">
-                  <input type="radio" name="serialPosition" value="after" v-model="form.serialPosition" :disabled="!form.addSerial" />
+                <label class="flex items-center gap-2">
+                  <input
+                    v-model="form.serialPosition"
+                    type="radio"
+                    name="serialPosition"
+                    value="after"
+                    :disabled="!form.addSerial"
+                  />
                   <span>{{ store.t('batchReplaceModal.serialAfter') }}</span>
                 </label>
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <label class="block text-xs text-gray-500 mb-1">{{ store.t('batchReplaceModal.serialStart') }}</label>
+                  <label class="mb-1 block text-xs text-gray-500">
+                    {{ store.t('batchReplaceModal.serialStart') }}
+                  </label>
                   <input
                     v-model.number="form.serialStart"
                     type="number"
                     min="0"
-                    class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    class="input"
                     :disabled="!form.addSerial"
                   />
                 </div>
                 <div>
-                  <label class="block text-xs text-gray-500 mb-1">{{ store.t('batchReplaceModal.serialDigits') }}</label>
+                  <label class="mb-1 block text-xs text-gray-500">
+                    {{ store.t('batchReplaceModal.serialDigits') }}
+                  </label>
                   <input
                     v-model.number="form.serialDigits"
                     type="number"
                     min="1"
-                    class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                    class="input"
                     :disabled="!form.addSerial"
                   />
                 </div>
@@ -162,14 +195,14 @@
       </TabPanels>
     </TabGroup>
 
-    <div class="mt-2 text-xs text-gray-500" v-if="errorMessage">{{ errorMessage }}</div>
-    <div class="mt-2 text-xs text-gray-600" v-if="resultMessage">{{ resultMessage }}</div>
+    <div v-if="errorMessage" class="mt-2 text-xs text-gray-500">{{ errorMessage }}</div>
+    <div v-if="resultMessage" class="mt-2 text-xs text-gray-600">{{ resultMessage }}</div>
 
-    <div class="mt-4 flex justify-between items-center">
-      <div class="flex items-center space-x-2">
+    <div class="mt-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
         <button
           type="button"
-          class="inline-flex justify-center rounded-md border border-transparent bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:text-blue-800 disabled:text-gray-400"
+          class="btn btn-sm btn-ghost"
           :disabled="!store.canUndoBatchReplace"
           @click="onUndo"
         >
@@ -177,209 +210,35 @@
         </button>
         <button
           type="button"
-          class="inline-flex justify-center rounded-md border border-transparent bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:text-blue-800 disabled:text-gray-400"
+          class="btn btn-sm btn-ghost"
           :disabled="!store.canRedoBatchReplace"
           @click="onRedo"
         >
           {{ store.t('batchReplaceModal.redo') }}
         </button>
       </div>
-      <div class="flex space-x-3">
-        <button type="button" class="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2" @click="store.closeBatchReplaceModal()">
+      <div class="flex gap-3">
+        <button type="button" class="btn btn-secondary" @click="store.closeBatchReplaceModal()">
           {{ store.t('batchReplaceModal.cancel') }}
         </button>
-        <button type="button" class="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2" @click="onReplace">
+        <button type="button" class="btn btn-primary" @click="onReplace">
           {{ store.t('batchReplaceModal.replace') }}
         </button>
       </div>
     </div>
   </div>
-
-  <!-- Fallback: original centered dialog -->
-  <TransitionRoot v-else appear :show="store.isBatchReplaceModalOpen" as="template">
-    <Dialog as="div" class="relative z-50" @close="store.closeBatchReplaceModal()">
-      <TransitionChild as="template" enter="duration-300 ease-out" enter-from="opacity-0" enter-to="opacity-100" leave="duration-200 ease-in" leave-from="opacity-100" leave-to="opacity-0">
-        <div class="fixed inset-0 bg-black/30" />
-      </TransitionChild>
-
-      <div class="fixed inset-0 overflow-y-auto">
-        <div class="flex min-h-full items-center justify-center p-4 text-center">
-          <TransitionChild as="template" enter="duration-300 ease-out" enter-from="opacity-0 scale-95" enter-to="opacity-100 scale-100" leave="duration-200 ease-in" leave-from="opacity-100 scale-100" leave-to="opacity-0 scale-95">
-            <DialogPanel class="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
-              <DialogTitle as="h3" class="text-lg leading-6 font-medium text-gray-900">
-                {{ store.t('batchReplaceModal.title') }}
-                <span class="ml-2 align-middle text-xs text-gray-500" v-if="store.isEditorMultiSelectActive">
-                  ({{ store.selectedEditorPrompts.length }})
-                </span>
-              </DialogTitle>
-
-              <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">{{ store.t('batchReplaceModal.find') }}</label>
-                  <input v-model="form.find" type="text" class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">{{ store.t('batchReplaceModal.replaceWith') }}</label>
-                  <input v-model="form.replace" type="text" class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div class="space-y-4">
-                <div>
-                  <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.targetFields') }}</div>
-                  <div class="space-y-2">
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.targetFields.title" />
-                      <span>{{ store.t('batchReplaceModal.fieldTitle') }}</span>
-                    </label>
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.targetFields.content" />
-                      <span>{{ store.t('batchReplaceModal.fieldContent') }}</span>
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.scope') }}</div>
-                  <div class="space-y-2">
-                    <label class="flex items-center space-x-2">
-                      <input type="radio" name="scope" value="selected" v-model="form.scope" :disabled="!store.isEditorMultiSelectActive || store.selectedEditorPrompts.length === 0" />
-                      <span :class="{ 'text-gray-400': !store.isEditorMultiSelectActive || store.selectedEditorPrompts.length === 0 }">{{ store.t('batchReplaceModal.scopeSelected') }}</span>
-                    </label>
-                    <label class="flex items-center space-x-2">
-                      <input type="radio" name="scope" value="all" v-model="form.scope" />
-                      <span>{{ store.t('batchReplaceModal.scopeAll') }}</span>
-                    </label>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.options') }}</div>
-                  <div class="space-y-2">
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.useRegex" />
-                      <span>{{ store.t('batchReplaceModal.useRegex') }}</span>
-                    </label>
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.caseSensitive" />
-                      <span>{{ store.t('batchReplaceModal.caseSensitive') }}</span>
-                    </label>
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.wholeWord" :disabled="form.useRegex" />
-                      <span :class="{ 'text-gray-400': form.useRegex }">{{ store.t('batchReplaceModal.wholeWord') }}</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addPrefix') }}</div>
-                  <div class="space-y-2">
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.addPrefix" />
-                      <span>{{ store.t('batchReplaceModal.addPrefix') }}</span>
-                    </label>
-                    <input
-                      v-model="form.prefixText"
-                      type="text"
-                      :placeholder="store.t('batchReplaceModal.prefixText')"
-                      class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                      :disabled="!form.addPrefix"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addSuffix') }}</div>
-                  <div class="space-y-2">
-                    <label class="flex items-center space-x-2">
-                      <input type="checkbox" v-model="form.addSuffix" />
-                      <span>{{ store.t('batchReplaceModal.addSuffix') }}</span>
-                    </label>
-                    <input
-                      v-model="form.suffixText"
-                      type="text"
-                      :placeholder="store.t('batchReplaceModal.suffixText')"
-                      class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                      :disabled="!form.addSuffix"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Serial section as a full-width row -->
-              <div class="mt-4">
-                <div class="text-sm font-medium text-gray-700 mb-2">{{ store.t('batchReplaceModal.addSerial') }}</div>
-                <div class="space-y-2">
-                  <label class="flex items-center space-x-2">
-                    <input type="checkbox" v-model="form.addSerial" />
-                    <span>{{ store.t('batchReplaceModal.addSerial') }}</span>
-                  </label>
-                  <div class="flex items-center space-x-4" :class="{ 'opacity-50': !form.addSerial }">
-                    <label class="flex items-center space-x-2">
-                      <input type="radio" name="serialPosition" value="before" v-model="form.serialPosition" :disabled="!form.addSerial" />
-                      <span>{{ store.t('batchReplaceModal.serialBefore') }}</span>
-                    </label>
-                    <label class="flex items-center space-x-2">
-                      <input type="radio" name="serialPosition" value="after" v-model="form.serialPosition" :disabled="!form.addSerial" />
-                      <span>{{ store.t('batchReplaceModal.serialAfter') }}</span>
-                    </label>
-                  </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <div>
-                      <label class="block text-xs text-gray-500 mb-1">{{ store.t('batchReplaceModal.serialStart') }}</label>
-                      <input
-                        v-model.number="form.serialStart"
-                        type="number"
-                        min="0"
-                        class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                        :disabled="!form.addSerial"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs text-gray-500 mb-1">{{ store.t('batchReplaceModal.serialDigits') }}</label>
-                      <input
-                        v-model.number="form.serialDigits"
-                        type="number"
-                        min="1"
-                        class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                        :disabled="!form.addSerial"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-2 text-xs text-gray-500" v-if="errorMessage">{{ errorMessage }}</div>
-              <div class="mt-2 text-xs text-gray-600" v-if="resultMessage">{{ resultMessage }}</div>
-
-              <div class="mt-6 flex justify-end space-x-3">
-                <button type="button" class="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2" @click="store.closeBatchReplaceModal()">
-                  {{ store.t('batchReplaceModal.cancel') }}
-                </button>
-                <button type="button" class="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2" @click="onReplace">
-                  {{ store.t('batchReplaceModal.replace') }}
-                </button>
-              </div>
-            </DialogPanel>
-          </TransitionChild>
-        </div>
-      </div>
-    </Dialog>
-  </TransitionRoot>
 </template>
 
 <script setup>
-import { Dialog, DialogPanel, DialogTitle, Tab, TabGroup, TabList, TabPanel, TabPanels, TransitionChild, TransitionRoot } from '@headlessui/vue';
+import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue';
 import { reactive, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
-const props = defineProps({ embedded: { type: Boolean, default: false } });
 
 const store = usePresetStore();
 
 const tabs = [
-  { key: 'replace', label: store.t('batchReplaceModal.title'), icon: null },
-  { key: 'additions', label: store.t('batchReplaceModal.additionsSection'), icon: null },
+  { key: 'replace', label: store.t('batchReplaceModal.title') },
+  { key: 'additions', label: store.t('batchReplaceModal.additionsSection') },
 ];
 
 const form = reactive({
@@ -440,9 +299,9 @@ function onReplace() {
       serialDigits: form.serialDigits,
     });
     resultMessage.value = store.t('batchReplaceModal.resultSummary2', {
-        matches: summary.matches,
-        prompts: summary.prompts,
-      });
+      matches: summary.matches,
+      prompts: summary.prompts,
+    });
   } catch (e) {
     if (e && e.message === 'INVALID_REGEX') {
       errorMessage.value = store.t('batchReplaceModal.invalidRegex');
@@ -472,5 +331,3 @@ function onRedo() {
   }
 }
 </script>
-
-

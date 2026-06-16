@@ -141,7 +141,12 @@
             "expand": "Expand"
         },
         "common": {
-            "close": "Close"
+            "close": "Close",
+            "confirm": "Confirm",
+            "cancel": "Cancel",
+            "delete": "Delete",
+            "confirmTitle": "Please confirm",
+            "dontAskAgain": "Don't ask me again"
         },
         "settings": {
             "title": "Settings",
@@ -365,7 +370,12 @@
             "expand": "展开"
         },
         "common": {
-            "close": "关闭"
+            "close": "关闭",
+            "confirm": "确认",
+            "cancel": "取消",
+            "delete": "删除",
+            "confirmTitle": "请确认",
+            "dontAskAgain": "不再询问"
         },
         "settings": {
             "title": "设置",
