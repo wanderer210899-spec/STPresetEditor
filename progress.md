@@ -2,6 +2,24 @@
 
 Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 
+## Fix: Macros 2.0 variable shorthand
+
+SillyTavern's new shorthand (`{{.name}}` local, `{{$name}}` global) wasn't
+recognised — those macros showed as "unknown", never appeared in the Variables
+list, and weren't evaluated in preview.
+
+- `classifyMacro` now parses the shorthand and every operator (`=`, `+=`, `-=`,
+  `++`, `--`, `??=`, `||=`) into the same `{ kind, op, scope }` shape as the
+  `::` macros, so a get/assignment is tracked, highlighted, simulated and
+  renamed identically regardless of which syntax is used.
+- Variable simulation is now operator-driven (`op`), adding subtract and
+  conditional-set (`??=`/`||=`) alongside set/add/inc/dec.
+- Highlight + preview use a shared `categoryOf(macro)` (kind-first), so
+  shorthand and `::` forms colour the same and assignments (no output) are
+  hidden in preview while gets render their value.
+- Autocomplete: typing `{{.` or `{{$` now suggests existing variable names.
+- `renameVariable` rewrites shorthand occurrences too.
+
 ## Editing workflow, macro engine & autocomplete
 
 **Macro engine (`src/utils/macros.js`)** — new single source of truth for the

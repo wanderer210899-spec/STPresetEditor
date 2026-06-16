@@ -138,6 +138,22 @@ function computeContext() {
     return;
   }
 
+  // Macros 2.0 shorthand: typing a variable name after `{{.` or `{{$`.
+  const sh = between.match(/^([.$])([A-Za-z][\w-]*)?$/);
+  if (sh) {
+    const items = varSuggestions(sh[2] || '');
+    if (!items.length) {
+      closeMenu();
+      return;
+    }
+    context = { mode: 'shorthand', start: openIdx + 3, end: caret };
+    suggestions.value = items;
+    activeIndex.value = 0;
+    open.value = true;
+    positionMenu(caret);
+    return;
+  }
+
   if (!between.includes('::')) {
     // Typing the macro name.
     const items = macroSuggestions(between.trim());
@@ -199,6 +215,10 @@ function accept(i) {
       insertText = `{{${name}}}`;
       caretOffset = insertText.length;
     }
+  } else if (mode === 'shorthand') {
+    // Variable name chosen for the {{.name}} / {{$name}} shorthand.
+    insertText = s.value;
+    caretOffset = s.value.length;
   } else {
     // Variable name chosen — close (single-arg) or add `::` (two-arg) unless
     // the macro is already closed right after the caret.
@@ -215,6 +235,8 @@ function accept(i) {
 
   const newValue = value.slice(0, start) + insertText + value.slice(end);
   const caretPos = start + caretOffset;
+  // Only a freshly-opened variable macro should chain into name suggestions.
+  const chain = mode === 'macro' && (s.insert === 'var1' || s.insert === 'var2');
   emitValue(newValue);
   closeMenu();
 
@@ -223,8 +245,7 @@ function accept(i) {
     el.focus();
     el.setSelectionRange(caretPos, caretPos);
     if (props.autoGrow) adjustHeight();
-    // Re-run so chained suggestions (variable names) appear immediately.
-    computeContext();
+    if (chain) computeContext();
   });
 }
 

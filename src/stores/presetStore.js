@@ -41,6 +41,7 @@ export const SYNC_DATA_PATHS = [
  * @property {string[]} params - An array of parameters for other macro types like "random::a::b".
  * @property {'local'|'global'|null} [scope] - Variable scope for variable macros.
  * @property {'get'|'set'|'mutate'|null} [kind] - Whether the variable macro reads, writes, or both.
+ * @property {string|null} [op] - Normalised variable operation (get/set/add/sub/inc/dec/setIfNull/setIfFalsy).
  */
 
 /**
@@ -645,6 +646,7 @@ export const usePresetStore = defineStore('preset', {
         return `${prev ?? ''}${delta ?? ''}`;
       };
       const stepValue = (prev, step) => String((parseFloat(prev) || 0) + step);
+      const subValues = (prev, delta) => String((parseFloat(prev) || 0) - (parseFloat(delta) || 0));
 
       executionFlowMacros.forEach((macro) => {
         // Only variable macros (get/set/add/inc/dec, local or global) participate.
@@ -671,14 +673,29 @@ export const usePresetStore = defineStore('preset', {
         if (macro.kind === 'get') {
           newSnapshots[macro.id] = currentVarState[macro.varName];
         } else if (enabled) {
-          if (macro.type === 'setvar' || macro.type === 'setglobalvar') {
-            currentVarState[macro.varName] = macro.value;
-          } else if (macro.type === 'addvar' || macro.type === 'addglobalvar') {
-            currentVarState[macro.varName] = addValues(currentVarState[macro.varName], macro.value);
-          } else if (macro.type === 'incvar' || macro.type === 'incglobalvar') {
-            currentVarState[macro.varName] = stepValue(currentVarState[macro.varName], 1);
-          } else if (macro.type === 'decvar' || macro.type === 'decglobalvar') {
-            currentVarState[macro.varName] = stepValue(currentVarState[macro.varName], -1);
+          const prev = currentVarState[macro.varName];
+          switch (macro.op) {
+            case 'set':
+              currentVarState[macro.varName] = macro.value;
+              break;
+            case 'add':
+              currentVarState[macro.varName] = addValues(prev, macro.value);
+              break;
+            case 'sub':
+              currentVarState[macro.varName] = subValues(prev, macro.value);
+              break;
+            case 'inc':
+              currentVarState[macro.varName] = stepValue(prev, 1);
+              break;
+            case 'dec':
+              currentVarState[macro.varName] = stepValue(prev, -1);
+              break;
+            case 'setIfNull':
+              if (prev === undefined) currentVarState[macro.varName] = macro.value;
+              break;
+            case 'setIfFalsy':
+              if (!prev) currentVarState[macro.varName] = macro.value;
+              break;
           }
           if (macro.kind === 'mutate') newSnapshots[macro.id] = currentVarState[macro.varName];
         } else if (macro.kind === 'mutate') {
@@ -874,11 +891,18 @@ export const usePresetStore = defineStore('preset', {
         `({{\\s*(?:${varMacroNames})\\s*::\\s*)${oldNameEscaped}(\\s*(?:::|}}))`,
         'g',
       );
+      // Macros 2.0 shorthand: {{.name}} / {{$name = …}} / {{.name++}} etc.
+      const shorthandRegex = new RegExp(
+        `({{\\s*[.$]\\s*)${oldNameEscaped}(?=\\s*(?:\\?\\?=|\\|\\|=|\\+=|-=|\\+\\+|--|==|!=|>=|<=|=|>|<|}}))`,
+        'g',
+      );
 
       for (const promptId in this.prompts) {
         const prompt = this.prompts[promptId];
         if (prompt.content) {
-          prompt.content = prompt.content.replace(renameRegex, `$1${trimmedNewName}$2`);
+          prompt.content = prompt.content
+            .replace(renameRegex, `$1${trimmedNewName}$2`)
+            .replace(shorthandRegex, `$1${trimmedNewName}`);
         }
       }
 

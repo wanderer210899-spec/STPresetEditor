@@ -35,7 +35,7 @@
 <script setup>
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
-import { getMacroCategory } from '../../utils/macros';
+import { categoryOf } from '../../utils/macros';
 
 const props = defineProps({
   /** @type {import('vue').PropType<import('../../stores/presetStore').MacroData>} */
@@ -99,7 +99,7 @@ const macroStyle = computed(() => {
     return styles;
   }
 
-  styles.push(CATEGORY_STYLES[getMacroCategory(props.macro.type)] || CATEGORY_STYLES.unknown);
+  styles.push(CATEGORY_STYLES[categoryOf(props.macro)] || CATEGORY_STYLES.unknown);
   return styles;
 });
 

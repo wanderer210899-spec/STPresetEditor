@@ -15,16 +15,16 @@
  * args: number of `::` arguments (1 = name only, 2 = name + value)
  */
 export const VAR_MACRO_META = {
-  getvar: { kind: 'get', scope: 'local', args: 1 },
-  setvar: { kind: 'set', scope: 'local', args: 2 },
-  addvar: { kind: 'mutate', scope: 'local', args: 2 },
-  incvar: { kind: 'mutate', scope: 'local', args: 1 },
-  decvar: { kind: 'mutate', scope: 'local', args: 1 },
-  getglobalvar: { kind: 'get', scope: 'global', args: 1 },
-  setglobalvar: { kind: 'set', scope: 'global', args: 2 },
-  addglobalvar: { kind: 'mutate', scope: 'global', args: 2 },
-  incglobalvar: { kind: 'mutate', scope: 'global', args: 1 },
-  decglobalvar: { kind: 'mutate', scope: 'global', args: 1 },
+  getvar: { kind: 'get', scope: 'local', args: 1, op: 'get' },
+  setvar: { kind: 'set', scope: 'local', args: 2, op: 'set' },
+  addvar: { kind: 'mutate', scope: 'local', args: 2, op: 'add' },
+  incvar: { kind: 'mutate', scope: 'local', args: 1, op: 'inc' },
+  decvar: { kind: 'mutate', scope: 'local', args: 1, op: 'dec' },
+  getglobalvar: { kind: 'get', scope: 'global', args: 1, op: 'get' },
+  setglobalvar: { kind: 'set', scope: 'global', args: 2, op: 'set' },
+  addglobalvar: { kind: 'mutate', scope: 'global', args: 2, op: 'add' },
+  incglobalvar: { kind: 'mutate', scope: 'global', args: 1, op: 'inc' },
+  decglobalvar: { kind: 'mutate', scope: 'global', args: 1, op: 'dec' },
 };
 
 export const VAR_MACRO_NAMES = Object.keys(VAR_MACRO_META);
@@ -84,10 +84,38 @@ export function getMacroCategory(type) {
   return 'unknown';
 }
 
+// Variable-name pattern for the Macros 2.0 shorthand (after `.` or `$`):
+// must start with a letter; may contain word chars and hyphens.
+const SHORTHAND_VAR = '[A-Za-z](?:[\\w-]*[\\w])?';
+const SHORTHAND_RE = new RegExp(`^([.$])\\s*(${SHORTHAND_VAR})\\s*(.*)$`, 's');
+
+// op → canonical type (used only for highlight fallback / debugging).
+function shorthandType(op, scope) {
+  const g = scope === 'global';
+  switch (op) {
+    case 'set':
+    case 'setIfNull':
+    case 'setIfFalsy':
+      return g ? 'setglobalvar' : 'setvar';
+    case 'add':
+      return g ? 'addglobalvar' : 'addvar';
+    case 'sub':
+      return g ? 'subglobalvar' : 'subvar';
+    case 'inc':
+      return g ? 'incglobalvar' : 'incvar';
+    case 'dec':
+      return g ? 'decglobalvar' : 'decvar';
+    default:
+      return g ? 'getglobalvar' : 'getvar';
+  }
+}
+
 /**
  * Parse the inner content of a `{{...}}` macro into structured data.
+ * Handles both the classic `::` variable macros and the Macros 2.0 shorthand
+ * (`{{.name}}`, `{{.name = v}}`, `{{$name += v}}`, `{{.name++}}`, …).
  * @param {string} rawInner - text between the braces (may have whitespace)
- * @returns {{ type: string, varName: string|null, value: string|null, params: string[], scope: 'local'|'global'|null, kind: 'get'|'set'|'mutate'|null }}
+ * @returns {{ type: string, varName: string|null, value: string|null, params: string[], scope: 'local'|'global'|null, kind: 'get'|'set'|'mutate'|null, op: string|null }}
  */
 export function classifyMacro(rawInner) {
   const inner = (rawInner || '').trim();
@@ -98,10 +126,38 @@ export function classifyMacro(rawInner) {
     params: [],
     scope: null,
     kind: null,
+    op: null,
   };
 
   if (inner.startsWith('//')) {
     result.type = 'comment';
+    return result;
+  }
+
+  // Macros 2.0 variable shorthand: `.local` / `$global`.
+  const sh = inner.match(SHORTHAND_RE);
+  if (sh) {
+    const scope = sh[1] === '$' ? 'global' : 'local';
+    const rest = sh[3].trim();
+    let op = 'get';
+    let value = null;
+    if (rest === '') op = 'get';
+    else if (rest === '++') op = 'inc';
+    else if (rest === '--') op = 'dec';
+    else if (rest.startsWith('??=')) ((op = 'setIfNull'), (value = rest.slice(3).trim()));
+    else if (rest.startsWith('||=')) ((op = 'setIfFalsy'), (value = rest.slice(3).trim()));
+    else if (rest.startsWith('+=')) ((op = 'add'), (value = rest.slice(2).trim()));
+    else if (rest.startsWith('-=')) ((op = 'sub'), (value = rest.slice(2).trim()));
+    else if (/^(==|!=|>=|<=|>|<)/.test(rest))
+      op = 'get'; // read inside an expression
+    else if (rest.startsWith('=')) ((op = 'set'), (value = rest.slice(1).trim()));
+
+    result.scope = scope;
+    result.varName = sh[2];
+    result.value = value;
+    result.op = op;
+    result.kind = op === 'get' ? 'get' : op === 'set' ? 'set' : 'mutate';
+    result.type = shorthandType(op, scope);
     return result;
   }
 
@@ -115,6 +171,7 @@ export function classifyMacro(rawInner) {
     result.type = headLower;
     result.kind = meta.kind;
     result.scope = meta.scope;
+    result.op = meta.op;
     result.varName = (segments[1] || '').trim() || null;
     if (meta.args === 2) result.value = (segments[2] || '').trim() || null;
     return result;
@@ -128,6 +185,18 @@ export function classifyMacro(rawInner) {
       .map((s) => s.trim());
   }
   return result;
+}
+
+/**
+ * Style category for a parsed macro, preferring its variable `kind` (so the
+ * shorthand and `::` forms share colours) and falling back to its type.
+ * @returns {'get'|'write'|'random'|'identity'|'time'|'comment'|'noop'|'unknown'}
+ */
+export function categoryOf(macro) {
+  if (!macro) return 'unknown';
+  if (macro.kind === 'get') return 'get';
+  if (macro.kind === 'set' || macro.kind === 'mutate') return 'write';
+  return getMacroCategory(macro.type);
 }
 
 /**

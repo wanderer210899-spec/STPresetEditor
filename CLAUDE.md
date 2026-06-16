@@ -93,8 +93,11 @@ The macro vocabulary lives in **`src/utils/macros.js`** — the single source of
 truth for parsing (`classifyMacro`), highlight categories (`getMacroCategory`),
 and the autocomplete catalog (`MACRO_CATALOG` / `VAR_MACRO_META`). It mirrors
 SillyTavern's current set: variable macros `get/set/add/inc/dec` **and** their
-`global` variants, plus identity/chat/time/utility macros. **Add new macros
-here**, not inline in components.
+`global` variants, plus identity/chat/time/utility macros. It also parses the
+**Macros 2.0 shorthand** — `{{.name}}` (local) / `{{$name}}` (global) with
+`=` `+=` `-=` `++` `--` `??=` `||=` — into the same `{ kind, op, scope }` shape,
+so analysis/preview/highlight/rename treat shorthand and `::` forms identically.
+**Add new macros here**, not inline in components.
 
 `analyzeAllMacros()` in `presetStore.js` is the analysis engine. Guiding rule:
 **only prompts currently in `promptOrder` are analysed** (hidden prompts are
@@ -102,12 +105,13 @@ ignored). Passes:
 
 1. Clear stale `prompt.macros`.
 2. Parse each `{{...}}` via `classifyMacro` into a `MacroData`
-   (`{ id, full, type, varName, value, params, scope, kind }`);
+   (`{ id, full, type, varName, value, params, scope, kind, op }`);
    `id = \`${promptId}-${matchIndex}\``. `kind` is `get` (reads) / `set`
-   (assigns) / `mutate` (add/inc/dec — reads **and** writes).
+   (assigns) / `mutate` (add/sub/inc/dec/cond — reads **and** writes); `op` is
+   the normalised operation that drives the value simulation.
 3. Walk the flattened execution flow: build definition/reference maps (`set` +
-   `mutate` define; `get` + `mutate` reference) **and** simulate values —
-   set/add/inc/dec only mutate the simulated state when the prompt is `enabled`.
+   `mutate` define; `get` + `mutate` reference) **and** simulate values (by `op`)
+   — writes only mutate the simulated state when the prompt is `enabled`.
 4. Aggregate into `variables`, `unresolvedVariables` (referenced-but-undefined),
    and `macroStateSnapshots` (each getvar's value at its execution point).
 

@@ -234,7 +234,7 @@ import {
 } from '@heroicons/vue/20/solid';
 import { computed, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
-import { getMacroCategory } from '../../utils/macros';
+import { categoryOf } from '../../utils/macros';
 import MacroRenderer from './MacroRenderer.vue';
 
 // Define component props
@@ -336,7 +336,7 @@ const contentParts = computed(() => {
     if (mode === 'preview') {
       // In preview, macros that produce no output (set/add/inc/dec, comments,
       // noop/newline/trim) are hidden; value-returning and other macros render.
-      const category = getMacroCategory(macro.type);
+      const category = categoryOf(macro);
       if (category !== 'write' && category !== 'comment' && category !== 'noop') {
         parts.push({ isMacro: true, macroData: macro });
       }
