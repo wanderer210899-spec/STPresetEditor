@@ -1,5 +1,11 @@
 # Progress / Changelog
 
+**This fork started on 2026-06-15**, branching from the upstream STPresetEditor
+at commit `468e7cd` (the static, `localStorage`-only editor by Nativu5 and
+contributors). The upstream project's original progress document is preserved
+verbatim in [`legacy_progress.md`](./legacy_progress.md); this file tracks the
+fork's own work only.
+
 Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 
 ## Fix: nested-macro rendering + full macro coverage + custom autocomplete
