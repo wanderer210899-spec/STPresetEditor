@@ -92,23 +92,25 @@ and stay in sync across devices.
 
 It is **self-hostable and secret-free**: anyone who forks this repo can deploy
 their own private instance in minutes. No keys or deployment-specific ids are
-committed. Each user signs in with their **own** identity through Cloudflare
-Access, and every user's library is isolated to them — even if one instance is
-shared by several people.
+committed — each deployer gets their **own** Worker, their **own** storage, and
+sets their **own** password. Two people who deploy the fork never share data.
 
 ### How it works
 
 ```
-Cloudflare Access  (each user signs in as themselves)
-  └─ Cloudflare Worker  (https://<name>.<you>.workers.dev)
-       ├─ serves the built SPA  (via the ASSETS binding)
-       └─ /api/presets  GET/PUT  ──►  Cloudflare KV   key: user:<email>
-                                      (one isolated library per signed-in user)
+Browser (the app)  ──►  Cloudflare Worker  (https://<name>.<you>.workers.dev)
+                          ├─ serves the built SPA            (ASSETS binding)
+                          └─ /api/presets  GET/PUT  ──►  Cloudflare KV
+                                 authenticated by EITHER
+                                   • a shared passphrase       → key: shared
+                                   • a Cloudflare Access email → key: user:<email>
+                                 no identity ⇒ 401, the app stays local-only
 ```
 
 - `worker/index.js` — the Worker: serves the built app **and** the GET/PUT API.
-  Authenticates every request via Cloudflare Access and stores each user's library
-  under its own key. Fails closed (401) when there is no verified identity.
+  Authenticates each request via **a passphrase** (the `SYNC_PASSWORD` secret) **or
+  Cloudflare Access**, and stores each identity's library under its own KV key.
+  Fails closed (401) when there is no verified identity.
 - `wrangler.jsonc` — Worker config. Committed and secret-free: the KV namespace has
   no id, so Cloudflare **auto-provisions a fresh one for each deployer**.
 - `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
@@ -116,29 +118,17 @@ Cloudflare Access  (each user signs in as themselves)
   silently runs local-only, so `npm run dev` is unaffected.
 
 The toolbar shows a small dot: green = synced, amber = syncing, red = error,
-grey = local only.
+grey = local only. The **Settings** dialog footer shows the deployed build commit.
 
-### Deploy your own private instance
+### 1. Deploy your own instance
 
 **One click** —
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wanderer210899-spec/STPresetEditor)
 
-1. Click the button and sign in to Cloudflare. It copies this repo into **your**
-   GitHub account, **auto-creates your KV namespace**, builds, and deploys your
-   Worker at `https://<name>.<you>.workers.dev`.
-   _(The button deploys the repo's **default branch**, and the repo must be
-   **public** for the button to work.)_
-2. **Turn on authentication — required.** In the dashboard open your new Worker →
-   **Settings** → enable **Cloudflare Access for workers.dev** (one click; it sets
-   up free Zero Trust if needed). Then edit the auto-created Access policy to allow
-   only the email(s) you choose:
-   - just **your own** email → a private, single-user instance, or
-   - several emails / an identity provider → a shared instance where each person
-     still gets their own isolated library.
-
-   Sign-in works out of the box via one-time email PIN; Google/GitHub can be added
-   under *Zero Trust → Settings → Authentication*.
-3. Open the URL on your phone and PC, sign in, and import a preset — it now syncs.
+Sign in to Cloudflare; it copies this repo into **your** GitHub account,
+**auto-creates your KV namespace**, builds, and deploys your Worker at
+`https://<name>.<you>.workers.dev`. _(The button deploys the repo's **default
+branch**, and the repo must be **public** for the button to work.)_
 
 **From the CLI instead:**
 
@@ -148,13 +138,37 @@ npm install
 npm run deploy        # builds, then `wrangler deploy` (auto-provisions KV)
 ```
 
-Then do step 2 to enable Access. To test the synced API locally without Access,
-run `npm run cf-preview` with a git-ignored `.dev.vars` file containing
-`LOCAL_DEV_EMAIL=you@example.com`.
+### 2. Turn on authentication — required (pick one)
 
-> **No public window:** with no Cloudflare Access identity the API fails closed and
-> the app runs **local-only**, so your presets are never exposed before Access is
-> set up. Cloud sync switches on the moment Access is in place.
+Until you do this, the API fails closed (401) and the app runs **local-only**, so
+your presets are never exposed.
+
+**Option A — Passphrase (simplest, recommended):**
+
+```bash
+npx wrangler secret put SYNC_PASSWORD     # then type your chosen passphrase
+```
+
+On each device, open the app → **Settings → Cloud sync**, enter the **same**
+passphrase, and click **Connect**. Every device that knows the passphrase shares
+one private library. Change it anytime by re-running the command — your data is
+kept, because the passphrase only unlocks access (it is not the storage key).
+
+**Option B — Cloudflare Access (email-based, per-user isolation):**
+
+In the dashboard open your Worker → **Settings** → enable **Cloudflare Access for
+workers.dev** (sets up free Zero Trust if needed), then edit the Access policy to
+allow only the email(s) you choose. Each signed-in email gets its **own** isolated
+library. Sign-in works via one-time email PIN; Google/GitHub can be added under
+*Zero Trust → Settings → Authentication*.
+
+### 3. Sync
+
+Open the URL on your phone and PC, authenticate the same way on each, and import a
+preset — it now syncs both ways.
+
+> To test the synced API locally without auth, run `npm run cf-preview` with a
+> git-ignored `.dev.vars` file containing `LOCAL_DEV_EMAIL=you@example.com`.
 
 > **Not on Cloudflare?** `npm run build` still produces a static `dist/` you can host
 > anywhere (GitHub Pages, Netlify, Vercel) — it just runs in local-only mode.
