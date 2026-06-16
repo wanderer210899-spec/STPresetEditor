@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
-import { VAR_MACRO_NAMES, classifyMacro } from '../utils/macros';
+import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
 
 /**
  * Holders for the in-app confirmation dialog's callbacks. Kept out of reactive
@@ -29,19 +29,37 @@ export const SYNC_DATA_PATHS = [
   'savedPresets',
   'currentPresetId',
   'defaultPresetId',
+  'customMacros',
+  'customWraps',
+];
+
+/**
+ * Seed set of wrapping/paired autocomplete snippets. Users can add their own and
+ * delete these from Settings. `open`/`close` are inserted around the caret (or
+ * the current selection). Kept as a factory so a fresh copy is used on reset.
+ * @returns {{ label: string, open: string, close: string, hint: string }[]}
+ */
+export const defaultCustomWraps = () => [
+  { label: 'HTML comment', open: '<!-- ', close: ' -->', hint: 'comment ignored by the model' },
+  { label: 'Block comment', open: '{{// ', close: ' /// }}', hint: 'multi-line ST comment' },
+  { label: 'if … /if', open: '{{if }}', close: '{{/if}}', hint: 'conditional block' },
+  { label: 'XML example', open: '<example>\n', close: '\n</example>', hint: 'wrap an example' },
 ];
 
 /**
  * @typedef {object} MacroData
  * @property {string} id - A unique identifier for this specific macro instance, e.g., "promptId-charIndex".
  * @property {string} full - The full, original macro string, e.g., "{{setvar::x::10}}".
+ * @property {number} [start] - Start offset of `full` within the prompt content.
+ * @property {number} [end] - End offset (exclusive) of `full` within the prompt content.
  * @property {string} type - The parsed type of the macro, e.g., "setvar", "getvar", "comment", "random".
  * @property {string|null} varName - The variable name, if applicable (variable macros).
  * @property {string|null} value - The value being set, if applicable (set/add macros).
  * @property {string[]} params - An array of parameters for other macro types like "random::a::b".
  * @property {'local'|'global'|null} [scope] - Variable scope for variable macros.
  * @property {'get'|'set'|'mutate'|null} [kind] - Whether the variable macro reads, writes, or both.
- * @property {string|null} [op] - Normalised variable operation (get/set/add/sub/inc/dec/setIfNull/setIfFalsy).
+ * @property {string|null} [op] - Normalised variable operation (get/set/add/sub/inc/dec/setIfNull/setIfFalsy/has/delete/control).
+ * @property {string[]} [refs] - Variable names referenced inside a conditional/nested macro.
  */
 
 /**
@@ -145,6 +163,10 @@ export const usePresetStore = defineStore('preset', {
 
     // User preferences
     skipDeleteConfirmation: false, // Whether to skip delete confirmation dialog
+
+    // Custom autocomplete dictionary (additive; persisted + synced)
+    customMacros: [], // Array<{ name, hint }> — extra {{name}} macros for the {{ menu
+    customWraps: defaultCustomWraps(), // Array<{ label, open, close, hint }> — paired notations
 
     // Preset management
     savedPresets: {}, // Object containing saved presets: { presetId: { name, data, createdAt, updatedAt } }
@@ -596,28 +618,22 @@ export const usePresetStore = defineStore('preset', {
       });
 
       // --- Pass 1: Parse macros only for prompts currently in the order ---
-      const macroRegex = /{{\s*(.*?)\s*}}/gs;
+      // tokenizeMacros balances nested braces, so a macro whose value contains
+      // another macro (or XML, or spans lines) is captured whole.
       this.promptOrder.forEach((promptId) => {
         /** @type {PartialPrompt} */
         const prompt = this.prompts[promptId];
         if (!prompt) return;
 
-        /** @type {MacroData[]} */
-        const macros = [];
         const content = prompt.content || '';
-        let match;
-        while ((match = macroRegex.exec(content)) !== null) {
-          const fullMatch = match[0];
-          const innerContent = match[1].trim();
-
-          /** @type {MacroData} */
-          const macroData = {
-            id: `${prompt.id}-${match.index}`,
-            full: fullMatch,
-            ...classifyMacro(innerContent),
-          };
-          macros.push(macroData);
-        }
+        /** @type {MacroData[]} */
+        const macros = tokenizeMacros(content).map((token) => ({
+          id: `${prompt.id}-${token.start}`,
+          full: token.full,
+          start: token.start,
+          end: token.end,
+          ...classifyMacro(token.inner),
+        }));
 
         prompt.macros = macros; // Attach parsed macros
       });
@@ -649,11 +665,24 @@ export const usePresetStore = defineStore('preset', {
       const subValues = (prev, delta) => String((parseFloat(prev) || 0) - (parseFloat(delta) || 0));
 
       executionFlowMacros.forEach((macro) => {
-        // Only variable macros (get/set/add/inc/dec, local or global) participate.
+        const ownerPrompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
+        const ownerEnabled = ownerPrompt?.enabled !== false;
+
+        // Variables read inside conditionals / nested macros (e.g. {{if .flag}})
+        // count as references so they are not flagged unresolved.
+        if (macro.refs && macro.refs.length && ownerPrompt) {
+          macro.refs.forEach((refName) => {
+            allVarNames.add(refName);
+            if (!references[refName]) references[refName] = [];
+            references[refName].push({ promptId: ownerPrompt.id, enabled: ownerEnabled });
+          });
+        }
+
+        // Only variable macros (get/set/add/inc/dec/has/delete) participate below.
         if (!macro.varName || !macro.kind) return;
 
         allVarNames.add(macro.varName);
-        const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
+        const prompt = ownerPrompt;
         const enabled = prompt.enabled !== false;
         const refInfo = { promptId: prompt.id, enabled };
 
@@ -671,12 +700,19 @@ export const usePresetStore = defineStore('preset', {
 
         // Simulation: only enabled prompts mutate the simulated state.
         if (macro.kind === 'get') {
-          newSnapshots[macro.id] = currentVarState[macro.varName];
+          // hasvar/hasglobalvar report existence rather than the stored value.
+          newSnapshots[macro.id] =
+            macro.op === 'has'
+              ? String(currentVarState[macro.varName] !== undefined)
+              : currentVarState[macro.varName];
         } else if (enabled) {
           const prev = currentVarState[macro.varName];
           switch (macro.op) {
             case 'set':
               currentVarState[macro.varName] = macro.value;
+              break;
+            case 'delete':
+              delete currentVarState[macro.varName];
               break;
             case 'add':
               currentVarState[macro.varName] = addValues(prev, macro.value);
@@ -912,6 +948,56 @@ export const usePresetStore = defineStore('preset', {
       }
       return true;
     },
+
+    // --- Custom autocomplete dictionary (additive; persisted + synced) ---
+
+    /**
+     * Add a custom `{{name}}` macro to the autocomplete catalog.
+     * @param {{ name: string, hint?: string }} entry
+     * @returns {boolean} whether it was added
+     */
+    addCustomMacro({ name, hint = '' }) {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return false;
+      if (this.customMacros.some((m) => m.name === trimmed)) {
+        this.showToast(this.t('settings.autocomplete.duplicateMacro'), 'error');
+        return false;
+      }
+      this.customMacros.push({ name: trimmed, hint: (hint || '').trim() });
+      return true;
+    },
+    removeCustomMacro(name) {
+      this.customMacros = this.customMacros.filter((m) => m.name !== name);
+    },
+
+    /**
+     * Add a wrapping/paired notation (e.g. `<!-- … -->`).
+     * @param {{ label?: string, open: string, close?: string, hint?: string }} entry
+     * @returns {boolean} whether it was added
+     */
+    addCustomWrap({ label = '', open, close = '', hint = '' }) {
+      const o = open || '';
+      if (!o.trim() && !label.trim()) return false;
+      this.customWraps.push({
+        label: (label || '').trim() || o.trim(),
+        open: o,
+        close: close || '',
+        hint: (hint || '').trim(),
+      });
+      return true;
+    },
+    removeCustomWrap(index) {
+      if (index >= 0 && index < this.customWraps.length) {
+        this.customWraps.splice(index, 1);
+      }
+    },
+
+    /** Restore the seed wrapping pairs and clear custom macros. */
+    resetCustomDictionary() {
+      this.customMacros = [];
+      this.customWraps = defaultCustomWraps();
+    },
+
     createNewPrompt() {
       const newId = window.crypto.randomUUID();
       const newPrompt = {
@@ -2037,6 +2123,8 @@ export const usePresetStore = defineStore('preset', {
       'savedPresets',
       'currentPresetId',
       'defaultPresetId',
+      'customMacros',
+      'customWraps',
     ],
     beforeRestore: () => {
       console.log('[Persistence] About to restore store from localStorage');

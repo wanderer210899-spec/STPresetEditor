@@ -90,14 +90,24 @@ Wire format between store and Worker: `{ updatedAt, data }`, where `data` is a
 ## Macro system (the core editor feature)
 
 The macro vocabulary lives in **`src/utils/macros.js`** — the single source of
-truth for parsing (`classifyMacro`), highlight categories (`getMacroCategory`),
-and the autocomplete catalog (`MACRO_CATALOG` / `VAR_MACRO_META`). It mirrors
-SillyTavern's current set: variable macros `get/set/add/inc/dec` **and** their
-`global` variants, plus identity/chat/time/utility macros. It also parses the
-**Macros 2.0 shorthand** — `{{.name}}` (local) / `{{$name}}` (global) with
-`=` `+=` `-=` `++` `--` `??=` `||=` — into the same `{ kind, op, scope }` shape,
-so analysis/preview/highlight/rename treat shorthand and `::` forms identically.
-**Add new macros here**, not inline in components.
+truth for **tokenizing** (`tokenizeMacros`), parsing (`classifyMacro`), highlight
+categories (`getMacroCategory` / `categoryOf`), and the autocomplete catalog
+(`MACRO_CATALOG` / `VAR_MACRO_META`). It mirrors SillyTavern's current set:
+variable macros `get/set/add/inc/dec/has/delete` **and** their `global` variants,
+flow-control blocks (`{{if}}`/`{{else}}`/`{{/if}}`, category `control`), plus
+identity/chat/time/utility macros. It also parses the **Macros 2.0 shorthand** —
+`{{.name}}` (local) / `{{$name}}` (global) with `=` `+=` `-=` `++` `--` `??=`
+`||=` — into the same `{ kind, op, scope }` shape, so analysis/preview/highlight/
+rename treat shorthand and `::` forms identically. **Add new macros here**, not
+inline in components.
+
+**Tokenizing is brace-balanced** (`tokenizeMacros`): a macro whose value contains
+a nested `{{...}}` (e.g. `{{.genre = …{{char}}…}}`), spans multiple lines, or
+holds XML is captured whole; escaped `\{\{`/`\}\}` are literal; an unclosed `{{`
+is not a macro. It returns `{ start, end, full, inner }` and is the only `{{...}}`
+scanner — never re-introduce a `/{{.*?}}/` regex (it stops at the first inner
+`}}`). Each `MacroData` carries `start`/`end` so `PromptCard` slices content by
+offset rather than `indexOf`.
 
 `analyzeAllMacros()` in `presetStore.js` is the analysis engine. Guiding rule:
 **only prompts currently in `promptOrder` are analysed** (hidden prompts are
@@ -123,6 +133,15 @@ Runs on every structural edit; debounced (300ms) for content typing via
 `analyzeAllMacrosDebounced`. Two display modes via `macroDisplayMode`: `raw`
 (highlighted source) and `preview` (get → value; write/comment/noop hidden).
 
+**Custom autocomplete dictionary:** users extend the catalog from Settings —
+`customMacros` (`{{name}}` snippets) and `customWraps` (paired notations like
+`<!-- … -->`, seeded by `defaultCustomWraps()`). Both are **additive**, persisted,
+**and synced** (added to `persist.paths` + `SYNC_DATA_PATHS`); store actions live
+in `presetStore.js`, the editing UI in `SettingsModal.vue`. The textarea merges
+`customMacros` into the `{{` menu and exposes **Ctrl+Space** to open a snippet
+menu (wraps first) that wraps the current selection or drops the caret between
+`open`/`close`.
+
 **Writing prompts:** `MacroAutocompleteTextarea.vue` provides the `{{`
 autocomplete (macro names, then variable names after a variable macro's `::`).
 It backs both the inline details textarea and the distraction-free **focus
@@ -145,8 +164,9 @@ expand button / double-click, or the right pane's Expand; state:
 - All preset data, prompt CRUD, ordering, macro analysis, saved presets,
   batch-replace, i18n `t()`, persistence, confirm/toast services, focus-editor
   state → `src/stores/presetStore.js`
-- Macro vocabulary: parse/classify, highlight categories, autocomplete catalog →
-  `src/utils/macros.js`
+- Macro vocabulary: brace-balanced `tokenizeMacros`, parse/classify
+  (incl. conditionals + shorthand), highlight categories, autocomplete catalog,
+  `defaultCustomWraps()` → `src/utils/macros.js`
 - Caret pixel coordinates (for the autocomplete dropdown) → `src/utils/caret.js`
 - Cloud-sync behaviour → `src/stores/cloudSync.js`
 - Sync status + passphrase state → `src/stores/syncStore.js`
@@ -166,7 +186,8 @@ expand button / double-click, or the right pane's Expand; state:
   double-click-to-edit, renders content) → `src/components/MainEditor/PromptCard.vue`
 - Rendering one macro (raw vs preview, category highlight, click-to-find) → `src/components/MainEditor/MacroRenderer.vue`
 - Batch find/replace + prefix/suffix/serial UI (calls `batchReplaceText`) → `src/components/MainEditor/BatchReplaceModal.vue`
-- `{{` macro + variable autocomplete `<textarea>` (used here and in modals) → `src/components/MacroAutocompleteTextarea.vue`
+- `{{` macro + variable autocomplete `<textarea>` (incl. custom macros and the
+  **Ctrl+Space** wrap/snippet menu; used here and in modals) → `src/components/MacroAutocompleteTextarea.vue`
 - Distraction-free content-only writer (autocomplete, editable name, no identifier) → `src/components/FocusEditorModal.vue`
 
 **Right pane — details / variables**
@@ -187,8 +208,8 @@ expand button / double-click, or the right pane's Expand; state:
 - Toast notifications, store-driven (replaces `alert`) → `src/components/ToastHost.vue`
 - Import JSON → `src/components/JsonImportModal.vue`
 - Export JSON → `src/components/JsonExportModal.vue`
-- Settings (language, **cloud-sync passphrase**, delete-confirm, factory reset,
-  build stamp) → `src/components/SettingsModal.vue`
+- Settings (language, **cloud-sync passphrase**, delete-confirm, **autocomplete
+  dictionary**, factory reset, build stamp) → `src/components/SettingsModal.vue`
 - Saved-preset manager (search/sort/multi-select CRUD) → `src/components/PresetManagerModal.vue`
 - Thin `MacroDetails` expand wrapper bound to `isDetailsModalOpen` → `src/components/DetailsModal.vue`
 

@@ -83,6 +83,7 @@ const CATEGORY_STYLES = {
   random: 'bg-purple-100 text-purple-700 hover:bg-purple-200',
   identity: 'bg-amber-100 text-amber-700 hover:bg-amber-200',
   time: 'bg-teal-100 text-teal-700 hover:bg-teal-200',
+  control: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200',
   comment: 'text-gray-500 italic',
   noop: 'bg-gray-100 text-gray-500',
   unknown: 'bg-gray-200 text-gray-800',

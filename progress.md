@@ -2,6 +2,30 @@
 
 Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 
+## Fix: nested-macro rendering + full macro coverage + custom autocomplete
+
+Macros whose value contained a nested `{{...}}` (e.g. `{{.genre = …{{char}}…}}`)
+or `{{.pov = <pov>…{{user}}…</pov>}}` rendered broken: the old non-greedy
+`/{{.*?}}/` tokenizer stopped at the inner macro's `}}`, dumping the rest of the
+value as plain text.
+
+- **Brace-balanced tokenizer** (`tokenizeMacros` in `src/utils/macros.js`) now
+  captures each `{{...}}` whole — across nesting, multiple lines and XML — treats
+  `\{\{`/`\}\}` as literal, and ignores unclosed `{{`. `analyzeAllMacros` and
+  `PromptCard` use the returned `start`/`end` offsets (no more `indexOf`).
+- **Full macro coverage** vs. the SillyTavern docs: flow-control blocks
+  (`{{if}}`/`{{else}}`/`{{/if}}`, new `control` highlight) with variable
+  references extracted from conditions; `hasvar`/`deletevar` (+global); block
+  flags (`#`/`!`/`?`/`~`/`>`) and scoped closing tags (`{{/setvar}}`); the legacy
+  single-colon argument form; and a much larger `MACRO_CATALOG` (instruct/
+  reasoning/state/chat macros, `space`, `summary`, …).
+- **Custom autocomplete dictionary** (Settings → Autocomplete dictionary):
+  additive, persisted **and synced** `customMacros` (`{{name}}` snippets) and
+  `customWraps` (paired notations such as `<!-- … -->`, seeded by
+  `defaultCustomWraps()`). The `{{` menu includes custom macros; **Ctrl+Space**
+  opens a snippet menu (wraps first) that surrounds the selection or drops the
+  caret between `open`/`close`.
+
 ## Fix: Macros 2.0 variable shorthand
 
 SillyTavern's new shorthand (`{{.name}}` local, `{{$name}}` global) wasn't

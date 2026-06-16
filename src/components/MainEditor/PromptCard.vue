@@ -324,8 +324,13 @@ const contentParts = computed(() => {
   let lastIndex = 0;
 
   macros.forEach((macro) => {
-    const macroStartIndex = content.indexOf(macro.full, lastIndex);
+    // Prefer the exact offsets captured by the tokenizer (robust to nested /
+    // duplicate macro text); fall back to indexOf for any legacy macro data.
+    const macroStartIndex =
+      typeof macro.start === 'number' ? macro.start : content.indexOf(macro.full, lastIndex);
     if (macroStartIndex === -1) return; // Should not happen
+    const macroEndIndex =
+      typeof macro.end === 'number' ? macro.end : macroStartIndex + macro.full.length;
 
     // Add text part before the macro
     if (macroStartIndex > lastIndex) {
@@ -345,7 +350,7 @@ const contentParts = computed(() => {
       parts.push({ isMacro: true, macroData: macro });
     }
 
-    lastIndex = macroStartIndex + macro.full.length;
+    lastIndex = macroEndIndex;
   });
 
   // Add remaining text part after the last macro

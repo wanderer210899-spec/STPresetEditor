@@ -87,9 +87,20 @@ function closeMenu() {
   context = null;
 }
 
+function macroCatalog() {
+  // Built-in catalog plus the user's custom {{name}} macros (additive).
+  const custom = (store.customMacros || []).map((m) => ({
+    name: m.name,
+    hint: m.hint || 'custom macro',
+    insert: 'plain',
+  }));
+  return [...MACRO_CATALOG, ...custom];
+}
+
 function macroSuggestions(query) {
   const q = query.toLowerCase();
-  return MACRO_CATALOG.filter((m) => m.name.toLowerCase().includes(q))
+  return macroCatalog()
+    .filter((m) => m.name.toLowerCase().includes(q))
     .sort((a, b) => {
       const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
       const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
@@ -97,6 +108,28 @@ function macroSuggestions(query) {
     })
     .slice(0, MAX_SUGGESTIONS)
     .map((m) => ({ value: m.name, label: m.name, hint: m.hint, insert: m.insert }));
+}
+
+// Ctrl+Space snippet menu: custom wrapping pairs first, then macros — matched
+// against the non-whitespace word before the caret.
+function snippetSuggestions(query) {
+  const q = query.toLowerCase();
+  const wraps = (store.customWraps || []).map((w, idx) => ({
+    value: w.label || w.open,
+    label: w.label || w.open,
+    hint: w.hint || 'wrap',
+    wrap: w,
+    _i: idx,
+  }));
+  const macros = macroCatalog().map((m) => ({
+    value: m.name,
+    label: m.name,
+    hint: m.hint,
+    insert: m.insert,
+  }));
+  const match = (s) =>
+    !q || s.label.toLowerCase().includes(q) || (s.wrap && s.wrap.open.toLowerCase().includes(q));
+  return [...wraps.filter(match), ...macros.filter(match)].slice(0, MAX_SUGGESTIONS);
 }
 
 function varSuggestions(query) {
@@ -191,6 +224,34 @@ function computeContext() {
   closeMenu();
 }
 
+// Ctrl+Space: open a snippet menu (custom wraps + macros) for the current word,
+// preserving any active selection so a chosen wrap can surround it.
+function openSnippetMenu() {
+  const el = ta.value;
+  if (!el || props.readonly) return;
+  const selStart = el.selectionStart;
+  const selEnd = el.selectionEnd;
+  const hasSelection = selEnd > selStart;
+  // With a selection, wrap exactly it and show all snippets. With just a caret,
+  // replace the non-whitespace word being typed and filter the menu on it.
+  const word = hasSelection ? '' : (el.value.slice(0, selStart).match(/(\S*)$/) || ['', ''])[1];
+  const items = snippetSuggestions(word);
+  if (!items.length) {
+    closeMenu();
+    return;
+  }
+  context = {
+    mode: 'snippet',
+    start: hasSelection ? selStart : selStart - word.length,
+    end: selEnd,
+    selection: hasSelection ? el.value.slice(selStart, selEnd) : '',
+  };
+  suggestions.value = items;
+  activeIndex.value = 0;
+  open.value = true;
+  positionMenu(selEnd);
+}
+
 function accept(i) {
   const s = suggestions.value[i];
   const el = ta.value;
@@ -200,6 +261,36 @@ function accept(i) {
   const { start, end, mode } = context;
   let insertText = '';
   let caretOffset = 0;
+
+  if (mode === 'snippet') {
+    if (s.wrap) {
+      // Wrap the current selection (if any) with open…close, else drop the
+      // caret between them. Replaces the typed trigger word.
+      const inner = context.selection || '';
+      insertText = s.wrap.open + inner + s.wrap.close;
+      caretOffset = s.wrap.open.length + inner.length;
+    } else if (s.insert === 'args') {
+      insertText = `{{${s.value}}}`;
+      caretOffset = 2 + s.value.length;
+    } else if (s.insert === 'var1' || s.insert === 'var2') {
+      insertText = `{{${s.value}::`;
+      caretOffset = insertText.length;
+    } else {
+      insertText = `{{${s.value}}}`;
+      caretOffset = insertText.length;
+    }
+    const newValue = value.slice(0, start) + insertText + value.slice(end);
+    const caretPos = start + caretOffset;
+    emitValue(newValue);
+    closeMenu();
+    nextTick(() => {
+      el.value = newValue;
+      el.focus();
+      el.setSelectionRange(caretPos, caretPos);
+      if (props.autoGrow) adjustHeight();
+    });
+    return;
+  }
 
   if (mode === 'macro') {
     const name = s.value;
@@ -256,6 +347,12 @@ function onInput(event) {
 }
 
 function onKeydown(event) {
+  // Ctrl+Space opens the snippet menu (doc-aligned) regardless of current state.
+  if (event.ctrlKey && (event.code === 'Space' || event.key === ' ')) {
+    event.preventDefault();
+    openSnippetMenu();
+    return;
+  }
   if (!open.value || !suggestions.value.length) return;
   const len = suggestions.value.length;
   if (event.key === 'ArrowDown') {
