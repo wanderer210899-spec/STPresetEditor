@@ -9,6 +9,51 @@ description: 本文档总结了项目当前开发进度、已完成功能、技�
 
 ---
 
+## Fork: Private cloud sync (Cloudflare)
+
+**This fork started on 2026-06-15**, branching from the upstream STPresetEditor at
+commit `468e7cd` (the static, `localStorage`-only editor by Nativu5 and
+contributors). It adds **optional private cloud sync** on Cloudflare so the same
+prompt library is available across devices, while keeping the app fully working as
+a static, local-only SPA when no backend is configured.
+
+### What the fork added
+
+- **Cloudflare cloud-sync backend.** A single Worker (`worker/index.js`) serves the
+  built SPA *and* a small `/api/presets` GET/PUT API backed by Cloudflare KV.
+  Config lives in `wrangler.jsonc`.
+- **Client sync orchestration.** `src/stores/cloudSync.js` pulls on load and pushes
+  (debounced) on change; `src/stores/syncStore.js` holds sync status and the
+  passphrase. `localStorage` remains an offline cache and fallback.
+- **Self-hostable & secret-free.** No keys or KV ids in the repo; the KV namespace
+  auto-provisions per deployer, and each user's library is isolated by identity.
+  One-click "Deploy to Cloudflare" support.
+- **Two auth options.** Cloudflare Access (per-email isolation) **or** a shared
+  passphrase (`SYNC_PASSWORD` secret, sent as `X-Sync-Key`, constant-time
+  compared). No verified identity ⇒ 401, and the app stays local-only.
+- **Seamless multi-device load.** `src/main.js` reconciles with the cloud before
+  falling back to the bundled example, so a signed-in device never flashes the
+  factory example over a real library.
+- **Build/commit stamp** in Settings to confirm exactly which build is deployed.
+- **Docs.** Added `CLAUDE.md` (architecture + "to change X, edit Y" file routing)
+  and rewrote the README "Private cloud sync" section.
+
+### Fork commit history (most recent first)
+
+| Date | Commit | Change |
+| :--- | :----- | :----- |
+| 2026-06-16 | `7d12b76` | Consolidate dev docs into `CLAUDE.md`; document passphrase sync |
+| 2026-06-16 | `e8312e1` | Show deployed build/commit in Settings |
+| 2026-06-16 | `b822282` | Passphrase auth (works without Cloudflare Access) |
+| 2026-06-15 | `6c620a4` | Seamless cloud-first load on every device |
+| 2026-06-15 | `12b274c` | Convert hosting to Cloudflare Workers (one-click self-host) |
+| 2026-06-15 | `1f44858` | Make cloud sync self-hostable, per-user, secret-free |
+| 2026-06-15 | `61b8164` | Initial private Cloudflare cloud sync |
+
+> Everything below predates the fork and documents the base editor (in Chinese).
+
+---
+
 ## 一、软件需求与已完成功能
 
 本项目旨在开发一个纯前端的在线编辑工具，用于可视化地编辑和管理复杂的 `preset.json` 文件，核心目标是降低其维护难度。目前，应用已完成所有核心需求，提供了一个功能完整、体验流畅、界面美观的 Prompt 预设编辑与管理工具。
