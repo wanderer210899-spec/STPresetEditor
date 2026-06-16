@@ -6,9 +6,11 @@
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
 </div>
 
-A lightweight, user-friendly web editor for managing SillyTavern `preset.json` files efficiently, powered by Vue.js and Tailwind CSS.
+FORK of  https://github.com/Nativu5/STPresetEditor
 
-**🌐 Try it online:** [https://stpe.nativus.workers.dev/](https://stpe.nativus.workers.dev/)
+(I'm really sorry, I don't know how to use git... I'm a noob...please forgive me for the accidental pull requests I sent if u are reading this T_T)
+
+... am legit trying to add some features for personal use
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wanderer210899-spec/STPresetEditor)
 
