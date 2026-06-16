@@ -32,10 +32,12 @@
             >
               <!-- Header -->
               <div
-                v-if="title || $slots['header-actions']"
+                v-if="title || $slots.title || $slots['header-actions']"
                 class="flex items-center justify-between gap-3 border-b border-gray-200 px-6 py-4"
               >
-                <DialogTitle as="h3" class="section-title">{{ title }}</DialogTitle>
+                <DialogTitle as="h3" class="section-title min-w-0 flex-1">
+                  <slot name="title">{{ title }}</slot>
+                </DialogTitle>
                 <div class="flex items-center gap-2">
                   <slot name="header-actions" />
                   <button

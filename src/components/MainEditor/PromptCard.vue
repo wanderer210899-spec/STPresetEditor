@@ -49,6 +49,14 @@
         </button>
       </div>
       <div class="flex flex-shrink-0 items-center gap-1">
+        <!-- Open the distraction-free focus editor for this prompt -->
+        <button
+          class="btn-icon btn-icon-sm"
+          :title="store.t('promptCard.expandEditor')"
+          @click.stop="store.openFocusEditor(prompt.id)"
+        >
+          <ArrowsPointingOutIcon class="h-4 w-4" />
+        </button>
         <!-- Role selector -->
         <Menu as="div" class="relative inline-block text-left">
           <MenuButton class="btn-icon btn-icon-sm" :title="roleTitle" @click.stop>
@@ -189,11 +197,13 @@
         </Menu>
       </div>
     </div>
-    <!-- Text -->
+    <!-- Text (double-click to open the focus editor) -->
     <div
       v-show="!finalCollapsedState"
       class="px-8 text-sm whitespace-pre-wrap"
       :class="{ 'text-gray-600': !isEnabled }"
+      :title="store.t('promptCard.expandEditor')"
+      @dblclick.stop="store.openFocusEditor(prompt.id)"
     >
       <template v-for="(part, index) in contentParts" :key="index">
         <MacroRenderer
@@ -211,6 +221,7 @@
 import { Menu, MenuButton, MenuItem, MenuItems, Switch } from '@headlessui/vue';
 import {
   ArrowDownCircleIcon,
+  ArrowsPointingOutIcon,
   ArrowUpCircleIcon,
   ChatBubbleOvalLeftIcon,
   ChevronDownIcon,
@@ -223,6 +234,7 @@ import {
 } from '@heroicons/vue/20/solid';
 import { computed, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { getMacroCategory } from '../../utils/macros';
 import MacroRenderer from './MacroRenderer.vue';
 
 // Define component props
@@ -322,10 +334,10 @@ const contentParts = computed(() => {
 
     // Add the macro part, applying mode logic
     if (mode === 'preview') {
-      if (macro.type === 'setvar' || macro.type === 'comment') {
-        // Hide these macros in preview mode
-      } else {
-        // For getvar and others, pass the macro object to the renderer
+      // In preview, macros that produce no output (set/add/inc/dec, comments,
+      // noop/newline/trim) are hidden; value-returning and other macros render.
+      const category = getMacroCategory(macro.type);
+      if (category !== 'write' && category !== 'comment' && category !== 'noop') {
         parts.push({ isMacro: true, macroData: macro });
       }
     } else {

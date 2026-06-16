@@ -1,6 +1,7 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
+import { VAR_MACRO_NAMES, classifyMacro } from '../utils/macros';
 
 /**
  * Holders for the in-app confirmation dialog's callbacks. Kept out of reactive
@@ -35,9 +36,11 @@ export const SYNC_DATA_PATHS = [
  * @property {string} id - A unique identifier for this specific macro instance, e.g., "promptId-charIndex".
  * @property {string} full - The full, original macro string, e.g., "{{setvar::x::10}}".
  * @property {string} type - The parsed type of the macro, e.g., "setvar", "getvar", "comment", "random".
- * @property {string|null} varName - The variable name, if applicable (for "setvar" and "getvar").
- * @property {string|null} value - The value being set, if applicable (for "setvar").
+ * @property {string|null} varName - The variable name, if applicable (variable macros).
+ * @property {string|null} value - The value being set, if applicable (set/add macros).
  * @property {string[]} params - An array of parameters for other macro types like "random::a::b".
+ * @property {'local'|'global'|null} [scope] - Variable scope for variable macros.
+ * @property {'get'|'set'|'mutate'|null} [kind] - Whether the variable macro reads, writes, or both.
  */
 
 /**
@@ -110,6 +113,7 @@ export const usePresetStore = defineStore('preset', {
     isDetailsModalOpen: false, // Whether details modal is visible
     isSettingsModalOpen: false, // Whether settings modal is visible
     isBatchReplaceModalOpen: false, // Whether batch replace modal is visible
+    focusEditorPromptId: null, // Prompt being edited in the distraction-free focus editor
 
     // In-app confirmation dialog (replaces native window.confirm)
     confirmState: {
@@ -609,26 +613,8 @@ export const usePresetStore = defineStore('preset', {
           const macroData = {
             id: `${prompt.id}-${match.index}`,
             full: fullMatch,
-            type: 'unknown',
-            varName: null,
-            value: null,
-            params: [],
+            ...classifyMacro(innerContent),
           };
-          if (innerContent.startsWith('//')) {
-            macroData.type = 'comment';
-          } else if (innerContent.startsWith('setvar::')) {
-            const parts = innerContent.substring('setvar::'.length).split('::');
-            macroData.type = 'setvar';
-            macroData.varName = parts[0]?.trim() || null;
-            macroData.value = parts[1]?.trim() || null;
-          } else if (innerContent.startsWith('getvar::')) {
-            macroData.type = 'getvar';
-            macroData.varName = innerContent.substring('getvar::'.length).trim();
-          } else {
-            const [type, ...params] = innerContent.split('::').map((p) => p.trim());
-            macroData.type = type || 'unknown';
-            macroData.params = params;
-          }
           macros.push(macroData);
         }
 
@@ -650,29 +636,53 @@ export const usePresetStore = defineStore('preset', {
         (promptId) => this.prompts[promptId]?.macros || [],
       );
 
-      executionFlowMacros.forEach((macro) => {
-        // Static analysis part: build full definition/reference maps
-        if (macro.varName) {
-          allVarNames.add(macro.varName);
-          const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
-          const refInfo = { promptId: prompt.id, enabled: prompt.enabled !== false };
+      // Numeric add when both sides parse as numbers, else string concatenation
+      // (mirrors SillyTavern's addvar behaviour).
+      const addValues = (prev, delta) => {
+        const a = parseFloat(prev);
+        const b = parseFloat(delta);
+        if (!Number.isNaN(a) && !Number.isNaN(b)) return String(a + b);
+        return `${prev ?? ''}${delta ?? ''}`;
+      };
+      const stepValue = (prev, step) => String((parseFloat(prev) || 0) + step);
 
-          if (macro.type === 'setvar') {
-            if (!definitions[macro.varName]) definitions[macro.varName] = [];
-            definitions[macro.varName].push(refInfo);
-          } else if (macro.type === 'getvar') {
-            if (!references[macro.varName]) references[macro.varName] = [];
-            references[macro.varName].push(refInfo);
-          }
+      executionFlowMacros.forEach((macro) => {
+        // Only variable macros (get/set/add/inc/dec, local or global) participate.
+        if (!macro.varName || !macro.kind) return;
+
+        allVarNames.add(macro.varName);
+        const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
+        const enabled = prompt.enabled !== false;
+        const refInfo = { promptId: prompt.id, enabled };
+
+        // set/add/inc/dec define (assign); get/add/inc/dec reference (read).
+        const writes = macro.kind === 'set' || macro.kind === 'mutate';
+        const reads = macro.kind === 'get' || macro.kind === 'mutate';
+        if (writes) {
+          if (!definitions[macro.varName]) definitions[macro.varName] = [];
+          definitions[macro.varName].push(refInfo);
+        }
+        if (reads) {
+          if (!references[macro.varName]) references[macro.varName] = [];
+          references[macro.varName].push(refInfo);
         }
 
-        // Simulation part: update state only if the parent prompt is enabled
-        if (macro.type === 'setvar') {
-          const prompt = this.prompts[macro.id.split('-').slice(0, -1).join('-')];
-          if (prompt.enabled !== false) {
+        // Simulation: only enabled prompts mutate the simulated state.
+        if (macro.kind === 'get') {
+          newSnapshots[macro.id] = currentVarState[macro.varName];
+        } else if (enabled) {
+          if (macro.type === 'setvar' || macro.type === 'setglobalvar') {
             currentVarState[macro.varName] = macro.value;
+          } else if (macro.type === 'addvar' || macro.type === 'addglobalvar') {
+            currentVarState[macro.varName] = addValues(currentVarState[macro.varName], macro.value);
+          } else if (macro.type === 'incvar' || macro.type === 'incglobalvar') {
+            currentVarState[macro.varName] = stepValue(currentVarState[macro.varName], 1);
+          } else if (macro.type === 'decvar' || macro.type === 'decglobalvar') {
+            currentVarState[macro.varName] = stepValue(currentVarState[macro.varName], -1);
           }
-        } else if (macro.type === 'getvar') {
+          if (macro.kind === 'mutate') newSnapshots[macro.id] = currentVarState[macro.varName];
+        } else if (macro.kind === 'mutate') {
+          // A disabled mutate still reports the value it would have read.
           newSnapshots[macro.id] = currentVarState[macro.varName];
         }
       });
@@ -857,14 +867,18 @@ export const usePresetStore = defineStore('preset', {
 
       const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\\]]/g, '\\$&');
       const oldNameEscaped = escapeRegExp(oldName);
-      const setvarRegex = new RegExp(`({{\\s*setvar\\s*::)${oldNameEscaped}(\\s*::.*?\\s*}})`, 'g');
-      const getvarRegex = new RegExp(`({{\\s*getvar\\s*::)${oldNameEscaped}(\\s*}})`, 'g');
+      // Match any variable macro (get/set/add/inc/dec, local or global) whose
+      // first argument is the old name; replace just the name, keep the rest.
+      const varMacroNames = VAR_MACRO_NAMES.join('|');
+      const renameRegex = new RegExp(
+        `({{\\s*(?:${varMacroNames})\\s*::\\s*)${oldNameEscaped}(\\s*(?:::|}}))`,
+        'g',
+      );
 
       for (const promptId in this.prompts) {
         const prompt = this.prompts[promptId];
         if (prompt.content) {
-          prompt.content = prompt.content.replace(setvarRegex, `$1${trimmedNewName}$2`);
-          prompt.content = prompt.content.replace(getvarRegex, `$1${trimmedNewName}$2`);
+          prompt.content = prompt.content.replace(renameRegex, `$1${trimmedNewName}$2`);
         }
       }
 
@@ -1119,6 +1133,16 @@ export const usePresetStore = defineStore('preset', {
     },
     closeBatchReplaceModal() {
       this.isBatchReplaceModalOpen = false;
+    },
+
+    // Distraction-free focus editor (a large, content-only writing surface)
+    openFocusEditor(promptId) {
+      if (!this.prompts[promptId]) return;
+      this.focusEditorPromptId = promptId;
+      this.selectPrompt(promptId);
+    },
+    closeFocusEditor() {
+      this.focusEditorPromptId = null;
     },
 
     // In-app confirmation dialog (replaces native window.confirm) ----------

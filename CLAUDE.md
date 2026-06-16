@@ -89,22 +89,42 @@ Wire format between store and Worker: `{ updatedAt, data }`, where `data` is a
 
 ## Macro system (the core editor feature)
 
-`analyzeAllMacros()` in `presetStore.js` is the engine. Guiding rule: **only
-prompts currently in `promptOrder` are analysed** (hidden prompts are ignored).
-Passes:
+The macro vocabulary lives in **`src/utils/macros.js`** — the single source of
+truth for parsing (`classifyMacro`), highlight categories (`getMacroCategory`),
+and the autocomplete catalog (`MACRO_CATALOG` / `VAR_MACRO_META`). It mirrors
+SillyTavern's current set: variable macros `get/set/add/inc/dec` **and** their
+`global` variants, plus identity/chat/time/utility macros. **Add new macros
+here**, not inline in components.
+
+`analyzeAllMacros()` in `presetStore.js` is the analysis engine. Guiding rule:
+**only prompts currently in `promptOrder` are analysed** (hidden prompts are
+ignored). Passes:
 
 1. Clear stale `prompt.macros`.
-2. Parse `{{...}}` in each ordered prompt into a `MacroData`
-   (`{ id, full, type, varName, value, params }`); `id = \`${promptId}-${matchIndex}\``.
-3. Walk the flattened execution flow: build definition/reference maps (static
-   analysis) **and** simulate values — a `setvar` only mutates the simulated
-   state when its prompt is `enabled`.
+2. Parse each `{{...}}` via `classifyMacro` into a `MacroData`
+   (`{ id, full, type, varName, value, params, scope, kind }`);
+   `id = \`${promptId}-${matchIndex}\``. `kind` is `get` (reads) / `set`
+   (assigns) / `mutate` (add/inc/dec — reads **and** writes).
+3. Walk the flattened execution flow: build definition/reference maps (`set` +
+   `mutate` define; `get` + `mutate` reference) **and** simulate values —
+   set/add/inc/dec only mutate the simulated state when the prompt is `enabled`.
 4. Aggregate into `variables`, `unresolvedVariables` (referenced-but-undefined),
    and `macroStateSnapshots` (each getvar's value at its execution point).
 
+Variables are tracked **by name** (local and global share a name bucket; each
+macro still carries its `scope` for highlighting/autocomplete). `renameVariable`
+rewrites every variable-macro form in one regex.
+
 Runs on every structural edit; debounced (300ms) for content typing via
 `analyzeAllMacrosDebounced`. Two display modes via `macroDisplayMode`: `raw`
-(highlighted source) and `preview` (getvar → value; setvar/comments hidden).
+(highlighted source) and `preview` (get → value; write/comment/noop hidden).
+
+**Writing prompts:** `MacroAutocompleteTextarea.vue` provides the `{{`
+autocomplete (macro names, then variable names after a variable macro's `::`).
+It backs both the inline details textarea and the distraction-free **focus
+editor** (`FocusEditorModal.vue`, content-only, opened from a prompt card's
+expand button / double-click, or the right pane's Expand; state:
+`focusEditorPromptId`).
 
 ## File routing — "to change X, edit Y"
 
@@ -119,7 +139,11 @@ Runs on every structural edit; debounced (300ms) for content typing via
 **State / logic (most business changes go here)**
 
 - All preset data, prompt CRUD, ordering, macro analysis, saved presets,
-  batch-replace, i18n `t()`, persistence → `src/stores/presetStore.js`
+  batch-replace, i18n `t()`, persistence, confirm/toast services, focus-editor
+  state → `src/stores/presetStore.js`
+- Macro vocabulary: parse/classify, highlight categories, autocomplete catalog →
+  `src/utils/macros.js`
+- Caret pixel coordinates (for the autocomplete dropdown) → `src/utils/caret.js`
 - Cloud-sync behaviour → `src/stores/cloudSync.js`
 - Sync status + passphrase state → `src/stores/syncStore.js`
 - Worker API / auth / KV access → `worker/index.js`
@@ -132,33 +156,44 @@ Runs on every structural edit; debounced (300ms) for content typing via
 
 **Middle pane — editor**
 
-- Ordered draggable list, editor search, batch toolbar → `src/components/MainEditor/EditorView.vue`
-- A single prompt card (role select, enable switch, menu, renders content) → `src/components/MainEditor/PromptCard.vue`
-- Rendering one macro (raw vs preview, highlight, click-to-find) → `src/components/MainEditor/MacroRenderer.vue`
+- Ordered draggable list, editor search, contextual batch toolbar, multi-select
+  toggle → `src/components/MainEditor/EditorView.vue`
+- A single prompt card (role select, enable switch, menus, expand/focus button,
+  double-click-to-edit, renders content) → `src/components/MainEditor/PromptCard.vue`
+- Rendering one macro (raw vs preview, category highlight, click-to-find) → `src/components/MainEditor/MacroRenderer.vue`
 - Batch find/replace + prefix/suffix/serial UI (calls `batchReplaceText`) → `src/components/MainEditor/BatchReplaceModal.vue`
+- `{{` macro + variable autocomplete `<textarea>` (used here and in modals) → `src/components/MacroAutocompleteTextarea.vue`
+- Distraction-free content-only writer (autocomplete, editable name, no identifier) → `src/components/FocusEditorModal.vue`
 
 **Right pane — details / variables**
 
 - Tab shell (Details ⇄ Variables) + batch-replace overlay → `src/components/RightSidebar/RightSidebar.vue`
 - Routes to prompt-details or macro-details by selection → `src/components/RightSidebar/DetailsView.vue`
-- Edit the selected prompt's fields → `src/components/RightSidebar/PromptDetails.vue`
+- Edit the selected prompt's fields (Expand opens the focus editor) → `src/components/RightSidebar/PromptDetails.vue`
+- Shared name/identifier/content fields (uses the autocomplete textarea) → `src/components/RightSidebar/PromptFields.vue`
 - A variable's definition/reference lists → `src/components/RightSidebar/MacroDetails.vue`
+- One defined/referenced list, shared by inline + modal → `src/components/RightSidebar/VariableUsageList.vue`
 - Variables tab: list, status icons, safe rename → `src/components/RightSidebar/VariableManager.vue`
 
-**Modals**
+**Modals** (all build on the shared shell)
 
+- Shared modal shell (Headless UI: transitions, focus-trap, Esc, title/footer
+  slots, `size`) → `src/components/BaseModal.vue`
+- In-app confirm dialog, store-driven (replaces `window.confirm`) → `src/components/ConfirmDialog.vue`
+- Toast notifications, store-driven (replaces `alert`) → `src/components/ToastHost.vue`
 - Import JSON → `src/components/JsonImportModal.vue`
 - Export JSON → `src/components/JsonExportModal.vue`
 - Settings (language, **cloud-sync passphrase**, delete-confirm, factory reset,
   build stamp) → `src/components/SettingsModal.vue`
 - Saved-preset manager (search/sort/multi-select CRUD) → `src/components/PresetManagerModal.vue`
-- Reusable dialog shell bound to `isDetailsModalOpen` → `src/components/DetailsModal.vue`
+- Thin `MacroDetails` expand wrapper bound to `isDetailsModalOpen` → `src/components/DetailsModal.vue`
 
 **Assets / config**
 
 - Default/example preset → `src/assets/example.json`
 - UI strings (en/zh), consumed by the `t()` getter → `src/assets/languages.json`
-- Global styles → `src/style.css`
+- Global styles **+ shared UI primitives** (`.btn`/`.btn-icon`/`.input`/
+  `.field-label`/`.section-title` in `@layer components`) → `src/style.css`
 - Build + version stamp (`VITE_APP_VERSION` from the git commit) → `vite.config.js`
 
 ## Conventions

@@ -47,7 +47,7 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
     </button>
 
     <!-- Desktop: Application Title -->
-    <h1 class="hidden text-xl font-bold text-gray-800 md:block">{{ store.t('app.title') }}</h1>
+    <h1 class="hidden text-base font-bold text-gray-800 md:block">{{ store.t('app.title') }}</h1>
 
     <!-- Mobile: Spacer to center the title -->
     <div class="flex-1 md:hidden"></div>
@@ -64,20 +64,20 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
       </div>
-      <button class="btn btn-secondary" @click="store.openImportModal()">
-        <ArrowDownTrayIcon class="h-5 w-5" />
+      <button class="btn btn-sm btn-secondary" @click="store.openImportModal()">
+        <ArrowDownTrayIcon class="h-4 w-4" />
         {{ store.t('toolbar.import') }}
       </button>
-      <button class="btn btn-secondary" @click="store.openExportModal()">
-        <ArrowUpTrayIcon class="h-5 w-5" />
+      <button class="btn btn-sm btn-secondary" @click="store.openExportModal()">
+        <ArrowUpTrayIcon class="h-4 w-4" />
         {{ store.t('toolbar.export') }}
       </button>
-      <button class="btn btn-secondary" @click="store.openPresetManager()">
-        <BookmarkIcon class="h-5 w-5" />
+      <button class="btn btn-sm btn-secondary" @click="store.openPresetManager()">
+        <BookmarkIcon class="h-4 w-4" />
         {{ store.t('toolbar.presets') }}
       </button>
-      <button class="btn btn-secondary" @click="store.isSettingsModalOpen = true">
-        <Cog6ToothIcon class="h-5 w-5" />
+      <button class="btn btn-sm btn-secondary" @click="store.isSettingsModalOpen = true">
+        <Cog6ToothIcon class="h-4 w-4" />
         {{ store.t('toolbar.settings') }}
       </button>
     </div>

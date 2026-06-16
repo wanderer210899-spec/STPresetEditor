@@ -71,6 +71,7 @@
             "selectedCount": "{selected}/{total} selected"
         },
         "promptCard": {
+            "expandEditor": "Open focus editor",
             "delete": "Delete",
             "deleteConfirm": "Are you sure you want to permanently delete \"{name}\"?",
             "deleteConfirmNote": "Note: You can choose to skip this confirmation in the future.",
@@ -129,6 +130,9 @@
             "identifier": "Identifier",
             "content": "Content",
             "expand": "Expand"
+        },
+        "focusEditor": {
+            "hint": "Type {{ for macro & variable suggestions"
         },
         "macroDetails": {
             "title": "Macro Details",
@@ -300,6 +304,7 @@
             "selectedCount": "已选 {selected}/{total}"
         },
         "promptCard": {
+            "expandEditor": "打开专注编辑器",
             "delete": "删除",
             "deleteConfirm": "您确定要永久删除 \"{name}\" 吗？",
             "deleteConfirmNote": "注意：您可以选择在将来跳过此确认。",
@@ -358,6 +363,9 @@
             "identifier": "标识符",
             "content": "内容",
             "expand": "展开"
+        },
+        "focusEditor": {
+            "hint": "输入 {{ 可获得宏与变量建议"
         },
         "macroDetails": {
             "title": "宏详情",

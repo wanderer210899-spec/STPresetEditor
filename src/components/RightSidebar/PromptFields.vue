@@ -31,26 +31,23 @@
         </label>
         <slot name="content-action" />
       </div>
-      <textarea
+      <MacroAutocompleteTextarea
         :id="`${idPrefix}-content`"
-        ref="contentTextarea"
-        :value="prompt.content"
-        :readonly="prompt.marker"
+        :model-value="prompt.content || ''"
         :rows="contentRows"
-        class="input font-mono"
-        :class="[
-          autoGrow ? 'resize-none overflow-hidden' : '',
-          prompt.marker ? 'cursor-not-allowed bg-gray-100' : '',
-        ]"
-        @input="onContentInput"
+        :readonly="!!prompt.marker"
+        :auto-grow="autoGrow"
+        :textarea-class="contentClass"
+        @update:model-value="update('content', $event)"
       />
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import MacroAutocompleteTextarea from '../MacroAutocompleteTextarea.vue';
 
 const props = defineProps({
   prompt: { type: Object, required: true },
@@ -66,29 +63,13 @@ const update = (field, value) => {
   store.updatePromptDetail({ promptId: props.prompt.id, field, value });
 };
 
-// Auto-grow logic for content textarea to remove the inner scrollbar
-const contentTextarea = ref(null);
-const adjustTextareaHeight = () => {
-  if (!props.autoGrow) return;
-  const el = contentTextarea.value;
-  if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
-};
-
-const onContentInput = (event) => {
-  update('content', event.target.value);
-  adjustTextareaHeight();
-};
-
-onMounted(() => {
-  adjustTextareaHeight();
-});
-
-watch(
-  () => props.prompt?.content,
-  () => {
-    adjustTextareaHeight();
-  },
+const contentClass = computed(() =>
+  [
+    'input font-mono',
+    props.autoGrow ? 'resize-none overflow-hidden' : '',
+    props.prompt.marker ? 'cursor-not-allowed bg-gray-100' : '',
+  ]
+    .filter(Boolean)
+    .join(' '),
 );
 </script>
