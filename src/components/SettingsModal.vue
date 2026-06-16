@@ -106,7 +106,10 @@
         
         <!-- Modal footer -->
         <div class="border-t border-gray-200 px-6 py-4">
-          <div class="flex justify-end">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400" title="Deployed build (commit)">
+              Build {{ appVersion }}
+            </span>
             <button
               class="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               @click="closeModal"
@@ -136,6 +139,8 @@ defineProps({
 
 const store = usePresetStore();
 const sync = useSyncStore();
+
+const appVersion = import.meta.env.VITE_APP_VERSION || 'dev';
 
 const syncKeyInput = ref(sync.syncKey || '');
 const connectSync = async () => {
