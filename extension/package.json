@@ -2,7 +2,7 @@
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
   "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional account-based cloud sync.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,7 @@
       },
       {
         "command": "stpe.pullFromCloud",
-        "title": "Pull preset from cloud",
+        "title": "Pull library from cloud",
         "category": "STPresetEditor",
         "icon": "$(cloud-download)"
       }

@@ -11,9 +11,11 @@
 //     (Settings → Cloud sync → generate a key). The key lives in VS Code
 //     SecretStorage (encrypted), never in the repo and never echoed to the
 //     webview. There is NO built-in endpoint: nothing is sent anywhere until the
-//     user pastes their own Worker URL + key. On edit it PUSHES the current
-//     preset with a safe read-merge-write that never touches the rest of the
-//     cloud library; "Pull preset from cloud" brings another device's edits down.
+//     user pastes their own Worker URL + key. The cloud is the central drive for
+//     the preset LIBRARY only (savedPresets + prefs) — the open file stays local.
+//     On connect (and on edit) it PUSHES the library with a safe read-merge-write
+//     that never touches the open file; on connect it also PULLS the cloud
+//     library down, and "Sync library" / cloudPullRequest re-pulls on demand.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
@@ -36,8 +38,8 @@ function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarPull = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   statusBarPull.command = 'stpe.pullFromCloud';
-  statusBarPull.text = '$(cloud-download) Pull preset';
-  statusBarPull.tooltip = 'Load the latest version of this preset from your cloud';
+  statusBarPull.text = '$(cloud-download) Sync library';
+  statusBarPull.tooltip = 'Pull the latest preset library from your cloud';
   context.subscriptions.push(statusBar, statusBarPull);
 
   // Load the stored API key (async) so cloud sync can resume without re-entry.
@@ -133,6 +135,8 @@ function handleMessage(message, panel, filePath) {
     case 'ready':
       sendLoad(panel, filePath);
       sendCloudState(panel);
+      // Bring the cloud library down automatically when already connected.
+      if (cloudConfigured()) pushCloudLibrary(panel);
       break;
     case 'save':
       handleSave(filePath, message.json);
@@ -153,6 +157,25 @@ function handleMessage(message, panel, filePath) {
         )
         .catch(() => panel.webview.postMessage({ type: 'cloudAck', ok: false }));
       break;
+    case 'cloudPullRequest':
+      pushCloudLibrary(panel);
+      break;
+  }
+}
+
+/** Fetch the cloud document and push its library down to the panel. No-op (with a
+ *  benign 'synced' ack) when nothing is stored yet. */
+async function pushCloudLibrary(panel) {
+  if (!cloudConfigured()) return;
+  try {
+    const doc = await cloudGet();
+    if (doc && doc.data && typeof doc.data === 'object') {
+      panel.webview.postMessage({ type: 'cloudPulled', data: doc.data, updatedAt: doc.updatedAt });
+    } else {
+      panel.webview.postMessage({ type: 'cloudPulled', data: null });
+    }
+  } catch {
+    panel.webview.postMessage({ type: 'cloudAck', ok: false });
   }
 }
 
@@ -343,6 +366,8 @@ async function handleConnect(panel, message) {
   });
   if (key && !apiBase()) nudgeForCloudUrl();
   refreshPullStatusBar();
+  // On a successful connect, immediately bring the cloud library down (two-way).
+  if (r.ok) pushCloudLibrary(panel);
 }
 
 async function handleDisconnect(panel) {
@@ -371,9 +396,10 @@ async function cloudGet() {
 }
 
 /**
- * Push the current preset to the cloud with a read-merge-write: fetch the
- * existing document and overlay ONLY the current-preset fields, so the rest of
- * the cloud library (savedPresets, prefs) is preserved untouched.
+ * Push the preset library to the cloud with a read-merge-write: fetch the
+ * existing document and overlay ONLY the library fields the webview sent
+ * (savedPresets + prefs), so the rest of the cloud document — e.g. the web app's
+ * active-area fields like rawJson — is preserved untouched.
  */
 async function cloudPush(data) {
   if (!cloudConfigured() || !data || typeof data !== 'object') return { ok: false };
@@ -394,7 +420,7 @@ async function cloudPush(data) {
   return { ok: res.status === 200, updatedAt };
 }
 
-/** Command: fetch the cloud preset and load it into the active editor. */
+/** Command: fetch the cloud library and apply it to the active editor's store. */
 async function pullFromCloud() {
   if (!activePanel) {
     vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
@@ -412,7 +438,7 @@ async function pullFromCloud() {
   }
   try {
     const doc = await cloudGet();
-    if (!doc || !doc.data || typeof doc.data.rawJson !== 'string') {
+    if (!doc || !doc.data || typeof doc.data !== 'object') {
       vscode.window.showInformationMessage('STPresetEditor: nothing saved in the cloud yet.');
       return;
     }
@@ -422,7 +448,7 @@ async function pullFromCloud() {
       updatedAt: doc.updatedAt,
     });
     vscode.window.showInformationMessage(
-      'STPresetEditor: pulled the latest preset from your cloud.',
+      'STPresetEditor: pulled the latest library from your cloud.',
     );
   } catch (error) {
     vscode.window.showErrorMessage(`STPresetEditor: cloud pull failed — ${error.message}`);

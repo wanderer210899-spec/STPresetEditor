@@ -12,11 +12,12 @@
 // host to connect/validate and learns the result ("connected as <email>"). Two
 // independent baselines keep file and cloud from echoing into each other:
 //   • fileSyncedJson  — finalJson last written to disk
-//   • cloudSyncedJson — current-preset payload last pushed to the cloud
+//   • cloudSyncedJson — library payload last pushed to the cloud
 //
 // Protocol (this file <-> extension/extension.js):
 //   webview -> host : ready | save{path,json} | cloudStateRequest
 //                     | cloudConnect{url,key} | cloudDisconnect | cloudPush{data}
+//                     | cloudPullRequest
 //   host -> webview : load{...} | cloudState{url,connected,email}
 //                     | cloudReady{ok,email,reason,url} | cloudPulled{data} | cloudAck{ok,updatedAt}
 import { debounce } from 'lodash-es';
@@ -94,17 +95,14 @@ function applyConnection({ connected, email, url }) {
 }
 
 /**
- * The current preset in the same shape the cloud document uses for these keys
- * (a subset of SYNC_DATA_PATHS), so the mobile/web app adopts it via
- * applyCloudData unchanged — and the host's merge leaves everything else alone.
+ * The portable library (saved presets + prefs) in cloud-document shape, built
+ * from EXTENSION_LIBRARY_PATHS. The open file's active-area fields (rawJson,
+ * prompts, …) are deliberately excluded: the cloud is the central drive for the
+ * LIBRARY only, never the file you are editing. The host's read-merge-write
+ * overlays just these keys, leaving the rest of the cloud document untouched.
  */
-function currentPresetPayload() {
-  return {
-    rawJson: store.rawJson,
-    prompts: store.prompts,
-    promptOrder: store.promptOrder,
-    originalFilename: store.originalFilename,
-  };
+function libraryPayload() {
+  return store.buildLibrarySnapshot();
 }
 
 /** Apply a preset file pushed from the host. Opening neither rewrites the file
@@ -115,23 +113,25 @@ function applyLoad(message) {
   store.parseFromJson(message.json); // also runs analyzeAllMacros()
   if (message.name) store.originalFilename = message.name;
   fileSyncedJson = store.finalJson;
-  cloudSyncedJson = JSON.stringify(currentPresetPayload());
+  cloudSyncedJson = JSON.stringify(libraryPayload());
 }
 
-/** Apply a preset PULLED from the cloud: mark it cloud-synced (don't echo it
- *  back) but leave the file baseline stale so it gets written to the open file. */
+/** Adopt the LIBRARY pulled from the cloud (saved presets + prefs). Never touches
+ *  the open file — library paths exclude rawJson/prompts. Baseline is reset so the
+ *  store change this triggers does not echo a push back up. */
 function applyCloudPull(data) {
-  if (!data || typeof data.rawJson !== 'string') {
+  if (!data || typeof data !== 'object') {
     sync.set({ status: 'synced' });
     return;
   }
-  store.parseFromJson(data.rawJson);
-  cloudSyncedJson = JSON.stringify(currentPresetPayload());
+  store.applyLibraryData(data);
+  cloudSyncedJson = JSON.stringify(libraryPayload());
   sync.set({ status: 'synced', lastSyncedAt: new Date().toISOString() });
 }
 
 /** Debounced mirror to both targets; each guarded so unchanged content is a no-op.
- *  Opening or pulling never pushes; only a real edit pushes to the cloud. */
+ *  The open file mirrors to disk; the library mirrors to the cloud. Opening or
+ *  pulling never pushes; only a real edit pushes. */
 function saveNow() {
   if (activePath) {
     const json = store.finalJson;
@@ -141,7 +141,7 @@ function saveNow() {
     }
   }
   if (cloudEnabled()) {
-    const serialized = JSON.stringify(currentPresetPayload());
+    const serialized = JSON.stringify(libraryPayload());
     if (serialized !== cloudSyncedJson) {
       cloudSyncedJson = serialized;
       sync.set({ status: 'syncing' });
@@ -175,6 +175,14 @@ export function requestCloudState() {
   if (!isVsCodeHost()) return Promise.resolve({ url: '', connected: false, email: '' });
   post({ type: 'cloudStateRequest' });
   return awaitReply('state', { url: cloudUrlValue, connected: cloudConnected, email: cloudEmail });
+}
+
+/** Ask the host to fetch the cloud library now and push it down (manual sync).
+ *  The host replies with a 'cloudPulled' message handled by applyCloudPull. */
+export function pullLibraryNow() {
+  if (!isVsCodeHost() || !cloudEnabled()) return;
+  sync.set({ status: 'syncing' });
+  post({ type: 'cloudPullRequest' });
 }
 
 /**

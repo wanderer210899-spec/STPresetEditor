@@ -43,6 +43,9 @@
           {{ store.t('sync.status') }}:
           <span class="font-medium">{{ sync.statusLabel }}</span>
         </p>
+        <button class="btn btn-secondary btn-sm mt-2" :disabled="busy" @click="syncNow">
+          {{ store.t('sync.extSyncNow') }}
+        </button>
         <p class="mt-2 text-xs text-gray-500">{{ store.t('sync.extConnectedHint') }}</p>
       </div>
     </template>
@@ -183,6 +186,7 @@ import {
   connectCloud,
   disconnectCloud,
   isVsCodeHost,
+  pullLibraryNow,
   requestCloudState,
 } from '../stores/localBridge';
 import { useAuthStore } from '../stores/authStore';
@@ -321,6 +325,11 @@ async function disconnectExt() {
   extConnected.value = false;
   extEmail.value = '';
   message.value = '';
+}
+
+// Manually pull the cloud library down into this editor (the open file is untouched).
+function syncNow() {
+  pullLibraryNow();
 }
 
 onMounted(async () => {
