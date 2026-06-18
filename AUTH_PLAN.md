@@ -17,12 +17,12 @@ Pulled from `EXTENSION_PLAN.md` (§3b.1, M2c) and `worker/index.js` (`identify()
 The author did **not** build account-based auth with recovery. They layered two
 deployer-configured mechanisms and called it done:
 
-| Surface | Mechanism the author chose | Identity | Recovery |
-| --- | --- | --- | --- |
-| **Web / mobile app** | **Cloudflare Access** (browser SSO), enabled by the deployer on their URL | `Cf-Access-Authenticated-User-Email` → per-user KV key `user:<email>` | Delegated to the IdP (Google / email OTP) — none to build |
-| **Cursor/VSCode extension** | **Shared passphrase** (`X-Sync-Key` header == `SYNC_PASSWORD` worker secret) | Single shared bucket `shared` (all devices that type the passphrase share ONE library) | None — it's a static secret the deployer sets |
-| Local `wrangler dev` | `LOCAL_DEV_EMAIL` escape hatch | `user:<email>` | n/a |
-| No identity | **Fail closed** → `401`, app runs local-only | — | — |
+| Surface                     | Mechanism the author chose                                                   | Identity                                                                               | Recovery                                                  |
+| --------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Web / mobile app**        | **Cloudflare Access** (browser SSO), enabled by the deployer on their URL    | `Cf-Access-Authenticated-User-Email` → per-user KV key `user:<email>`                  | Delegated to the IdP (Google / email OTP) — none to build |
+| **Cursor/VSCode extension** | **Shared passphrase** (`X-Sync-Key` header == `SYNC_PASSWORD` worker secret) | Single shared bucket `shared` (all devices that type the passphrase share ONE library) | None — it's a static secret the deployer sets             |
+| Local `wrangler dev`        | `LOCAL_DEV_EMAIL` escape hatch                                               | `user:<email>`                                                                         | n/a                                                       |
+| No identity                 | **Fail closed** → `401`, app runs local-only                                 | —                                                                                      | —                                                         |
 
 The author's explicit reasoning (EXTENSION_PLAN.md §3b.1):
 
@@ -86,18 +86,19 @@ handles password reset; OTP needs no password at all.
 - **Cost:** free up to 50 users.
 
 **Caveats (important):**
+
 - **Needs a real domain/zone.** Access fronts an app on a domain you've added to
   Cloudflare; it does **not** cleanly protect a bare `*.workers.dev` URL. You'd
   need a custom domain on the worker (you must own a domain; Cloudflare's part is
   free). This is the single biggest blocker for "free + native."
-- **Service token ≠ per-user.** A service token authenticates a *machine*, not an
+- **Service token ≠ per-user.** A service token authenticates a _machine_, not an
   email — so the extension wouldn't get `Cf-Access-Authenticated-User-Email`. To
-  keep the extension's library tied to the *same* user as the web app, the worker
+  keep the extension's library tied to the _same_ user as the web app, the worker
   needs a small change: map an allowed service token (or a token-name claim) to
   that user's key. Mixing per-user-email (web) and per-token (extension) for the
-  *same* person is fiddly.
+  _same_ person is fiddly.
 - **Login mechanism differs by surface** (browser SSO vs. pasted client
-  id/secret), which only *partly* satisfies "same mechanism on both."
+  id/secret), which only _partly_ satisfies "same mechanism on both."
 
 **Verdict:** lowest code, most "Cloudflare-native," best if you're willing to put
 the worker on a custom domain and accept a token (not a login) in the extension.
@@ -106,7 +107,7 @@ the worker on a custom domain and accept a token (not a login) in the extension.
 
 ### Option B — Build the auth into the Worker (Better Auth / Lucia) with D1 + a free email sender ★ recommended
 
-Own the login. Add an auth library that runs *inside* the worker and issues a
+Own the login. Add an auth library that runs _inside_ the worker and issues a
 **bearer token (session JWT)**. The web app and the extension both authenticate
 the **identical way**: POST credentials → get a token → send
 `Authorization: Bearer <token>` on every sync call. `identify()` verifies the
@@ -126,6 +127,7 @@ token and returns `user:<id>`.
   account (assuming under the free email cap).
 
 **Caveats:**
+
 - **Most code to write & own** — registration, sessions, reset tokens, rate
   limiting, password hashing. A library (Better Auth / Lucia) does the heavy
   lifting, but it's still our surface to secure and maintain.
@@ -134,7 +136,7 @@ token and returns `user:<id>`.
 - Self-rolled auth carries the usual security responsibility (we'd lean on a
   vetted library and Cloudflare Turnstile for abuse protection).
 
-**Verdict:** the only option that delivers *all three* asks — Google **and**
+**Verdict:** the only option that delivers _all three_ asks — Google **and**
 email/password, real recovery, and **one identical mechanism** in web + extension
 — while staying on a free Cloudflare account with no custom domain. Recommended.
 
@@ -155,6 +157,7 @@ built in and hosted), receive a JWT, and send it to the worker; the worker only
   50,000 MAU free. Far beyond personal use.
 
 **Caveats:**
+
 - **Third-party dependency** for a privacy-sensitive, "self-hostable" project —
   contradicts the repo's "no secrets, deploy-your-own" ethos, and ties users'
   sign-in to an external SaaS.
@@ -170,17 +173,17 @@ maintenance burden isn't wanted.
 
 ## 4. Comparison at a glance
 
-| | A. Cloudflare Access + Service Token | **B. Worker-native (Better Auth + D1)** ★ | C. Managed SaaS (Clerk/Supabase) |
-| --- | --- | --- | --- |
-| Google sign-in | ✅ | ✅ | ✅ |
-| Email + password | OTP only (no password) | ✅ | ✅ |
-| Recovery path | Delegated (Google/OTP) | ✅ reset email | ✅ provider |
-| **Same mechanism web + extension** | ⚠️ SSO vs token | ✅ identical bearer token | ✅ |
-| Works on `*.workers.dev` (no custom domain) | ❌ needs a zone | ✅ | ✅ |
-| Free on a free CF account | ✅ ≤50 users | ✅ ($0, ≤ email cap) | ✅ generous |
-| Code to write/own | least | most | little |
-| Self-hosted / no 3rd-party | ✅ (CF only) | ✅ (CF + email sender) | ❌ SaaS dep |
-| Outbound email needed | no | yes (Resend free) | no (provider) |
+|                                             | A. Cloudflare Access + Service Token | **B. Worker-native (Better Auth + D1)** ★ | C. Managed SaaS (Clerk/Supabase) |
+| ------------------------------------------- | ------------------------------------ | ----------------------------------------- | -------------------------------- |
+| Google sign-in                              | ✅                                   | ✅                                        | ✅                               |
+| Email + password                            | OTP only (no password)               | ✅                                        | ✅                               |
+| Recovery path                               | Delegated (Google/OTP)               | ✅ reset email                            | ✅ provider                      |
+| **Same mechanism web + extension**          | ⚠️ SSO vs token                      | ✅ identical bearer token                 | ✅                               |
+| Works on `*.workers.dev` (no custom domain) | ❌ needs a zone                      | ✅                                        | ✅                               |
+| Free on a free CF account                   | ✅ ≤50 users                         | ✅ ($0, ≤ email cap)                      | ✅ generous                      |
+| Code to write/own                           | least                                | most                                      | little                           |
+| Self-hosted / no 3rd-party                  | ✅ (CF only)                         | ✅ (CF + email sender)                    | ❌ SaaS dep                      |
+| Outbound email needed                       | no                                   | yes (Resend free)                         | no (provider)                    |
 
 ---
 
@@ -199,7 +202,7 @@ Deliver a per-user account system inside the worker, identical on both surfaces:
 4. **Extension:** in the webview **Settings → above the passphrase**, a "Sign in
    to sync" panel that POSTs to `<cloudUrl>/api/auth/*`, stores the token via the
    host, and the host attaches `Authorization: Bearer` on its Node HTTP calls —
-   the *same* flow as the web app. This replaces the "type a passphrase" model
+   the _same_ flow as the web app. This replaces the "type a passphrase" model
    and is what the product owner asked for ("when correct URL typed, trigger a
    Cloudflare authentication … above the passphrase").
 5. **Recovery:** password-reset email via **Resend** (free 3k/mo);
@@ -235,8 +238,9 @@ deployment better than the generic plan:
    the shared `X-Sync-Key` passphrase. No browser-OAuth-in-a-webview needed.
 
 Stack: Cloudflare Workers + **D1** (accounts, API keys) + KV (presets, unchanged)
-+ Better Auth (login). **$0 on a free Cloudflare account, no email service, no
-custom domain.**
+
+- Better Auth (login). **$0 on a free Cloudflare account, no email service, no
+  custom domain.**
 
 ### Hardening to apply (not optional)
 
@@ -284,6 +288,7 @@ generated **API key**. Presets stay in KV (key shape `user:<ownerId>`, unchanged
 
 A fresh instance has no account. To stop a stranger who finds the URL from
 claiming it:
+
 - If env `OWNER_EMAIL` is set → only that email may register/sign in (Google
   email must match; the single password account must use it). Dashboard-gated,
   consistent with the backdoor philosophy. **Recommended default.**
@@ -362,14 +367,14 @@ KV `PRESETS` is unchanged.
 
 ### 7.7 Milestones
 
-| # | Outcome |
-| --- | --- |
+| #      | Outcome                                                                                               |
+| ------ | ----------------------------------------------------------------------------------------------------- |
 | **A0** | D1 + Better Auth wired into the worker; `/api/auth/*` (Google + password) live; first-run owner claim |
-| **A1** | `identify()` rewritten (session + API key); `/api/presets` gated by it; CORS; `X-Sync-Key` retired |
-| **A2** | Web login view (Google + password) + Account page with API-key generate/list/revoke |
-| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time) |
-| **A4** | Extension Settings API-key field above passphrase; host sends `X-API-Key`; passphrase retired |
-| **A5** | Polish: README deploy vars, Turnstile (optional) on auth endpoints, migration notes |
+| **A1** | `identify()` rewritten (session + API key); `/api/presets` gated by it; CORS; `X-Sync-Key` retired    |
+| **A2** | Web login view (Google + password) + Account page with API-key generate/list/revoke                   |
+| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time)                               |
+| **A4** | Extension Settings API-key field above passphrase; host sends `X-API-Key`; passphrase retired         |
+| **A5** | Polish: README deploy vars, Turnstile (optional) on auth endpoints, migration notes                   |
 
 ### 7.8 Cross-branch note (important)
 
@@ -387,11 +392,11 @@ One shared Vue component **`<SyncSetup>`** renders in all three shapes (the
 codebase already detects the shape via `isVsCodeHost()`), so the panel looks the
 same everywhere; only the auth action differs.
 
-| Platform | What the user does | Why |
-| --- | --- | --- |
-| **PC web** | Open the deployment URL → Sync panel → enter email + password → done. First sign-in claims ownership. | Same-origin: the session cookie just works; presets sync automatically. No URL, no key. |
-| **Mobile web** | **Identical** to PC web — same URL, same component, responsive. Sign in with the same password → same library. | It's literally the same deployed app in another browser. This is the cross-device payoff. |
-| **PC VS Code** | Settings (panel above the old passphrase): enter **Cloud URL** + paste an **API key** generated in the web app (Settings → *Connect VS Code*). Pings the worker → "Connected as …". | The webview is a different origin and can't ride the browser session, so it authenticates with a header credential (the API key). |
+| Platform       | What the user does                                                                                                                                                                  | Why                                                                                                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **PC web**     | Open the deployment URL → Sync panel → enter email + password → done. First sign-in claims ownership.                                                                               | Same-origin: the session cookie just works; presets sync automatically. No URL, no key.                                           |
+| **Mobile web** | **Identical** to PC web — same URL, same component, responsive. Sign in with the same password → same library.                                                                      | It's literally the same deployed app in another browser. This is the cross-device payoff.                                         |
+| **PC VS Code** | Settings (panel above the old passphrase): enter **Cloud URL** + paste an **API key** generated in the web app (Settings → _Connect VS Code_). Pings the worker → "Connected as …". | The webview is a different origin and can't ride the browser session, so it authenticates with a header credential (the API key). |
 
 **"Same UI" outcome:** PC web ≡ mobile web is identical for free. VS Code reuses
 the same panel component; for v1 its action is "Cloud URL + API key" (vs. the web's
@@ -413,14 +418,37 @@ the same web login screen so all three converge on one sign-in screen.
 
 ### Revised milestones
 
-| # | Outcome |
-| --- | --- |
-| **A0** | D1 + Better Auth (email/password only; Google provider present but dormant); first-run owner claim |
-| **A1** | `identify()` rewritten (session + `X-API-Key`); `/api/presets` gated; CORS; `X-Sync-Key` retired |
-| **A2** | Web `<SyncSetup>`: login (password) + Account page with API-key generate / list / revoke |
-| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time) |
+| #      | Outcome                                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------- |
+| **A0** | D1 + Better Auth (email/password only; Google provider present but dormant); first-run owner claim                  |
+| **A1** | `identify()` rewritten (session + `X-API-Key`); `/api/presets` gated; CORS; `X-Sync-Key` retired                    |
+| **A2** | Web `<SyncSetup>`: login (password) + Account page with API-key generate / list / revoke                            |
+| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time)                                             |
 | **A4** | Extension `<SyncSetup>`: Cloud URL + paste-API-key above the passphrase; host sends `X-API-Key`; passphrase retired |
-| **A5** | Polish: README deploy vars, optional Turnstile on login; **v2 stubs:** enable-Google switch, device-link pairing |
+| **A5** | Polish: README deploy vars, optional Turnstile on login; **v2 stubs:** enable-Google switch, device-link pairing    |
+
+## 10. Implementation status
+
+Built on `feat/cloud-auth` (worker + web). **A4 (extension) is intentionally not
+here** — the extension lives only on `claude/laughing-brown-2m6ked`; this branch
+adds the worker-side API-key support it will consume.
+
+| #   | Status      | Notes                                                                                  |
+| --- | ----------- | -------------------------------------------------------------------------------------- |
+| A0  | ✅          | `worker/auth.js` + D1 migrations; first-run owner claim (optional `OWNER_EMAIL`)       |
+| A1  | ✅          | `identify()` = session → `X-API-Key`; `/api/presets` gated; CORS; `X-Sync-Key` removed |
+| A2  | ✅          | `authStore.js` + `SyncSetup.vue` in Settings; en/zh i18n                               |
+| A3  | ✅          | `/api/auth/emergency-reset`, single-use, constant-time, invalidates sessions           |
+| A4  | ⏭️ deferred | extension branch (paste-key); worker side ready                                        |
+| A5  | ✅          | README + CLAUDE.md updated; v2 (Google/device-link) noted below                        |
+
+**Implementation note — no Better Auth in v1.** Given the v1 scope (single-user,
+password-only, no email), auth is a lean, dependency-free core on the Workers
+Web Crypto API (PBKDF2 password hashing, D1-backed sessions, SHA-256 API keys)
+instead of the Better Auth framework. Same endpoints / `identify()` contract /
+UX as planned, but far easier to run under `wrangler dev` and deploy, and small
+enough to audit. **v2** (Google sign-in, device-link pairing) can be added behind
+the same `/api/auth/*` surface.
 
 ## Sources
 

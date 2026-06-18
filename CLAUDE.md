@@ -62,26 +62,35 @@ Browser (Pinia preset store)
   └─ src/stores/cloudSync.js        pull on load, debounced push on change
        └─ /api/presets (GET/PUT)  ──►  worker/index.js
                                          ├─ serves the built SPA (ASSETS binding)
+                                         ├─ /api/auth/*, /api/keys → D1 (DB binding)
                                          └─ Cloudflare KV (PRESETS namespace)
 ```
+
+**Auth model: one deployment = one owner.** Sign in with email + password
+(sessions in D1) on the web; the VS Code extension / any client uses a generated
+API key (`X-API-Key`). Both resolve to the KV key `user:<id>`. Recovery is the
+`EMERGENCY_RESET_TOKEN` Worker-var backdoor (no email service). See `AUTH_PLAN.md`.
 
 - **`src/stores/cloudSync.js`** — orchestration. `initCloudSync()` reconciles
   once (seed an empty cloud, adopt a newer cloud copy, or flush pending local
   edits), then subscribes to store changes and pushes (debounced ~1.5s).
-  `reconnectCloudSync()` re-runs after the passphrase changes. Last-write-wins,
-  with `pendingSync` guarding un-pushed local edits. Any failure ⇒ local-only.
+  Authenticates via the **session cookie** (`credentials:'include'`).
+  `reconnectCloudSync()` re-runs after sign-in/out. Any failure ⇒ local-only.
+- **`src/stores/authStore.js`** — account/session state + API-key management over
+  `/api/auth/*` and `/api/keys`. **`src/components/SyncSetup.vue`** — the shared
+  sync panel (sign in / create account / recovery / generate-key), shown in
+  `SettingsModal.vue`.
 - **`src/stores/syncStore.js`** — sync status only (`cloudEnabled`, `status`,
-  `lastSyncedAt`, `pendingSync`, `syncKey`). Kept separate from the data store so
-  status updates never look like editable-data changes (which would loop).
-  Persists `lastSyncedAt`, `pendingSync`, `syncKey`.
-- **`worker/index.js`** — the Worker. Serves the SPA and the `/api/presets` API.
-  Identity is resolved from **Cloudflare Access**
-  (`Cf-Access-Authenticated-User-Email` → KV key `user:<email>`) **OR a passphrase**
-  (`X-Sync-Key` constant-time-compared to the `SYNC_PASSWORD` secret → KV key
-  `shared`). No identity ⇒ **401, fail closed**. No secrets in the repo.
-- **`wrangler.jsonc`** — Worker config. The KV namespace `PRESETS` has **no id**,
-  so Cloudflare auto-provisions a fresh one per deployer. `SYNC_PASSWORD` is set
-  out-of-band as a Worker secret, never committed.
+  `lastSyncedAt`, `pendingSync`). Kept separate from the data store so status
+  updates never look like editable-data changes. Persists `lastSyncedAt`,
+  `pendingSync`.
+- **`worker/index.js` + `worker/auth.js`** — the Worker. `identify()` resolves a
+  session cookie or `X-API-Key` → KV key `user:<id>`; no identity ⇒ **401, fail
+  closed**. `auth.js` is dependency-free (Web Crypto PBKDF2 + D1); passwords,
+  sessions, and API keys are stored only as hashes. No secrets in the repo.
+- **`wrangler.jsonc`** — Worker config. KV `PRESETS` has **no id** (auto-provisioned
+  per deployer). D1 binding `DB` holds accounts; forkers run `wrangler d1 create`
+  - `migrations apply`. Optional Worker vars: `OWNER_EMAIL`, `EMERGENCY_RESET_TOKEN`.
 
 Wire format between store and Worker: `{ updatedAt, data }`, where `data` is a
 `SYNC_DATA_PATHS` snapshot produced by `buildSyncSnapshot()` and applied by
@@ -116,8 +125,7 @@ ignored). Passes:
 1. Clear stale `prompt.macros`.
 2. Parse each `{{...}}` via `classifyMacro` into a `MacroData`
    (`{ id, full, type, varName, value, params, scope, kind, op }`);
-   `id = \`${promptId}-${matchIndex}\``. `kind` is `get` (reads) / `set`
-   (assigns) / `mutate` (add/sub/inc/dec/cond — reads **and** writes); `op` is
+   `id = \`${promptId}-${matchIndex}\``. `kind`is`get`(reads) /`set`(assigns) /`mutate`(add/sub/inc/dec/cond — reads **and** writes);`op` is
    the normalised operation that drives the value simulation.
 3. Walk the flattened execution flow: build definition/reference maps (`set` +
    `mutate` define; `get` + `mutate` reference) **and** simulate values (by `op`)
