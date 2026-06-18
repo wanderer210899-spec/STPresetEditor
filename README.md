@@ -6,7 +6,7 @@
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
 </div>
 
-FORK of  https://github.com/Nativu5/STPresetEditor
+FORK of https://github.com/Nativu5/STPresetEditor
 
 (I'm really sorry, I don't know how to use git... I'm a noob...please forgive me for the accidental pull requests I sent if u are reading this T_T)
 
@@ -102,22 +102,29 @@ sets their **own** password. Two people who deploy the fork never share data.
 ```
 Browser (the app)  ──►  Cloudflare Worker  (https://<name>.<you>.workers.dev)
                           ├─ serves the built SPA            (ASSETS binding)
-                          └─ /api/presets  GET/PUT  ──►  Cloudflare KV
+                          ├─ /api/auth/* , /api/keys  ──►  Cloudflare D1   (accounts)
+                          └─ /api/presets  GET/PUT     ──►  Cloudflare KV   (library)
                                  authenticated by EITHER
-                                   • a shared passphrase       → key: shared
-                                   • a Cloudflare Access email → key: user:<email>
+                                   • the owner's session cookie (web sign-in)
+                                   • an API key  → X-API-Key   (VS Code / clients)
+                                 both resolve to key: user:<id>
                                  no identity ⇒ 401, the app stays local-only
 ```
 
-- `worker/index.js` — the Worker: serves the built app **and** the GET/PUT API.
-  Authenticates each request via **a passphrase** (the `SYNC_PASSWORD` secret) **or
-  Cloudflare Access**, and stores each identity's library under its own KV key.
-  Fails closed (401) when there is no verified identity.
-- `wrangler.jsonc` — Worker config. Committed and secret-free: the KV namespace has
-  no id, so Cloudflare **auto-provisions a fresh one for each deployer**.
+**One deployment = one owner.** You sign in with **email + password**; the first
+sign-up claims the instance (then sign-up closes). Recovery needs **no email
+service** — see the owner-recovery backdoor below.
+
+- `worker/index.js` + `worker/auth.js` — the Worker: serves the built app, the
+  account/auth API, and the GET/PUT presets API. Auth is a **session cookie**
+  (web) or a generated **API key** (`X-API-Key`, for the VS Code extension and
+  any client). Dependency-free: passwords are PBKDF2 (Web Crypto); sessions and
+  API keys are stored only as hashes. Fails closed (401) with no identity.
+- `wrangler.jsonc` — Worker config. The KV namespace has no id (auto-provisioned
+  per deployer). The **D1** auth database is per-deployer too (see deploy steps).
 - `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
-  as an offline cache). If the API is unreachable or unauthenticated the app
-  silently runs local-only, so `npm run dev` is unaffected.
+  as an offline cache). If the API is unreachable or signed-out the app silently
+  runs local-only, so `npm run dev` is unaffected.
 
 The toolbar shows a small dot: green = synced, amber = syncing, red = error,
 grey = local only. The **Settings** dialog footer shows the deployed build commit.
@@ -137,40 +144,41 @@ branch**, and the repo must be **public** for the button to work.)_
 ```bash
 # in a clone of your fork
 npm install
-npm run deploy        # builds, then `wrangler deploy` (auto-provisions KV)
+wrangler d1 create stpreseteditor-auth                 # paste the printed id into wrangler.jsonc
+wrangler d1 migrations apply stpreseteditor-auth --remote
+npm run deploy                                          # builds, then `wrangler deploy`
 ```
 
-### 2. Turn on authentication — required (pick one)
+### 2. Create your account
 
-Until you do this, the API fails closed (401) and the app runs **local-only**, so
-your presets are never exposed.
+Open your deployed URL → **Settings → Cloud sync**. The first visit shows
+**Create account** (the instance has no owner yet): enter an email + password to
+claim it. After that, the same panel is a **Sign in** form on every device.
 
-**Option A — Passphrase (simplest, recommended):**
+Optional Worker variables (dashboard → your Worker → **Settings → Variables**):
 
-```bash
-npx wrangler secret put SYNC_PASSWORD     # then type your chosen passphrase
-```
+- `OWNER_EMAIL` — lock sign-up/sign-in to exactly this email (recommended so a
+  stranger who finds your URL can't claim the instance first).
+- `EMERGENCY_RESET_TOKEN` — enables the **owner-recovery** password reset (below).
 
-On each device, open the app → **Settings → Cloud sync**, enter the **same**
-passphrase, and click **Connect**. Every device that knows the passphrase shares
-one private library. Change it anytime by re-running the command — your data is
-kept, because the passphrase only unlocks access (it is not the storage key).
+**Forgot your password? (owner recovery, no email service)**
+In the dashboard, set the Worker variable `EMERGENCY_RESET_TOKEN` to any secret
+string, then in **Settings → Cloud sync → Forgot password?** enter that token and
+a new password. The token is single-use; delete the variable afterwards. Only you
+(holder of the Cloudflare dashboard) can do this — that's the security gate.
 
-**Option B — Cloudflare Access (email-based, per-user isolation):**
+### 3. Sync — web and VS Code
 
-In the dashboard open your Worker → **Settings** → enable **Cloudflare Access for
-workers.dev** (sets up free Zero Trust if needed), then edit the Access policy to
-allow only the email(s) you choose. Each signed-in email gets its **own** isolated
-library. Sign-in works via one-time email PIN; Google/GitHub can be added under
-*Zero Trust → Settings → Authentication*.
+- **Web (PC + mobile):** open the URL on each device, sign in with the same
+  account, and your library syncs both ways automatically.
+- **VS Code extension:** in the web app, **Settings → Cloud sync → Generate key**,
+  copy the key (shown once), and paste it into the extension's settings. The
+  extension sends it as `X-API-Key`, so it shares the same library without a
+  browser sign-in. Revoke a key anytime from the same panel.
 
-### 3. Sync
-
-Open the URL on your phone and PC, authenticate the same way on each, and import a
-preset — it now syncs both ways.
-
-> To test the synced API locally without auth, run `npm run cf-preview` with a
-> git-ignored `.dev.vars` file containing `LOCAL_DEV_EMAIL=you@example.com`.
+> To test the synced API locally, run `npm run cf-preview` and apply the auth
+> migrations to the local DB first:
+> `wrangler d1 migrations apply stpreseteditor-auth --local`.
 
 > **Not on Cloudflare?** `npm run build` still produces a static `dist/` you can host
 > anywhere (GitHub Pages, Netlify, Vercel) — it just runs in local-only mode.
