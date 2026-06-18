@@ -7,20 +7,33 @@ back to the same file automatically.
 > Phase M0 + M1 + M2c of `../EXTENSION_PLAN.md`. Not yet included: the
 > preset-library sidebar (M2) and live SillyTavern reload (M3).
 
-## Cloud sync (optional)
+## Cloud sync (optional, opt-in)
 
-Edits also sync to your Cloudflare deployment so the same preset is available on
-your phone/web app, and vice-versa. To turn it on, open the editor's **Settings →
-Cloud sync** and enter the **same passphrase** you use on your phone.
+Cloud sync is **off until you point it at your own deployment** — the extension
+has no built-in endpoint and contacts no server until you configure one. Each
+person uses their **own** Cloudflare Worker (one-click deploy + a `SYNC_PASSWORD`
+secret; see the project README), so nobody's data is shared by accident.
 
-- On edit, the PC pushes the **current preset** to the cloud — your phone's saved
-  library is never overwritten (the host does a safe read-merge-write).
+To turn it on:
+
+1. **Settings → Extensions → `stpe.cloudUrl`** → paste your Worker's
+   `https://<your-worker>.workers.dev/api/presets` URL.
+2. In the editor's **Settings → Cloud sync**, enter the **same passphrase** you
+   use on your phone/web app.
+
+Then:
+
+- On edit, the PC pushes the **current preset** to your cloud — your phone's
+  saved library is never overwritten (the host does a safe read-merge-write of
+  only the current-preset fields).
 - To bring a preset you edited on your phone down to the PC, click
   **"☁ Pull preset"** in the status bar (or run **STPresetEditor: Pull preset
   from cloud**). It loads into the editor and saves to the open file.
 
-The cloud URL defaults to your deployment; change it under Settings → Extensions
-→ `stpe.cloudUrl` if you self-host elsewhere.
+Security notes: traffic is HTTPS and authenticated by your passphrase
+(`X-Sync-Key`); the Worker fails closed without it. Use a long, random
+passphrase (the Worker has no built-in rate limiting) and consider Cloudflare
+Access or a WAF rate-limit in front of `/api/presets` for extra protection.
 
 ## Install (plug and play)
 

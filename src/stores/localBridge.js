@@ -5,14 +5,18 @@
 // finalJson out).
 //
 // Cloud side (M2c): the HOST does the Cloudflare HTTP (Node, no CORS). Here we
-// just hand it the current preset to PUSH on edit, and apply what it PULLS. Two
-// independent baselines keep the two mirrors from echoing into each other:
+// hand it the current preset to PUSH on edit, and apply what it PULLS. Cloud is
+// opt-in: it activates only once the host confirms BOTH a passphrase (entered in
+// Settings) and a cloud URL (the `stpe.cloudUrl` setting) are configured — so a
+// shared build never sends anyone's data anywhere until they point it at their
+// own deployment. Two independent baselines keep file and cloud from echoing
+// into each other:
 //   • fileSyncedJson  — finalJson last written to disk
 //   • cloudSyncedJson — current-preset payload last pushed to the cloud
 //
 // Protocol (this file <-> extension/extension.js):
 //   webview -> host : ready | save{path,json} | cloudConfig{key} | cloudPush{data}
-//   host -> webview : load{path,name,json} | cloudPulled{data} | cloudAck{ok,updatedAt}
+//   host -> webview : load{...} | cloudReady{ok} | cloudPulled{data} | cloudAck{ok,updatedAt}
 import { debounce } from 'lodash-es';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
@@ -24,6 +28,7 @@ let subscribed = false;
 let activePath = null;
 let fileSyncedJson = null;
 let cloudSyncedJson = null;
+let cloudReady = false; // host confirmed a passphrase AND a cloud URL are set
 let store = null;
 let sync = null;
 
@@ -43,7 +48,7 @@ function post(message) {
 }
 
 function cloudEnabled() {
-  return Boolean(sync.syncKey);
+  return cloudReady && Boolean(sync.syncKey);
 }
 
 /**
@@ -83,7 +88,8 @@ function applyCloudPull(data) {
   sync.set({ status: 'synced', lastSyncedAt: new Date().toISOString() });
 }
 
-/** Debounced mirror to both targets; each guarded so unchanged content is a no-op. */
+/** Debounced mirror to both targets; each guarded so unchanged content is a no-op.
+ *  Opening or pulling never pushes; only a real edit pushes to the cloud. */
 function saveNow() {
   if (activePath) {
     const json = store.finalJson;
@@ -104,12 +110,14 @@ function saveNow() {
 }
 
 function sendCloudConfig() {
+  cloudReady = false; // re-confirmed by the host's 'cloudReady' reply
   post({ type: 'cloudConfig', key: sync.syncKey || '' });
 }
 
 /**
  * Initialise the host bridge: receive the file, then mirror edits to the file
- * and (if a passphrase is set) to the cloud. Safe no-op outside a webview.
+ * and (once the host confirms cloud is configured) to the cloud. No-op outside
+ * a webview.
  */
 export async function initLocalBridge() {
   if (!isVsCodeHost()) return;
@@ -122,6 +130,13 @@ export async function initLocalBridge() {
     switch (message.type) {
       case 'load':
         applyLoad(message);
+        break;
+      case 'cloudReady':
+        cloudReady = Boolean(message.ok);
+        sync.set({
+          cloudEnabled: cloudReady,
+          status: cloudReady ? 'synced' : sync.syncKey ? 'offline' : 'idle',
+        });
         break;
       case 'cloudPulled':
         applyCloudPull(message.data);
@@ -141,17 +156,14 @@ export async function initLocalBridge() {
     const debouncedSave = debounce(saveNow, SAVE_DEBOUNCE_MS);
     store.$subscribe(() => debouncedSave());
 
-    // Mirror the passphrase (entered in Settings) to the host and react to changes.
-    sync.set({ cloudEnabled: cloudEnabled() });
+    // Confirm cloud readiness now and whenever the passphrase changes in Settings.
     sendCloudConfig();
     let lastKey = sync.syncKey;
     sync.$subscribe(() => {
       if (sync.syncKey === lastKey) return;
       lastKey = sync.syncKey;
-      sync.set({ cloudEnabled: cloudEnabled(), status: cloudEnabled() ? 'syncing' : 'idle' });
+      sync.set({ status: sync.syncKey ? 'syncing' : 'idle' });
       sendCloudConfig();
-      cloudSyncedJson = null; // force a push of the current preset under the new key
-      saveNow();
     });
   }
 

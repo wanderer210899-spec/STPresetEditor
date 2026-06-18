@@ -4,21 +4,19 @@
 //   • Open a .json preset in a webview that hosts the STPresetEditor Vue UI.
 //   • Read the file → webview ({type:'load'}); write edits back atomically
 //     ({type:'save'}).
-//   • Cloud sync (M2c): the HOST does the Cloudflare HTTP over Node (no browser
-//     CORS, no worker change). On edit it PUSHES the current preset with a safe
-//     read-merge-write that never touches the rest of your cloud library; a
-//     "Pull preset from cloud" command brings another device's edits down.
+//   • Cloud sync (M2c, opt-in): the HOST does the Cloudflare HTTP over Node (no
+//     browser CORS, no worker change). It activates only when the user has set
+//     BOTH a passphrase (Settings → Cloud sync) and their own cloud URL
+//     (`stpe.cloudUrl`) — there is NO built-in default endpoint, so a shared
+//     build never sends anyone's data anywhere until they opt in. On edit it
+//     PUSHES the current preset with a safe read-merge-write that never touches
+//     the rest of the cloud library; a "Pull preset from cloud" command brings
+//     another device's edits down.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
-
-// Default cloud endpoint; override per-user via the `stpe.cloudUrl` setting.
-const DEFAULT_CLOUD_URL = 'https://stpreseteditor-deploy.wanderer210899.workers.dev/api/presets';
-// Keys of the current preset we mirror to the cloud (a subset of the app's
-// SYNC_DATA_PATHS). Merging only these preserves savedPresets/prefs on the cloud.
-const CLOUD_ORIGIN = 'https://stpreseteditor-deploy.wanderer210899.workers.dev';
 
 // One webview per file path, so re-opening a file reveals the existing panel.
 const panels = new Map();
@@ -26,6 +24,7 @@ let statusBar; // file-save confirmation
 let statusBarPull; // clickable "Pull preset from cloud"
 let activePanel = null; // last-focused STPE webview (pull target)
 let cloudKey = ''; // passphrase, relayed from the webview Settings
+let urlPromptShown = false; // one-time nudge to configure the cloud URL
 
 function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -108,7 +107,11 @@ function openEditor(context, filePath) {
 
 function setActivePanel(panel) {
   activePanel = panel;
-  if (panel && cloudKey) statusBarPull.show();
+  refreshPullStatusBar();
+}
+
+function refreshPullStatusBar() {
+  if (activePanel && cloudConfigured()) statusBarPull.show();
   else statusBarPull.hide();
 }
 
@@ -123,8 +126,10 @@ function handleMessage(message, panel, filePath) {
       break;
     case 'cloudConfig':
       cloudKey = typeof message.key === 'string' ? message.key : '';
-      if (activePanel && cloudKey) statusBarPull.show();
-      else statusBarPull.hide();
+      // Cloud is on only when the user supplied BOTH a passphrase and their URL.
+      panel.webview.postMessage({ type: 'cloudReady', ok: cloudConfigured() });
+      if (cloudKey && !cloudUrl()) nudgeForCloudUrl();
+      refreshPullStatusBar();
       break;
     case 'cloudPush':
       cloudPush(message.data)
@@ -180,9 +185,31 @@ function writeFileAtomic(filePath, content) {
 
 // --- Cloud sync (M2c) ---------------------------------------------------------
 
+/** The user's cloud endpoint, or '' when unset. There is NO built-in default,
+ *  so the extension never talks to anyone else's server. */
 function cloudUrl() {
   const cfg = vscode.workspace.getConfiguration('stpe').get('cloudUrl');
-  return typeof cfg === 'string' && cfg.trim() ? cfg.trim() : DEFAULT_CLOUD_URL;
+  return typeof cfg === 'string' ? cfg.trim() : '';
+}
+
+function cloudConfigured() {
+  return Boolean(cloudKey && cloudUrl());
+}
+
+/** One-time, actionable nudge when a passphrase is set but no URL yet. */
+function nudgeForCloudUrl() {
+  if (urlPromptShown) return;
+  urlPromptShown = true;
+  vscode.window
+    .showInformationMessage(
+      'STPresetEditor: enter your own Cloudflare Worker URL to turn on cloud sync.',
+      'Set cloud URL',
+    )
+    .then((choice) => {
+      if (choice === 'Set cloud URL') {
+        vscode.commands.executeCommand('workbench.action.openSettings', 'stpe.cloudUrl');
+      }
+    });
 }
 
 /** Minimal promise-based HTTPS request (no dependency on global fetch). */
@@ -211,7 +238,7 @@ function httpRequest(urlStr, { method = 'GET', headers = {}, body = null } = {})
 }
 
 async function cloudGet() {
-  if (!cloudKey) return null;
+  if (!cloudConfigured()) return null;
   const res = await httpRequest(cloudUrl(), {
     headers: { accept: 'application/json', 'X-Sync-Key': cloudKey },
   });
@@ -229,7 +256,7 @@ async function cloudGet() {
  * the cloud library (savedPresets, prefs) is preserved untouched.
  */
 async function cloudPush(data) {
-  if (!cloudKey || !data || typeof data !== 'object') return { ok: false };
+  if (!cloudConfigured() || !data || typeof data !== 'object') return { ok: false };
   let base = {};
   try {
     const doc = await cloudGet();
@@ -257,6 +284,10 @@ async function pullFromCloud() {
     vscode.window.showWarningMessage(
       'STPresetEditor: enter your cloud passphrase in the editor’s Settings (Cloud sync) first.',
     );
+    return;
+  }
+  if (!cloudUrl()) {
+    nudgeForCloudUrl();
     return;
   }
   try {
@@ -291,6 +322,8 @@ function getNonce() {
  * Build the webview HTML from the Vite build (base:'./'): rewrite relative
  * asset URLs to webview-safe URIs, strip `crossorigin`, nonce the scripts, and
  * attach a matching CSP (`'strict-dynamic'` lets the entry module load chunks).
+ * The webview makes no outbound network calls (cloud HTTP is host-side), so the
+ * CSP keeps connect-src to the webview's own resources only.
  */
 function getWebviewHtml(webview, mediaUri) {
   const indexPath = vscode.Uri.joinPath(mediaUri, 'index.html');
@@ -319,7 +352,7 @@ function getWebviewHtml(webview, mediaUri) {
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `font-src ${webview.cspSource} data:`,
     `script-src 'nonce-${nonce}' 'strict-dynamic'`,
-    `connect-src ${webview.cspSource} ${CLOUD_ORIGIN}`,
+    `connect-src ${webview.cspSource}`,
   ].join('; ');
 
   return html.replace(

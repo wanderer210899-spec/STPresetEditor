@@ -2,7 +2,7 @@
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
   "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional cloud sync.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -33,8 +33,8 @@
       "properties": {
         "stpe.cloudUrl": {
           "type": "string",
-          "default": "https://stpreseteditor-deploy.wanderer210899.workers.dev/api/presets",
-          "description": "Your STPresetEditor cloud-sync endpoint (the Cloudflare /api/presets URL). Leave as-is unless you self-host elsewhere."
+          "default": "",
+          "markdownDescription": "Your **own** STPresetEditor cloud-sync endpoint, e.g. `https://<your-worker>.workers.dev/api/presets`. Leave blank for local-only (no cloud). The extension never contacts any server until you set this. Deploy your own Worker from the project README, then paste its `/api/presets` URL here and enter the matching passphrase in the editor's Settings → Cloud sync."
         }
       }
     },

@@ -6,10 +6,12 @@ all inside Cursor/VSCode, and **auto-notify SillyTavern to reload** after a save
 
 Milestones below are the build order. **Status: M0 + M1 + M2c are implemented and
 verified** — open a `.json` preset in a Cursor webview, edit in the full UI,
-autosave back to the file, and (with a passphrase set) mirror the current preset
-to the existing Cloudflare deployment for the PC↔cloud↔mobile loop. The cloud
-HTTP runs host-side (Node), so there's **no worker change and no CORS** to set up.
-M2 (preset sidebar) and M3 (live SillyTavern reload) are pending.
+autosave back to the file, and — once you opt in by setting **your own** Worker
+URL + passphrase — mirror the current preset to your Cloudflare deployment for the
+PC↔cloud↔mobile loop. The cloud HTTP runs host-side (Node), so there's **no worker
+change and no CORS** to set up. Cloud is **off by default with no built-in
+endpoint** (the extension contacts no server until configured), so the build is
+safe to distribute. M2 (preset sidebar) and M3 (live SillyTavern reload) are pending.
 
 ---
 
