@@ -219,6 +219,59 @@ domain is on the table (only needed if we ever revisit Option A).
 
 ---
 
+## 6. DECISION — Option B, self-hosted variant ("no email, owner recovery, API keys")
+
+Product owner chose **Option B** with three modifications that suit a self-hosted
+deployment better than the generic plan:
+
+1. **No email provider.** Drop Resend / password-reset emails entirely.
+2. **Owner recovery via env-var backdoor.** A "forgot password" flow that only
+   works when a secret the user sets in their **Cloudflare dashboard** is present
+   (e.g. `EMERGENCY_RESET_TOKEN`). Because only the deployment owner can set
+   worker variables, this is the recovery gate — $0, no third party.
+3. **Extension auth via generated API keys.** The web dashboard mints a
+   long-lived **API key** (PAT-style); the user pastes it into the extension
+   settings; the worker validates the key against D1 on every request. Replaces
+   the shared `X-Sync-Key` passphrase. No browser-OAuth-in-a-webview needed.
+
+Stack: Cloudflare Workers + **D1** (accounts, API keys) + KV (presets, unchanged)
++ Better Auth (login). **$0 on a free Cloudflare account, no email service, no
+custom domain.**
+
+### Hardening to apply (not optional)
+
+- **Store only hashes.** API keys and passwords stored as hashes in D1; the
+  plaintext API key is shown **once** at generation (PAT model). Reuse the
+  worker's existing constant-time `safeEqual()` for token comparisons.
+- **Single-use backdoor.** After a successful emergency reset, prompt the user to
+  delete the env var, and record the consumed token value in D1 so it can't be
+  replayed while still set. (Mechanics: dashboard plaintext vars apply on next
+  save/deploy; secrets via `wrangler secret put` — not instant.)
+- **API keys are first-class:** support multiple keys, names, `last_used_at`, and
+  revoke. Validate via `Authorization: Bearer`/`X-API-Key` header in `identify()`.
+
+### `identify()` after this change
+
+```
+1. Authorization: Bearer <session token>  → user:<id>   (web app, logged-in browser)
+2. X-API-Key: <generated key>             → user:<id>   (extension / any client)
+3. (emergency reset endpoint only) env EMERGENCY_RESET_TOKEN match → allow reset
+4. else → 401 (fail closed, local-only)        # shared X-Sync-Key retired
+```
+
+### TWO open forks that finalize the design
+
+- **Scope — single-user vs multi-user.** Owner-recovery (env var) only works for
+  the **dashboard owner**. Single-user → perfect, and "accounts" collapse to one
+  owner credential + API keys (registration/Google optional). Multi-user (friends
+  each with their own login) → a non-owner who forgets their password can't set
+  your env var, so multi-user needs Google OAuth (Google handles their recovery)
+  or email reset for non-owners.
+- **Sign-in credential — password+backdoor vs Google vs both.** Password +
+  owner-backdoor = fully self-contained (no Google, no email). Google OAuth =
+  no password to forget and Google handles recovery, but depends on Google. They
+  compose: Google for humans + API keys for clients can drop passwords entirely.
+
 ## Sources
 
 - Cloudflare Zero Trust plans (free, 50 users): https://www.cloudflare.com/plans/zero-trust-services/
