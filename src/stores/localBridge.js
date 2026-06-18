@@ -171,11 +171,21 @@ export function hostCloudGet() {
  */
 export function hostCloudPut(payload) {
   if (!isVsCodeHost()) return Promise.resolve({ ok: false });
-  post({ type: 'cloudPush', data: payload && payload.data });
+  // The snapshot comes straight from the Pinia store, so its values are Vue
+  // reactive PROXIES — and `postMessage` (structured clone) throws DataCloneError
+  // on those. Serialise to a plain, JSON-safe object before crossing the bridge
+  // (the same normalisation the web transport gets for free via JSON.stringify).
+  const data = toPlain(payload && payload.data);
+  post({ type: 'cloudPush', data });
   return awaitReply('push', { ok: false }).then((msg) => ({
     ok: Boolean(msg && msg.ok),
     updatedAt: msg && msg.updatedAt,
   }));
+}
+
+/** Deep-clone to a plain, structured-clone-safe object (strips Vue proxies). */
+function toPlain(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
 /**
