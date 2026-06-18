@@ -272,6 +272,115 @@ custom domain.**
   no password to forget and Google handles recovery, but depends on Google. They
   compose: Google for humans + API keys for clients can drop passwords entirely.
 
+## 7. Implementation plan (build-ready)
+
+**Model: one deployment = one owner.** The repo stays open-source and one-click
+deployable; each deploy is a **single-user** instance owned by whoever deploys
+it. Sign in with **Google OR email + password**. Recovery: Google via Google;
+password via the **env-var owner backdoor**. The extension authenticates with a
+generated **API key**. Presets stay in KV (key shape `user:<ownerId>`, unchanged).
+
+### 7.1 Establishing the owner (first-run claim)
+
+A fresh instance has no account. To stop a stranger who finds the URL from
+claiming it:
+- If env `OWNER_EMAIL` is set → only that email may register/sign in (Google
+  email must match; the single password account must use it). Dashboard-gated,
+  consistent with the backdoor philosophy. **Recommended default.**
+- Else → **first registration claims ownership and locks further signups**
+  (lower friction; show the claimed identity in Settings).
+
+### 7.2 Data — Cloudflare D1 (new binding `DB`)
+
+```sql
+-- Better Auth manages user/account/session tables (its schema/migrations).
+-- We add one table for client credentials:
+CREATE TABLE api_keys (
+  id          TEXT PRIMARY KEY,        -- random id
+  user_id     TEXT NOT NULL,           -- owner
+  name        TEXT,                    -- e.g. "Work laptop VSCode"
+  key_hash    TEXT NOT NULL,           -- SHA-256 of the key; plaintext shown ONCE
+  prefix      TEXT NOT NULL,           -- first 8 chars, for display/lookup
+  created_at  INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at  INTEGER
+);
+CREATE INDEX idx_api_keys_prefix ON api_keys(prefix);
+-- consumed emergency-reset tokens, so a still-set env var can't be replayed:
+CREATE TABLE used_reset_tokens (token_hash TEXT PRIMARY KEY, used_at INTEGER);
+```
+
+KV `PRESETS` is unchanged.
+
+### 7.3 Worker (`worker/index.js`)
+
+- Mount **Better Auth** at `/api/auth/*` (email+password + Google provider),
+  backed by D1. Secrets: `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`.
+- New endpoints:
+  - `POST /api/keys` (session-auth) → mint API key, return plaintext **once**.
+  - `GET /api/keys` / `DELETE /api/keys/:id` → list / revoke.
+  - `POST /api/auth/emergency-reset` → if `env.EMERGENCY_RESET_TOKEN` is set and
+    the body token matches (constant-time `safeEqual`) and isn't in
+    `used_reset_tokens`, set a new password and record the token as consumed.
+- Rewrite `identify(request, env)` priority:
+  1. valid Better Auth **session** (cookie or `Authorization: Bearer`) → `user:<id>`
+  2. valid **`X-API-Key`** (hash → lookup → not revoked; touch `last_used_at`) → `user:<id>`
+  3. else `null` → `401` (retire the shared `X-Sync-Key` branch)
+- **CORS**: the extension is cross-origin. Answer `OPTIONS` preflight and send
+  `Access-Control-Allow-Origin` (echo the configured origin),
+  `Access-Control-Allow-Headers: authorization, x-api-key, content-type`,
+  `Access-Control-Allow-Credentials: true` on `/api/auth/*` and `/api/presets`.
+- Reuse the existing constant-time `safeEqual()` for all token compares; store
+  only hashes.
+
+### 7.4 `wrangler.jsonc`
+
+- Add a `d1_databases` binding `DB` (database provisioned on deploy; document the
+  one-click flow / `wrangler d1 create`).
+- Document required vars/secrets in README: `BETTER_AUTH_SECRET`,
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, optional `OWNER_EMAIL`, optional
+  `EMERGENCY_RESET_TOKEN`. No secrets committed (keeps the repo's ethos).
+
+### 7.5 Web app (`src/`)
+
+- **Login view**: "Sign in with Google" button + email/password form +
+  "Forgot password?" (explains the dashboard env-var reset steps).
+- **Settings → Account**: show signed-in identity; **"Connect VS Code"** →
+  generates an API key, shows it once with copy button; list keys (name, prefix,
+  last used) + revoke.
+- `cloudSync.js`: send the session (Bearer) instead of `X-Sync-Key`.
+
+### 7.6 Extension (coordinate with the extension branch — see §7.8)
+
+- Settings, **above the old passphrase field**: a cloud URL field + an **API key**
+  field. On entry, ping `/api/presets` (or `/api/auth/whoami`) with `X-API-Key`;
+  on `200` show "Connected as <email>". This is the "type URL → triggers
+  authentication" UX the owner asked for.
+- Host (`extension/extension.js`) attaches `X-API-Key` on its Node HTTP calls
+  (replacing `X-Sync-Key`). Remove/retire the passphrase relay.
+
+### 7.7 Milestones
+
+| # | Outcome |
+| --- | --- |
+| **A0** | D1 + Better Auth wired into the worker; `/api/auth/*` (Google + password) live; first-run owner claim |
+| **A1** | `identify()` rewritten (session + API key); `/api/presets` gated by it; CORS; `X-Sync-Key` retired |
+| **A2** | Web login view (Google + password) + Account page with API-key generate/list/revoke |
+| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time) |
+| **A4** | Extension Settings API-key field above passphrase; host sends `X-API-Key`; passphrase retired |
+| **A5** | Polish: README deploy vars, Turnstile (optional) on auth endpoints, migration notes |
+
+### 7.8 Cross-branch note (important)
+
+This branch is off **`master`, which has NO `extension/` directory** — the
+extension lives only on `claude/laughing-brown-2m6ked`. So **A0–A3, A5 (worker +
+web)** land here and flow to `master` → the Cloudflare instance. **A4 (extension)**
+must be coordinated: either rebase the extension branch onto this one after merge,
+or cherry-pick A4 there. Plan the worker/web auth as fully usable on its own
+(web app gets real accounts immediately); the extension adopts the API key once
+the branches are reconciled.
+
 ## Sources
 
 - Cloudflare Zero Trust plans (free, 50 users): https://www.cloudflare.com/plans/zero-trust-services/
