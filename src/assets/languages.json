@@ -207,7 +207,20 @@
       "errInvalidToken": "Invalid reset token.",
       "errTokenUsed": "That reset token was already used. Set a new EMERGENCY_RESET_TOKEN value.",
       "errResetDisabled": "Password reset is off. Set EMERGENCY_RESET_TOKEN in your Worker first.",
-      "errGeneric": "Something went wrong. Check the cloud URL and try again."
+      "errGeneric": "Something went wrong. Check the cloud URL and try again.",
+      "extIntro": "Sync this editor with your own cloud. Paste your Worker URL and an API key generated in the web app.",
+      "extUrlPlaceholder": "https://your-worker.workers.dev",
+      "extKeyPlaceholder": "API key (stpe_…)",
+      "extConnect": "Connect",
+      "extConnecting": "Connecting…",
+      "extDisconnect": "Disconnect",
+      "extKeyHint": "Get a key: open your deployment in a browser → Settings → Cloud sync → Generate key.",
+      "extConnectedHint": "Edits to this preset now save to your cloud too. Use “Pull preset” to bring another device's changes down.",
+      "extErrNoUrl": "Enter your Worker URL first.",
+      "extErrNoKey": "Paste an API key generated in the web app.",
+      "extErrInvalidKey": "That API key was rejected. Generate a fresh one in the web app.",
+      "extErrUnreachable": "Couldn't reach that URL. Check the Worker URL and your connection.",
+      "extErrGeneric": "Couldn't connect. Check the URL and key, then try again."
     },
     "presetManager": {
       "title": "Preset Manager",
@@ -492,7 +505,20 @@
       "errInvalidToken": "无效的重置令牌。",
       "errTokenUsed": "该重置令牌已被使用。请设置新的 EMERGENCY_RESET_TOKEN 值。",
       "errResetDisabled": "密码重置未启用。请先在您的 Worker 中设置 EMERGENCY_RESET_TOKEN。",
-      "errGeneric": "出现问题。请检查云地址后重试。"
+      "errGeneric": "出现问题。请检查云地址后重试。",
+      "extIntro": "将此编辑器与您自己的云同步。粘贴您的 Worker 地址，以及在网页应用中生成的 API 密钥。",
+      "extUrlPlaceholder": "https://your-worker.workers.dev",
+      "extKeyPlaceholder": "API 密钥（stpe_…）",
+      "extConnect": "连接",
+      "extConnecting": "连接中…",
+      "extDisconnect": "断开连接",
+      "extKeyHint": "获取密钥：在浏览器中打开您的部署 → 设置 → 云同步 → 生成密钥。",
+      "extConnectedHint": "对此预设的修改现在也会保存到您的云。使用“拉取预设”可获取其他设备的更改。",
+      "extErrNoUrl": "请先输入您的 Worker 地址。",
+      "extErrNoKey": "请粘贴在网页应用中生成的 API 密钥。",
+      "extErrInvalidKey": "该 API 密钥被拒绝。请在网页应用中重新生成。",
+      "extErrUnreachable": "无法访问该地址。请检查 Worker 地址和您的网络连接。",
+      "extErrGeneric": "无法连接。请检查地址和密钥后重试。"
     },
     "presetManager": {
       "title": "预设管理器",

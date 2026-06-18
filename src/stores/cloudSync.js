@@ -1,4 +1,5 @@
 import { debounce } from 'lodash-es';
+import { isVsCodeHost } from './localBridge';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
 
@@ -89,6 +90,11 @@ async function pushNow(preset, sync) {
  * so `npm run dev` and pre-KV deploys keep working unchanged.
  */
 export async function initCloudSync() {
+  // Inside the Cursor/VSCode extension, cloud sync is driven by the host bridge
+  // (localBridge.js) over Node — not this browser-fetch path (which would hit
+  // CORS and run a second, conflicting provider). Stay inert here.
+  if (isVsCodeHost()) return;
+
   const preset = usePresetStore();
   const sync = useSyncStore();
 

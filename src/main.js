@@ -6,6 +6,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import exampleData from './assets/example.json';
 import { initCloudSync } from './stores/cloudSync';
+import { initLocalBridge, isVsCodeHost } from './stores/localBridge';
 import { usePresetStore } from './stores/presetStore';
 import './style.css';
 
@@ -32,6 +33,16 @@ app.mount('#app');
 // This prevents briefly flashing the example over a real cloud library.
 async function bootstrap() {
   const store = usePresetStore();
+
+  // Inside the Cursor/VSCode extension the preset comes from a local file via
+  // the host bridge — not the cloud, and not the bundled example. The host
+  // pushes the file content as a 'load' message right after we signal 'ready'.
+  // (Cloud sync alongside files is M2c — see EXTENSION_PLAN.md.)
+  if (isVsCodeHost()) {
+    await initLocalBridge();
+    return;
+  }
+
   try {
     await initCloudSync();
   } catch (error) {

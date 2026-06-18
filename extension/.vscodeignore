@@ -1,0 +1,6 @@
+# Dev-only files — keep the packaged .vsix small. The built UI in media/ is
+# intentionally NOT ignored: it IS the extension's interface and must ship.
+.vscode/**
+.gitignore
+**/*.map
+**/.DS_Store

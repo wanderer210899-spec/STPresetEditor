@@ -1,0 +1,79 @@
+{
+  "name": "stpreseteditor-local",
+  "displayName": "STPresetEditor — Local Files",
+  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional account-based cloud sync.",
+  "version": "0.1.0",
+  "publisher": "wanderer210899",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wanderer210899-spec/stpreseteditor"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "sillytavern",
+    "preset",
+    "ai",
+    "prompt",
+    "editor"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:stpe.open",
+    "onCommand:stpe.pullFromCloud"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "STPresetEditor",
+      "properties": {
+        "stpe.cloudUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your **own** STPresetEditor cloud deployment, e.g. `https://<your-worker>.workers.dev`. Leave blank for local-only (no cloud). The extension never contacts any server until you set this. Deploy your own Worker from the project README, then paste its URL here and connect with an **API key** (generated in the web app: Settings → Cloud sync) from the editor's Settings → Cloud sync. You can also set this from that panel."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "stpe.open",
+        "title": "Open in STPresetEditor",
+        "category": "STPresetEditor",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "stpe.pullFromCloud",
+        "title": "Pull preset from cloud",
+        "category": "STPresetEditor",
+        "icon": "$(cloud-download)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

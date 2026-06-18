@@ -12,6 +12,9 @@ import { fileURLToPath } from 'node:url';
 const gitignorePath = fileURLToPath(new URL('.gitignore', import.meta.url));
 
 export default defineConfig([
+  // The extension host (extension/extension.js) is CommonJS/Node, not browser
+  // ESM, so it's linted under its own toolchain rather than this browser config.
+  { ignores: ['extension/**'] },
   js.configs.recommended,
   ...vue.configs['flat/recommended'],
   ...tailwind.configs['flat/recommended'],

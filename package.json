@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:webview": "vite build --config vite.config.webview.js",
+    "package:ext": "npm run build:webview && cd extension && npx --yes @vscode/vsce package --no-dependencies",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
     "cf-preview": "npm run build && wrangler dev"

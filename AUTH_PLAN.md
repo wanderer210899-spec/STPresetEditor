@@ -429,18 +429,18 @@ the same web login screen so all three converge on one sign-in screen.
 
 ## 10. Implementation status
 
-Built on `feat/cloud-auth` (worker + web). **A4 (extension) is intentionally not
-here** — the extension lives only on `claude/laughing-brown-2m6ked`; this branch
-adds the worker-side API-key support it will consume.
+Worker + web were built on `feat/cloud-auth`; **A4 (extension)** landed when that
+branch was merged into the extension branch (`claude/laughing-brown-2m6ked`), so
+all of A0–A5 now live together here.
 
-| #   | Status      | Notes                                                                                  |
-| --- | ----------- | -------------------------------------------------------------------------------------- |
-| A0  | ✅          | `worker/auth.js` + D1 migrations; first-run owner claim (optional `OWNER_EMAIL`)       |
-| A1  | ✅          | `identify()` = session → `X-API-Key`; `/api/presets` gated; CORS; `X-Sync-Key` removed |
-| A2  | ✅          | `authStore.js` + `SyncSetup.vue` in Settings; en/zh i18n                               |
-| A3  | ✅          | `/api/auth/emergency-reset`, single-use, constant-time, invalidates sessions           |
-| A4  | ⏭️ deferred | extension branch (paste-key); worker side ready                                        |
-| A5  | ✅          | README + CLAUDE.md updated; v2 (Google/device-link) noted below                        |
+| #   | Status | Notes                                                                                          |
+| --- | ------ | --------------------------------------------------------------------------------------------- |
+| A0  | ✅     | `worker/auth.js` + D1 migrations; first-run owner claim (optional `OWNER_EMAIL`)               |
+| A1  | ✅     | `identify()` = session → `X-API-Key`; `/api/presets` gated; CORS; `X-Sync-Key` removed         |
+| A2  | ✅     | `authStore.js` + `SyncSetup.vue` in Settings; en/zh i18n                                       |
+| A3  | ✅     | `/api/auth/emergency-reset`, single-use, constant-time, invalidates sessions                   |
+| A4  | ✅     | `SyncSetup.vue` VS Code branch (URL + paste API key); host sends `X-API-Key`, key in SecretStorage; validates via `/api/auth/me` |
+| A5  | ✅     | README + CLAUDE.md updated; v2 (Google/device-link) noted below                                |
 
 **Implementation note — no Better Auth in v1.** Given the v1 scope (single-user,
 password-only, no email), auth is a lean, dependency-free core on the Workers
