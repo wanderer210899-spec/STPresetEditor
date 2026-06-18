@@ -12,11 +12,13 @@ FORK of https://github.com/Nativu5/STPresetEditor
 
 ... am legit trying to add some features for personal use
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wanderer210899-spec/STPresetEditor)
-
-> This fork adds **private, cross-device cloud sync** on Cloudflare — see
-> [Private cloud sync](#-private-cloud-sync-cloudflare) below. The one-click button
-> deploys your own instance and auto-creates its storage.
+> **This fork adds, on top of [Nativu5/STPresetEditor](https://github.com/Nativu5/STPresetEditor):**
+> private cross-device **cloud sync with accounts**, a richer **macro engine**
+> (Macros 2.0 shorthand, full SillyTavern coverage, live preview), a **VS Code /
+> Cursor extension** for editing local preset files, and a **UI/CSS refresh**.
+> See [What's new in this fork](#-whats-new-in-this-fork) and
+> [Private cloud sync](#-private-cloud-sync-cloudflare) — the one-click deploy
+> button lives there.
 
 ## 🖼 Overview
 
@@ -41,12 +43,34 @@ This project enhances your editing experience with an intuitive, high-performanc
   </tr>
 </table>
 
-## 🎯 Key Features
+## ✨ What's new in this fork
 
-- ⚡ **Real-time Editing & Saving**: Instantly edit prompts with batch selection and drag-and-drop. Changes are saved locally for secure, persistent editing.
-- 🧩 **Syntax Highlighting**: Automatically highlight special macros within prompts, enabling quick reference.
-- 🔍 **Macro Analysis & Preview**: Instantly analyze macros and switch between raw and preview modes for efficient editing.
-- 📊 **Variable Management**: Efficiently rename and track variable usage across all prompts.
+Built on top of **[Nativu5/STPresetEditor](https://github.com/Nativu5/STPresetEditor)**.
+That original project provides the core editor; this fork adds the cloud,
+authoring, and tooling layers around it.
+
+**Inherited from the original (Nativu5/STPresetEditor):**
+
+- ⚡ Real-time prompt editing with batch selection and drag-and-drop ordering.
+- 🧩 Macro syntax highlighting and 🔍 macro analysis with raw/preview modes.
+- 📊 Variable management — rename and track usage across all prompts.
+- 📥 Import/export of `preset.json`, tavern preset sorting, and i18n (English / 中文).
+
+**New in this fork:**
+
+- ☁️ **Private cloud sync with accounts** — your library follows you across PC and
+  mobile, behind an email + password login (and API keys for clients). Self-hosted
+  on Cloudflare; see [Private cloud sync](#-private-cloud-sync-cloudflare).
+- 🧠 **Upgraded macro engine** — brace-balanced tokenizer (nested / multiline / XML
+  macros), the full current SillyTavern macro set, flow control (`{{if}}`/`{{else}}`),
+  **Macros 2.0 shorthand** (`{{.local}}` / `{{$global}}`), value simulation in
+  preview, and an extensible autocomplete dictionary.
+- ✍️ **Focus editor & `{{` autocomplete** — a distraction-free writer with macro and
+  variable autocomplete plus a Ctrl+Space snippet/wrap menu.
+- 🧩 **VS Code / Cursor extension** — edit SillyTavern preset files locally in the
+  full UI and sync them to your cloud; see [`extension/`](extension/).
+- 🎨 **UI/UX & CSS optimisations** — a cleaner, editor-focused 3-pane layout and
+  shared styling primitives.
 
 ## 🚀 Getting Started
 
