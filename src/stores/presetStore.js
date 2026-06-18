@@ -34,6 +34,28 @@ export const SYNC_DATA_PATHS = [
 ];
 
 /**
+ * Paths that are NOT synced by the VS Code extension. The extension edits a
+ * local .json file directly — that file IS the active editing area — so these
+ * active-area / per-file paths stay local and only the portable library (saved
+ * presets) + preferences sync to the cloud. See stores/localBridge.js.
+ */
+const EXTENSION_LOCAL_ONLY_PATHS = [
+  'rawJson',
+  'originalFilename',
+  'prompts',
+  'promptOrder',
+  'promptCollapseStates',
+];
+
+/**
+ * The library-only subset synced by the VS Code extension (cloud = central drive
+ * for the saved-preset library + prefs, never the open file).
+ */
+export const EXTENSION_LIBRARY_PATHS = SYNC_DATA_PATHS.filter(
+  (key) => !EXTENSION_LOCAL_ONLY_PATHS.includes(key),
+);
+
+/**
  * Seed set of wrapping/paired autocomplete snippets. Users can add their own and
  * delete these from Settings. `open`/`close` are inserted around the caret (or
  * the current selection). Kept as a factory so a fresh copy is used on reset.
@@ -2086,12 +2108,13 @@ export const usePresetStore = defineStore('preset', {
     // --- Cloud sync helpers (used by stores/cloudSync.js) ---
 
     /**
-     * Build a plain snapshot of just the portable data paths for upload.
-     * @returns {Object} snapshot keyed by SYNC_DATA_PATHS
+     * Build a plain snapshot of just the given data paths for upload.
+     * @param {string[]} [paths] - which state paths to include (default: full sync set)
+     * @returns {Object} snapshot keyed by the chosen paths
      */
-    buildSyncSnapshot() {
+    buildSyncSnapshot(paths = SYNC_DATA_PATHS) {
       const snapshot = {};
-      SYNC_DATA_PATHS.forEach((key) => {
+      paths.forEach((key) => {
         snapshot[key] = this[key];
       });
       return snapshot;
@@ -2100,10 +2123,11 @@ export const usePresetStore = defineStore('preset', {
     /**
      * Replace local data with a snapshot pulled from the cloud, then re-analyze.
      * @param {Object} data - snapshot previously produced by buildSyncSnapshot
+     * @param {string[]} [paths] - which keys to adopt (default: full sync set)
      */
-    applyCloudData(data) {
+    applyCloudData(data, paths = SYNC_DATA_PATHS) {
       if (!data || typeof data !== 'object') return;
-      SYNC_DATA_PATHS.forEach((key) => {
+      paths.forEach((key) => {
         if (key in data) this[key] = data[key];
       });
       this.analyzeAllMacros();

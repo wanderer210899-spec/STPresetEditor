@@ -42,7 +42,9 @@ front of `/api/auth` and `/api/presets` for extra protection.
 
 ## Install (plug and play)
 
-You're given a file named `stpreseteditor-local-<version>.vsix`. Install it once:
+The `.vsix` is **not committed to the repo** — build it from source first with
+`npm run package:ext` (see [Build the .vsix](#build-the-vsix-maintainers) below).
+That produces `extension/stpreseteditor-local-<version>.vsix`. Install it once:
 
 1. In Cursor/VSCode, open the **Extensions** panel (square icon in the left bar,
    or `Ctrl/Cmd+Shift+X`).

@@ -34,12 +34,18 @@ app.mount('#app');
 async function bootstrap() {
   const store = usePresetStore();
 
-  // Inside the Cursor/VSCode extension the preset comes from a local file via
-  // the host bridge — not the cloud, and not the bundled example. The host
+  // Inside the Cursor/VSCode extension the OPEN preset comes from a local file
+  // via the host bridge — not the cloud, and not the bundled example. The host
   // pushes the file content as a 'load' message right after we signal 'ready'.
-  // (Cloud sync alongside files is M2c — see EXTENSION_PLAN.md.)
+  // The saved-preset LIBRARY still syncs through the same cloud engine below
+  // (host transport), so the example must never load over a real cloud library.
   if (isVsCodeHost()) {
     await initLocalBridge();
+    try {
+      await initCloudSync();
+    } catch (error) {
+      console.error('[cloudSync] initialization failed:', error);
+    }
     return;
   }
 

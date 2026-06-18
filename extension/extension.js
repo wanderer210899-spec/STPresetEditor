@@ -11,9 +11,12 @@
 //     (Settings → Cloud sync → generate a key). The key lives in VS Code
 //     SecretStorage (encrypted), never in the repo and never echoed to the
 //     webview. There is NO built-in endpoint: nothing is sent anywhere until the
-//     user pastes their own Worker URL + key. On edit it PUSHES the current
-//     preset with a safe read-merge-write that never touches the rest of the
-//     cloud library; "Pull preset from cloud" brings another device's edits down.
+//     user pastes their own Worker URL + key. The cloud is the central drive for
+//     the preset LIBRARY only (savedPresets + prefs) — the open file stays local.
+//     The reconcile engine (seed/adopt-newer/flush, last-write-wins) lives in the
+//     webview (shared with the web app); this host is just the Node HTTP
+//     TRANSPORT: cloudPullRequest -> GET, cloudPush -> read-merge-write PUT. The
+//     PUT overlays only the library keys the webview sends, never the open file.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
@@ -36,8 +39,8 @@ function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarPull = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   statusBarPull.command = 'stpe.pullFromCloud';
-  statusBarPull.text = '$(cloud-download) Pull preset';
-  statusBarPull.tooltip = 'Load the latest version of this preset from your cloud';
+  statusBarPull.text = '$(cloud-download) Sync library';
+  statusBarPull.tooltip = 'Pull the latest preset library from your cloud';
   context.subscriptions.push(statusBar, statusBarPull);
 
   // Load the stored API key (async) so cloud sync can resume without re-entry.
@@ -153,6 +156,32 @@ function handleMessage(message, panel, filePath) {
         )
         .catch(() => panel.webview.postMessage({ type: 'cloudAck', ok: false }));
       break;
+    case 'cloudPullRequest':
+      handleCloudGet(panel);
+      break;
+  }
+}
+
+/** Cloud GET transport for the webview's reconcile engine. Always replies with a
+ *  'cloudPulled' message: { connected:false } when no key / unreachable (⇒ the
+ *  engine stays local-only), or { connected:true, data, updatedAt } otherwise
+ *  (data is null for an empty cloud). */
+async function handleCloudGet(panel) {
+  if (!cloudConfigured()) {
+    panel.webview.postMessage({ type: 'cloudPulled', connected: false });
+    return;
+  }
+  try {
+    const doc = await cloudGet();
+    panel.webview.postMessage({
+      type: 'cloudPulled',
+      connected: true,
+      data: (doc && doc.data) || null,
+      updatedAt: (doc && doc.updatedAt) || null,
+    });
+  } catch {
+    // Connected but the GET failed (network) — treat as local-only this round.
+    panel.webview.postMessage({ type: 'cloudPulled', connected: false });
   }
 }
 
@@ -343,6 +372,8 @@ async function handleConnect(panel, message) {
   });
   if (key && !apiBase()) nudgeForCloudUrl();
   refreshPullStatusBar();
+  // The webview's reconcile engine re-runs after this resolves (SyncSetup calls
+  // reconnectCloudSync on a successful connect), which pulls the library down.
 }
 
 async function handleDisconnect(panel) {
@@ -371,9 +402,10 @@ async function cloudGet() {
 }
 
 /**
- * Push the current preset to the cloud with a read-merge-write: fetch the
- * existing document and overlay ONLY the current-preset fields, so the rest of
- * the cloud library (savedPresets, prefs) is preserved untouched.
+ * Push the preset library to the cloud with a read-merge-write: fetch the
+ * existing document and overlay ONLY the library fields the webview sent
+ * (savedPresets + prefs), so the rest of the cloud document — e.g. the web app's
+ * active-area fields like rawJson — is preserved untouched.
  */
 async function cloudPush(data) {
   if (!cloudConfigured() || !data || typeof data !== 'object') return { ok: false };
@@ -394,8 +426,10 @@ async function cloudPush(data) {
   return { ok: res.status === 200, updatedAt };
 }
 
-/** Command: fetch the cloud preset and load it into the active editor. */
-async function pullFromCloud() {
+/** Command (status-bar "Sync library"): ask the active editor to re-reconcile its
+ *  library with the cloud. The reconcile engine lives in the webview; the host is
+ *  just the transport, so we nudge the webview rather than pull directly. */
+function pullFromCloud() {
   if (!activePanel) {
     vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
     return;
@@ -410,23 +444,7 @@ async function pullFromCloud() {
     );
     return;
   }
-  try {
-    const doc = await cloudGet();
-    if (!doc || !doc.data || typeof doc.data.rawJson !== 'string') {
-      vscode.window.showInformationMessage('STPresetEditor: nothing saved in the cloud yet.');
-      return;
-    }
-    activePanel.webview.postMessage({
-      type: 'cloudPulled',
-      data: doc.data,
-      updatedAt: doc.updatedAt,
-    });
-    vscode.window.showInformationMessage(
-      'STPresetEditor: pulled the latest preset from your cloud.',
-    );
-  } catch (error) {
-    vscode.window.showErrorMessage(`STPresetEditor: cloud pull failed — ${error.message}`);
-  }
+  activePanel.webview.postMessage({ type: 'cloudReconcile' });
 }
 
 // --- Webview HTML -------------------------------------------------------------
