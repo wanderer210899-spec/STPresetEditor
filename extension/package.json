@@ -1,0 +1,44 @@
+{
+  "name": "stpreseteditor-local",
+  "displayName": "STPresetEditor — Local Files",
+  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI.",
+  "version": "0.0.1",
+  "publisher": "wanderer210899",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:stpe.open"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "stpe.open",
+        "title": "Open in STPresetEditor",
+        "category": "STPresetEditor"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation@9"
+        }
+      ]
+    }
+  }
+}

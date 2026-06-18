@@ -4,20 +4,22 @@ Goal: edit SillyTavern presets **directly from local files** (like the
 `Simamiemie` extension) using **STPresetEditor's feature-rich UI** (this fork),
 all inside Cursor/VSCode, and **auto-notify SillyTavern to reload** after a save.
 
-This plan is the deliverable for the "design first" step. No code has been
-written yet. Milestones M0–M4 below are the build order once approved.
+Milestones M0–M4 below are the build order. **Status: M0 + M1 are implemented**
+(`extension/`, `vite.config.webview.js`, `src/stores/localBridge.js`, and the
+host-mode branch in `src/main.js`) — open a `.json` preset in a Cursor webview,
+edit in the full UI, autosave back to the file. M2 / M2c / M3 / M4 are pending.
 
 ---
 
 ## 1. Chosen direction (from the direction Q&A)
 
-| Decision | Choice |
-|---|---|
-| Delivery shape | **Cursor/VSCode extension** — webview hosting the existing Vue SPA |
-| This session | **Implementation plan** (this document) |
-| ST integration depth | **Auto-notify SillyTavern** to reload the preset after save |
-| SillyTavern location | **Same computer** as the editor — extension writes the preset file directly; no network bridge needed |
-| Cloud sync | **Keep both** — Cloudflare sync (cross-device library) and the extension (local files) coexist; one UI, the data provider is chosen automatically at startup |
+| Decision             | Choice                                                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Delivery shape       | **Cursor/VSCode extension** — webview hosting the existing Vue SPA                                                                                           |
+| This session         | **Implementation plan** (this document)                                                                                                                      |
+| ST integration depth | **Auto-notify SillyTavern** to reload the preset after save                                                                                                  |
+| SillyTavern location | **Same computer** as the editor — extension writes the preset file directly; no network bridge needed                                                        |
+| Cloud sync           | **Keep both** — Cloudflare sync (cross-device library) and the extension (local files) coexist; one UI, the data provider is chosen automatically at startup |
 
 Why a cloud-hosted web app can't do this on its own (the question that drove the
 shape): a Cloudflare worker runs on a server in a data center, not on your
@@ -31,8 +33,8 @@ different job: syncing your library across devices.
 
 ## 2. Core idea: a third runtime shape from one codebase
 
-The README already frames STPresetEditor as *"two runtime shapes from the same
-code"* (static SPA on `localStorage`; Cloudflare Worker with cloud sync). This
+The README already frames STPresetEditor as _"two runtime shapes from the same
+code"_ (static SPA on `localStorage`; Cloudflare Worker with cloud sync). This
 adds a **third shape** without forking the UI:
 
 ```
@@ -49,20 +51,20 @@ the extension host over `postMessage` instead of HTTP.
 
 The store is already built for an external data provider. We reuse, not rewrite:
 
-| Need | Existing seam | File:line |
-|---|---|---|
-| Load a preset from a file's JSON text | `parseFromJson(str)` | `src/stores/presetStore.js:462` |
-| Produce save-ready JSON (preserves the rest of the file, only rewrites char `100001`'s order) | `finalJson` getter | `src/stores/presetStore.js:257` |
-| Pull-on-load + debounced-push-on-change + echo-guard + fail-soft | `cloudSync.js` (template) | `src/stores/cloudSync.js` |
-| Status/flags kept out of the data store so they don't loop | `syncStore.js` (template) | `src/stores/syncStore.js` |
-| Re-run analysis after external data change | `analyzeAllMacros()` | `src/stores/presetStore.js` |
-| Same target convention as ST + the old extension | `character_id: 100001` | both codebases |
+| Need                                                                                          | Existing seam             | File:line                       |
+| --------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------- |
+| Load a preset from a file's JSON text                                                         | `parseFromJson(str)`      | `src/stores/presetStore.js:462` |
+| Produce save-ready JSON (preserves the rest of the file, only rewrites char `100001`'s order) | `finalJson` getter        | `src/stores/presetStore.js:257` |
+| Pull-on-load + debounced-push-on-change + echo-guard + fail-soft                              | `cloudSync.js` (template) | `src/stores/cloudSync.js`       |
+| Status/flags kept out of the data store so they don't loop                                    | `syncStore.js` (template) | `src/stores/syncStore.js`       |
+| Re-run analysis after external data change                                                    | `analyzeAllMacros()`      | `src/stores/presetStore.js`     |
+| Same target convention as ST + the old extension                                              | `character_id: 100001`    | both codebases                  |
 
 **Important precision:** host mode uses **`parseFromJson` / `finalJson`** (a
 single preset file in, a single preset file out). It does **not** use
-`buildSyncSnapshot` / `applyCloudData` — those serialize the *whole library*
+`buildSyncSnapshot` / `applyCloudData` — those serialize the _whole library_
 (savedPresets, prefs, …) and are specific to cloud sync. We borrow `cloudSync.js`
-only as the *orchestration* template (pull/push/debounce/suppress), not its data
+only as the _orchestration_ template (pull/push/debounce/suppress), not its data
 shape.
 
 ---
@@ -102,6 +104,7 @@ VSCode webviews can't load `/assets/...` absolute URLs or arbitrary remote
 scripts; resources must go through `webview.asWebviewUri()` and pass a CSP.
 
 Plan:
+
 - Add **`vite.config.webview.js`** (or a `--mode webview` branch in the existing
   config) that builds the SPA with **`base: './'`** into **`extension/media/`**.
   Relative asset paths are the key change vs. the web build.
@@ -143,15 +146,18 @@ A small **`hostStore.js`** (analogous to `syncStore.js`) holds host-only state
 looks like editable preset data and never triggers a save loop.
 
 **Provider selection** in `src/main.js` `bootstrap()`:
+
 ```
 if (inHost) { await initLocalBridge(); await initCloudSync(); }  // BOTH: files + cloud
 else        { await initCloudSync(); }                           // web/mobile: cloud only
 ```
+
 In the extension **both providers run together** (the confirmed workflow wants
-local *and* cloud on PC). They don't fight because the in-memory Pinia store is
+local _and_ cloud on PC). They don't fight because the in-memory Pinia store is
 the single source of truth and each provider is just a mirror of it:
+
 - **Local file = authoritative on open.** Opening a preset loads it into the
-  store; cloud is then a *downstream mirror* (pushed to match).
+  store; cloud is then a _downstream mirror_ (pushed to match).
 - Cloud's "adopt a newer copy" behavior is suppressed in host mode, so opening a
   file never gets clobbered by an older cloud snapshot.
 - The existing `suppressPush` / `pendingSync` echo-guards prevent ping-pong.
@@ -159,29 +165,31 @@ the single source of truth and each provider is just a mirror of it:
 ### 3b.1 The full device loop (reusing the EXISTING Cloudflare deployment)
 
 Confirmed target workflow:
+
 - **PC (extension):** edit → autosave writes the preset file to ST's folder
   **and** mirrors to Cloudflare → ST reloads (3e) → test, with logs in the IDE.
-- **Mobile (web):** the *existing* deployed web app, unchanged — pull library
+- **Mobile (web):** the _existing_ deployed web app, unchanged — pull library
   from Cloudflare, edit, push back. **Mobile never touches SillyTavern**, so there
   is no manual import/export hop; ST testing happens on PC only.
 
-Because the *currently-open preset* is already part of the cloud snapshot, the PC
+Because the _currently-open preset_ is already part of the cloud snapshot, the PC
 and mobile editors show the same preset automatically — the loop is fully
 automatic end-to-end, no file copying anywhere.
 
 **No new deployment.** Same worker, same KV, same data, same URL. Two small
 changes let the extension reach the cloud it already has:
-1. **Configurable cloud URL.** `cloudSync.js` currently uses the *relative*
+
+1. **Configurable cloud URL.** `cloudSync.js` currently uses the _relative_
    `'/api/presets'` (resolves to the app's own origin). On the website that's the
    Cloudflare domain; inside the extension the origin is local, so add a Settings
    field for the absolute base URL → `<cloudOrigin>/api/presets`. The webview CSP
    must also list that origin under `connect-src`.
 2. **CORS on the worker.** "CORS" = the browser rule that a page may only call a
-   server at a *different* origin if that server opts in. The web app and worker
+   server at a _different_ origin if that server opts in. The web app and worker
    are same-origin today, so this never came up; the extension is a different
    origin, so `worker/index.js` needs a few lines: answer the preflight `OPTIONS`
    and return `Access-Control-Allow-Origin` + `Access-Control-Allow-Headers:
-   X-Sync-Key`. The **passphrase stays the real security gate.**
+X-Sync-Key`. The **passphrase stays the real security gate.**
 
 Auth from the extension uses **passphrase mode** (`X-Sync-Key`, already
 supported) — it's a plain header that works cross-origin. Cloudflare Access mode
@@ -190,7 +198,7 @@ recommended path there.
 
 ### 3c. Extension host (`extension/`, TypeScript)
 
-A fresh, small extension (we keep the *plumbing* ideas from the `Simamiemie`
+A fresh, small extension (we keep the _plumbing_ ideas from the `Simamiemie`
 extension and replace its vanilla UI with our webview). Responsibilities:
 
 - **Activation:** `onCommand` + `onView:stpeLibrary`. Keep the `.json`
@@ -215,7 +223,7 @@ extension and replace its vanilla UI with our webview). Responsibilities:
 ### 3d. Data-model shift: library = the folder (not localStorage)
 
 Today the editor holds **one** preset (`rawJson`) plus a `savedPresets` library
-*inside localStorage*. The ST folder is **many** preset files. In host mode:
+_inside localStorage_. The ST folder is **many** preset files. In host mode:
 
 - The **file tree is the library.** `savedPresets`/preset-manager UI is hidden or
   repurposed in host mode (the files on disk replace it).
@@ -230,6 +238,7 @@ This is the main UX decision to confirm during M2; everything else is mechanical
 
 Facts verified from ST source (`src/endpoints/presets.js`,
 `public/scripts/preset-manager.js`):
+
 - ST stores chat-completion presets at `data/<handle>/OpenAI Settings/<name>.json`.
 - **No file-watch / hot-reload exists in ST core.**
 - ST server endpoints (`POST /api/presets/save|delete|restore`) require ST's own
@@ -241,7 +250,7 @@ Facts verified from ST source (`src/endpoints/presets.js`,
 Therefore, **staged** integration (each tier ships independently):
 
 - **Tier 0 — works with zero ST changes (MVP).** We own the folder, so our write
-  *is* the install. User clicks the preset in ST once (or reloads) to pick it up.
+  _is_ the install. User clicks the preset in ST once (or reloads) to pick it up.
   In-app hint shows the saved path.
 - **Tier 1 — the "auto-notify" deliverable.** Ship a ~50-line companion **ST UI
   extension "STPE Bridge"** that opens a WebSocket to our host. On `save` the host
@@ -287,6 +296,7 @@ STPresetEditor/
 ```
 
 New npm scripts (root `package.json`):
+
 - `build:webview` → `vite build --config vite.config.webview.js`
 - `build:ext` → `build:webview` then `esbuild` the host
 - `package:ext` → `vsce package` (produces a `.vsix` for Cursor **and** VSCode;
@@ -299,14 +309,14 @@ Single source of truth rule still applies: when adding a persisted field, update
 
 ## 5. Milestones (build order)
 
-| # | Outcome | Proves |
-|---|---|---|
-| **M0** | Webview build pipeline; the existing Vue UI renders inside a panel (no I/O) | CSP + asset-path pattern works |
-| **M1** | `localBridge` + host fs: open a `.json` → loads into the UI; edits → saved back to the same file | End-to-end parity with the old extension, but with your UI |
-| **M2** | Library tree (`OpenAI Settings/*.json`), multi-file switching, watcher + echo-guard, atomic writes | The many-files model (3d) |
+| #       | Outcome                                                                                                                                        | Proves                                                            |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **M0** ✅ | Webview build pipeline; the existing Vue UI renders inside a panel (no I/O)                                                                    | CSP + asset-path pattern works                                    |
+| **M1** ✅ | `localBridge` + host fs: open a `.json` → loads into the UI; edits → saved back to the same file                                               | End-to-end parity with the old extension, but with your UI        |
+| **M2**  | Library tree (`OpenAI Settings/*.json`), multi-file switching, watcher + echo-guard, atomic writes                                             | The many-files model (3d)                                         |
 | **M2c** | Cloud coexistence: configurable cloud URL + CSP `connect-src`; worker CORS lines; both providers run on PC (local authoritative, cloud mirror) | The PC↔cloud↔mobile loop (3b.1); reuses the existing deployment |
-| **M3** | ST auto-notify: companion bridge + WebSocket; save → `/preset` reselect | The chosen "auto-notify" deliverable |
-| **M4** | Polish: edit-prompt-in-tab (3f), settings (folder/port), `.vsix` packaging, README | Shippable |
+| **M3**  | ST auto-notify: companion bridge + WebSocket; save → `/preset` reselect                                                                        | The chosen "auto-notify" deliverable                              |
+| **M4**  | Polish: edit-prompt-in-tab (3f), settings (folder/port), `.vsix` packaging, README                                                             | Shippable                                                         |
 
 M0+M1 already deliver "your UI, on local files, in Cursor." M3 adds the live ST
 reload. Each milestone is independently demoable.
@@ -351,4 +361,7 @@ reload. Each milestone is independently demoable.
 4. **Single-file vs folder open:** default to opening the whole `OpenAI Settings`
    folder as a library, while still supporting right-click on one `.json`?
    (Recommend: both, folder is primary.)
+
+```
+
 ```
