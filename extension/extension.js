@@ -13,9 +13,10 @@
 //     webview. There is NO built-in endpoint: nothing is sent anywhere until the
 //     user pastes their own Worker URL + key. The cloud is the central drive for
 //     the preset LIBRARY only (savedPresets + prefs) — the open file stays local.
-//     On connect (and on edit) it PUSHES the library with a safe read-merge-write
-//     that never touches the open file; on connect it also PULLS the cloud
-//     library down, and "Sync library" / cloudPullRequest re-pulls on demand.
+//     The reconcile engine (seed/adopt-newer/flush, last-write-wins) lives in the
+//     webview (shared with the web app); this host is just the Node HTTP
+//     TRANSPORT: cloudPullRequest -> GET, cloudPush -> read-merge-write PUT. The
+//     PUT overlays only the library keys the webview sends, never the open file.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
@@ -135,8 +136,6 @@ function handleMessage(message, panel, filePath) {
     case 'ready':
       sendLoad(panel, filePath);
       sendCloudState(panel);
-      // Bring the cloud library down automatically when already connected.
-      if (cloudConfigured()) pushCloudLibrary(panel);
       break;
     case 'save':
       handleSave(filePath, message.json);
@@ -158,24 +157,31 @@ function handleMessage(message, panel, filePath) {
         .catch(() => panel.webview.postMessage({ type: 'cloudAck', ok: false }));
       break;
     case 'cloudPullRequest':
-      pushCloudLibrary(panel);
+      handleCloudGet(panel);
       break;
   }
 }
 
-/** Fetch the cloud document and push its library down to the panel. No-op (with a
- *  benign 'synced' ack) when nothing is stored yet. */
-async function pushCloudLibrary(panel) {
-  if (!cloudConfigured()) return;
+/** Cloud GET transport for the webview's reconcile engine. Always replies with a
+ *  'cloudPulled' message: { connected:false } when no key / unreachable (⇒ the
+ *  engine stays local-only), or { connected:true, data, updatedAt } otherwise
+ *  (data is null for an empty cloud). */
+async function handleCloudGet(panel) {
+  if (!cloudConfigured()) {
+    panel.webview.postMessage({ type: 'cloudPulled', connected: false });
+    return;
+  }
   try {
     const doc = await cloudGet();
-    if (doc && doc.data && typeof doc.data === 'object') {
-      panel.webview.postMessage({ type: 'cloudPulled', data: doc.data, updatedAt: doc.updatedAt });
-    } else {
-      panel.webview.postMessage({ type: 'cloudPulled', data: null });
-    }
+    panel.webview.postMessage({
+      type: 'cloudPulled',
+      connected: true,
+      data: (doc && doc.data) || null,
+      updatedAt: (doc && doc.updatedAt) || null,
+    });
   } catch {
-    panel.webview.postMessage({ type: 'cloudAck', ok: false });
+    // Connected but the GET failed (network) — treat as local-only this round.
+    panel.webview.postMessage({ type: 'cloudPulled', connected: false });
   }
 }
 
@@ -366,8 +372,8 @@ async function handleConnect(panel, message) {
   });
   if (key && !apiBase()) nudgeForCloudUrl();
   refreshPullStatusBar();
-  // On a successful connect, immediately bring the cloud library down (two-way).
-  if (r.ok) pushCloudLibrary(panel);
+  // The webview's reconcile engine re-runs after this resolves (SyncSetup calls
+  // reconnectCloudSync on a successful connect), which pulls the library down.
 }
 
 async function handleDisconnect(panel) {
@@ -420,8 +426,10 @@ async function cloudPush(data) {
   return { ok: res.status === 200, updatedAt };
 }
 
-/** Command: fetch the cloud library and apply it to the active editor's store. */
-async function pullFromCloud() {
+/** Command (status-bar "Sync library"): ask the active editor to re-reconcile its
+ *  library with the cloud. The reconcile engine lives in the webview; the host is
+ *  just the transport, so we nudge the webview rather than pull directly. */
+function pullFromCloud() {
   if (!activePanel) {
     vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
     return;
@@ -436,23 +444,7 @@ async function pullFromCloud() {
     );
     return;
   }
-  try {
-    const doc = await cloudGet();
-    if (!doc || !doc.data || typeof doc.data !== 'object') {
-      vscode.window.showInformationMessage('STPresetEditor: nothing saved in the cloud yet.');
-      return;
-    }
-    activePanel.webview.postMessage({
-      type: 'cloudPulled',
-      data: doc.data,
-      updatedAt: doc.updatedAt,
-    });
-    vscode.window.showInformationMessage(
-      'STPresetEditor: pulled the latest library from your cloud.',
-    );
-  } catch (error) {
-    vscode.window.showErrorMessage(`STPresetEditor: cloud pull failed — ${error.message}`);
-  }
+  activePanel.webview.postMessage({ type: 'cloudReconcile' });
 }
 
 // --- Webview HTML -------------------------------------------------------------

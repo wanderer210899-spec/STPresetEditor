@@ -43,7 +43,11 @@ getters/computed re-render. Components hold almost no business logic.
   mobile flags. Recomputed after a restore by `analyzeAllMacros()`.
 - That **same path list is also exported as `SYNC_DATA_PATHS`** and is exactly
   what gets synced to the cloud. **When you add a persisted field, update BOTH
-  `persist.paths` and `SYNC_DATA_PATHS`** (both live in `presetStore.js`).
+  `persist.paths` and `SYNC_DATA_PATHS`** (both live in `presetStore.js`). If the
+  field belongs to the saved-preset library (not the active editing area), it is
+  picked up by `EXTENSION_LIBRARY_PATHS` automatically (it's `SYNC_DATA_PATHS`
+  minus the active-area/per-file paths); add it to `EXTENSION_LOCAL_ONLY_PATHS`
+  instead if it should stay local to the VS Code extension.
 
 ### Startup order (`src/main.js`)
 
@@ -74,8 +78,18 @@ API key (`X-API-Key`). Both resolve to the KV key `user:<id>`. Recovery is the
 - **`src/stores/cloudSync.js`** — orchestration. `initCloudSync()` reconciles
   once (seed an empty cloud, adopt a newer cloud copy, or flush pending local
   edits), then subscribes to store changes and pushes (debounced ~1.5s).
-  Authenticates via the **session cookie** (`credentials:'include'`).
-  `reconnectCloudSync()` re-runs after sign-in/out. Any failure ⇒ local-only.
+  `reconnectCloudSync()` re-runs after sign-in/out (web) or connect/disconnect
+  (extension). Any failure ⇒ local-only. **Transport is pluggable:** the web app
+  uses `fetch('/api/presets', {credentials:'include'})` and syncs the full
+  `SYNC_DATA_PATHS`; the VS Code extension routes the *same* reconcile through the
+  host bridge (`hostCloudGet`/`hostCloudPut`) and syncs `EXTENSION_LIBRARY_PATHS`
+  only (the saved-preset library + prefs — the open file stays local).
+- **`src/stores/localBridge.js`** — the extension's host seam. (a) File: mirrors
+  the OPEN preset to a local `.json` over the webview↔host postMessage bridge
+  (`parseFromJson` in, `finalJson` out); the open file is never cloud-synced.
+  (b) Cloud transport: connect/validate an API key (held in VS Code SecretStorage,
+  never in the webview) and expose `hostCloudGet`/`hostCloudPut` for cloudSync.js.
+  `isVsCodeHost()` selects host vs web mode everywhere.
 - **`src/stores/authStore.js`** — account/session state + API-key management over
   `/api/auth/*` and `/api/keys`. **`src/components/SyncSetup.vue`** — the shared
   sync panel (sign in / create account / recovery / generate-key), shown in

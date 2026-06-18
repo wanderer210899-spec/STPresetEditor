@@ -2132,22 +2132,6 @@ export const usePresetStore = defineStore('preset', {
       });
       this.analyzeAllMacros();
     },
-
-    /**
-     * Library-only snapshot for the VS Code extension — saved presets + prefs,
-     * excluding the active editing area (the open local file stays local).
-     */
-    buildLibrarySnapshot() {
-      return this.buildSyncSnapshot(EXTENSION_LIBRARY_PATHS);
-    },
-
-    /**
-     * Adopt only the library portion of a cloud document (never touches the open
-     * file's rawJson/prompts). Used by the extension bridge.
-     */
-    applyLibraryData(data) {
-      this.applyCloudData(data, EXTENSION_LIBRARY_PATHS);
-    },
   },
   persist: {
     // Only persist the essential user data, not derived/UI states

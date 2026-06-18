@@ -1,6 +1,6 @@
 import { debounce } from 'lodash-es';
-import { isVsCodeHost } from './localBridge';
-import { usePresetStore } from './presetStore';
+import { hostCloudGet, hostCloudPut, isVsCodeHost, setReconcileHandler } from './localBridge';
+import { EXTENSION_LIBRARY_PATHS, usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
 
 // The Pages Function endpoint (same origin as the app).
@@ -15,8 +15,16 @@ let syncedSerialized = null;
 // Ensures the change subscription is attached only once across reconnects.
 let subscribed = false;
 
+// Transport + scope, selected per environment in initCloudSync(). The web app
+// talks to /api/presets over its session cookie and syncs the full data set; the
+// VS Code extension routes the same reconcile through the host bridge (Node HTTP
+// with an API key) and syncs the LIBRARY only (the open file stays local).
+let getDoc = fetchCloudDocument;
+let putDoc = pushCloudDocument;
+let activePaths; // undefined ⇒ buildSyncSnapshot/applyCloudData defaults (full set)
+
 /**
- * GET the cloud document.
+ * GET the cloud document (web transport).
  * @returns {Promise<{updatedAt: string|null, data: object|null}|null>}
  *   The document, or null when the cloud is unavailable (so we stay local-only).
  *
@@ -43,7 +51,7 @@ async function fetchCloudDocument() {
 }
 
 /**
- * PUT a snapshot to the cloud.
+ * PUT a snapshot to the cloud (web transport).
  * @returns {Promise<boolean>} true on success
  */
 async function pushCloudDocument(payload) {
@@ -62,9 +70,11 @@ async function pushCloudDocument(payload) {
 
 /**
  * Upload the current local snapshot (no-op if it already matches the cloud).
+ * Works for both transports: the web PUT returns a boolean, the host PUT returns
+ * { ok, updatedAt } (the host stamps its own updatedAt during read-merge-write).
  */
 async function pushNow(preset, sync) {
-  const snapshot = preset.buildSyncSnapshot();
+  const snapshot = preset.buildSyncSnapshot(activePaths);
   const serialized = JSON.stringify(snapshot);
 
   if (serialized === syncedSerialized) {
@@ -74,11 +84,13 @@ async function pushNow(preset, sync) {
 
   sync.set({ status: 'syncing' });
   const updatedAt = new Date().toISOString();
-  const ok = await pushCloudDocument({ updatedAt, data: snapshot });
+  const res = await putDoc({ updatedAt, data: snapshot });
+  const ok = typeof res === 'boolean' ? res : Boolean(res && res.ok);
+  const storedAt = (res && res.updatedAt) || updatedAt;
 
   if (ok) {
     syncedSerialized = serialized;
-    sync.set({ status: 'synced', lastSyncedAt: updatedAt, pendingSync: false });
+    sync.set({ status: 'synced', lastSyncedAt: storedAt, pendingSync: false });
   } else {
     sync.set({ status: 'error', pendingSync: true });
   }
@@ -86,21 +98,26 @@ async function pushNow(preset, sync) {
 
 /**
  * Initialise cloud sync: reconcile local <-> cloud once, then push on every
- * subsequent data change. Safe no-op (local-only) when the API is unreachable,
- * so `npm run dev` and pre-KV deploys keep working unchanged.
+ * subsequent data change. Safe no-op (local-only) when the cloud is unreachable
+ * or — in the extension — when no API key is connected yet.
+ *
+ * The same reconcile drives the web app and the VS Code extension; only the
+ * transport (web fetch vs host bridge) and the synced scope differ.
  */
 export async function initCloudSync() {
-  // Inside the Cursor/VSCode extension, cloud sync is driven by the host bridge
-  // (localBridge.js) over Node — not this browser-fetch path (which would hit
-  // CORS and run a second, conflicting provider). Stay inert here.
-  if (isVsCodeHost()) return;
+  const host = isVsCodeHost();
+  getDoc = host ? hostCloudGet : fetchCloudDocument;
+  putDoc = host ? hostCloudPut : pushCloudDocument;
+  activePaths = host ? EXTENSION_LIBRARY_PATHS : undefined;
+  if (host) setReconcileHandler(reconnectCloudSync);
 
   const preset = usePresetStore();
   const sync = useSyncStore();
 
-  const doc = await fetchCloudDocument();
+  const doc = await getDoc();
   if (!doc) {
-    sync.set({ cloudEnabled: false, status: 'offline' });
+    // Web: offline / signed out. Extension: no API key connected yet.
+    sync.set({ cloudEnabled: false, status: host ? 'idle' : 'offline' });
     return; // local-only; no subscription needed
   }
   sync.set({ cloudEnabled: true });
@@ -109,30 +126,31 @@ export async function initCloudSync() {
   const cloudIsNewer = cloudHasData && doc.updatedAt && doc.updatedAt !== sync.lastSyncedAt;
 
   if (!cloudHasData) {
-    // Cloud is empty. Seed it only if this device already has real data;
-    // otherwise wait — the bundled example (loaded right after init) will sync
-    // through the subscription below, avoiding an empty write.
-    const hasLocalData =
-      Boolean(preset.rawJson) || Object.keys(preset.savedPresets || {}).length > 0;
+    // Cloud is empty. Seed it only if this device already has real data.
+    // (Web also counts a loaded rawJson; the extension's rawJson is the open
+    // local file, which is never synced — so only saved presets count there.)
+    const hasLocalData = host
+      ? Object.keys(preset.savedPresets || {}).length > 0
+      : Boolean(preset.rawJson) || Object.keys(preset.savedPresets || {}).length > 0;
     if (hasLocalData) {
       await pushNow(preset, sync);
     } else {
-      syncedSerialized = JSON.stringify(preset.buildSyncSnapshot());
+      syncedSerialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
       sync.set({ status: 'synced' });
     }
   } else if (cloudIsNewer && !sync.pendingSync) {
     // Adopt the newer cloud copy (no un-pushed local edits to protect).
     suppressPush = true;
-    preset.applyCloudData(doc.data);
+    preset.applyCloudData(doc.data, activePaths);
     suppressPush = false;
-    syncedSerialized = JSON.stringify(preset.buildSyncSnapshot());
+    syncedSerialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
     sync.set({ status: 'synced', lastSyncedAt: doc.updatedAt, pendingSync: false });
   } else if (sync.pendingSync || cloudIsNewer) {
     // Local is authoritative: flush offline edits (they win over a remote change).
     await pushNow(preset, sync);
   } else {
     // Already in sync with the cloud.
-    syncedSerialized = JSON.stringify(preset.buildSyncSnapshot());
+    syncedSerialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
     sync.set({ status: 'synced' });
   }
 
@@ -149,8 +167,8 @@ export async function initCloudSync() {
 }
 
 /**
- * Re-run reconciliation after credentials change (e.g. the user entered a
- * passphrase in Settings). Safe to call repeatedly.
+ * Re-run reconciliation after credentials change (web sign-in/out, or the
+ * extension connecting/disconnecting an API key). Safe to call repeatedly.
  */
 export async function reconnectCloudSync() {
   syncedSerialized = null; // force a fresh pull/seed with the new credentials

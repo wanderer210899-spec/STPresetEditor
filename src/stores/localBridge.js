@@ -1,25 +1,27 @@
-// Local-file + cloud bridge for the Cursor/VSCode extension (the "host").
+// Local-file bridge + cloud transport for the Cursor/VSCode extension (the "host").
 //
-// File side: the file-backed sibling of cloudSync.js — mirrors the open preset
-// to a local file via the webview <-> host postMessage bridge (parseFromJson in,
-// finalJson out).
+// File seam: mirrors the OPEN preset to a local file via the webview <-> host
+// postMessage bridge (parseFromJson in, finalJson out). The open file is LOCAL —
+// it is never synced to the cloud.
 //
-// Cloud side (A4 — account auth): the HOST does the Cloudflare HTTP (Node, no
-// CORS, never the browser). The webview can't ride the web app's session cookie
-// (different origin), so the extension authenticates with a generated **API key**
-// (`X-API-Key`) the user creates in the web app's Settings → Cloud sync. The key
-// is held by the host (VS Code SecretStorage), NOT here — this file only asks the
-// host to connect/validate and learns the result ("connected as <email>"). Two
-// independent baselines keep file and cloud from echoing into each other:
-//   • fileSyncedJson  — finalJson last written to disk
-//   • cloudSyncedJson — library payload last pushed to the cloud
+// Cloud transport (A4 — account auth): the webview can't ride the web app's
+// session cookie (different origin), so the extension authenticates with a
+// generated **API key** (`X-API-Key`) the user creates in the web app's
+// Settings → Cloud sync. The key is held by the HOST (VS Code SecretStorage),
+// never here. This file does NOT orchestrate cloud sync; it (a) connects /
+// validates the key with the host and (b) exposes `hostCloudGet()` /
+// `hostCloudPut()` so the SHARED engine in cloudSync.js can reconcile the preset
+// LIBRARY (saved presets + prefs) over the host's Node HTTP — exactly like the
+// web app, just with a different transport.
 //
 // Protocol (this file <-> extension/extension.js):
 //   webview -> host : ready | save{path,json} | cloudStateRequest
-//                     | cloudConnect{url,key} | cloudDisconnect | cloudPush{data}
-//                     | cloudPullRequest
+//                     | cloudConnect{url,key} | cloudDisconnect
+//                     | cloudPullRequest | cloudPush{data}
 //   host -> webview : load{...} | cloudState{url,connected,email}
-//                     | cloudReady{ok,email,reason,url} | cloudPulled{data} | cloudAck{ok,updatedAt}
+//                     | cloudReady{ok,email,reason,url}
+//                     | cloudPulled{connected,data,updatedAt} | cloudAck{ok,updatedAt}
+//                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
 import { debounce } from 'lodash-es';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
@@ -30,8 +32,7 @@ const REPLY_TIMEOUT_MS = 12000;
 let vscodeApi = null;
 let subscribed = false;
 let activePath = null;
-let fileSyncedJson = null;
-let cloudSyncedJson = null;
+let fileSyncedJson = null; // finalJson last written to disk (file-seam baseline)
 let store = null;
 let sync = null;
 
@@ -40,8 +41,12 @@ let cloudConnected = false;
 let cloudEmail = '';
 let cloudUrlValue = '';
 
+// Invoked when the host asks the webview to re-reconcile (status-bar "Sync
+// library"). cloudSync.js registers it in host mode; avoids a circular import.
+let reconcileHandler = null;
+
 // One-shot resolvers awaiting a host reply, keyed by reply kind.
-const pending = { connect: [], state: [] };
+const pending = { connect: [], state: [], pull: [], push: [] };
 
 /** True when running inside a Cursor/VSCode webview (host mode). */
 export function isVsCodeHost() {
@@ -82,73 +87,35 @@ function awaitReply(kind, fallback) {
   });
 }
 
-function cloudEnabled() {
-  return cloudConnected;
-}
-
-/** Mirror the host's connection snapshot into module + sync-store state. */
+/** Mirror the host's connection snapshot into module + sync-store state. The
+ *  authoritative sync STATUS is owned by cloudSync.js (the reconcile engine);
+ *  here we only reflect whether a credential is present. */
 function applyConnection({ connected, email, url }) {
   cloudConnected = Boolean(connected);
   cloudEmail = email || '';
   if (typeof url === 'string') cloudUrlValue = url;
-  sync.set({ cloudEnabled: cloudConnected, status: cloudConnected ? 'synced' : 'idle' });
+  sync.set({ cloudEnabled: cloudConnected });
 }
 
-/**
- * The portable library (saved presets + prefs) in cloud-document shape, built
- * from EXTENSION_LIBRARY_PATHS. The open file's active-area fields (rawJson,
- * prompts, …) are deliberately excluded: the cloud is the central drive for the
- * LIBRARY only, never the file you are editing. The host's read-merge-write
- * overlays just these keys, leaving the rest of the cloud document untouched.
- */
-function libraryPayload() {
-  return store.buildLibrarySnapshot();
-}
+// --- File seam ---------------------------------------------------------------
 
-/** Apply a preset file pushed from the host. Opening neither rewrites the file
- *  nor pushes to the cloud (both baselines are set to the just-loaded state). */
+/** Apply a preset file pushed from the host. Opening does not rewrite the file
+ *  (the baseline is set to the just-loaded state). */
 function applyLoad(message) {
   if (typeof message.json !== 'string') return;
   if (message.path) activePath = message.path;
   store.parseFromJson(message.json); // also runs analyzeAllMacros()
   if (message.name) store.originalFilename = message.name;
   fileSyncedJson = store.finalJson;
-  cloudSyncedJson = JSON.stringify(libraryPayload());
 }
 
-/** Adopt the LIBRARY pulled from the cloud (saved presets + prefs). Never touches
- *  the open file — library paths exclude rawJson/prompts. Baseline is reset so the
- *  store change this triggers does not echo a push back up. */
-function applyCloudPull(data) {
-  if (!data || typeof data !== 'object') {
-    sync.set({ status: 'synced' });
-    return;
-  }
-  store.applyLibraryData(data);
-  cloudSyncedJson = JSON.stringify(libraryPayload());
-  sync.set({ status: 'synced', lastSyncedAt: new Date().toISOString() });
-}
-
-/** Debounced mirror to both targets; each guarded so unchanged content is a no-op.
- *  The open file mirrors to disk; the library mirrors to the cloud. Opening or
- *  pulling never pushes; only a real edit pushes. */
-function saveNow() {
-  if (activePath) {
-    const json = store.finalJson;
-    if (json !== fileSyncedJson) {
-      fileSyncedJson = json;
-      post({ type: 'save', path: activePath, json });
-    }
-  }
-  if (cloudEnabled()) {
-    const serialized = JSON.stringify(libraryPayload());
-    if (serialized !== cloudSyncedJson) {
-      cloudSyncedJson = serialized;
-      sync.set({ status: 'syncing' });
-      // Post a plain clone (not the Vue reactive proxy) for a safe structured clone.
-      post({ type: 'cloudPush', data: JSON.parse(serialized) });
-    }
-  }
+/** Debounced mirror of the open file to disk (skips no-op / echo writes). */
+function saveFileNow() {
+  if (!activePath) return;
+  const json = store.finalJson;
+  if (json === fileSyncedJson) return;
+  fileSyncedJson = json;
+  post({ type: 'save', path: activePath, json });
 }
 
 // --- Public API for the <SyncSetup> panel (extension mode) -------------------
@@ -177,18 +144,44 @@ export function requestCloudState() {
   return awaitReply('state', { url: cloudUrlValue, connected: cloudConnected, email: cloudEmail });
 }
 
-/** Ask the host to fetch the cloud library now and push it down (manual sync).
- *  The host replies with a 'cloudPulled' message handled by applyCloudPull. */
-export function pullLibraryNow() {
-  if (!isVsCodeHost() || !cloudEnabled()) return;
-  sync.set({ status: 'syncing' });
+/** Register the callback the status-bar "Sync library" command triggers. */
+export function setReconcileHandler(fn) {
+  reconcileHandler = fn;
+}
+
+// --- Cloud transport for cloudSync.js (host mode) ----------------------------
+
+/**
+ * GET the cloud document via the host. Mirrors cloudSync.fetchCloudDocument:
+ * resolves to `{ updatedAt, data }` when connected (data may be null for an
+ * empty cloud), or `null` when not connected / unreachable (⇒ local-only).
+ */
+export function hostCloudGet() {
+  if (!isVsCodeHost()) return Promise.resolve(null);
   post({ type: 'cloudPullRequest' });
+  return awaitReply('pull', null).then((msg) => {
+    if (!msg || !msg.connected) return null;
+    return { updatedAt: msg.updatedAt || null, data: msg.data || null };
+  });
 }
 
 /**
- * Initialise the host bridge: receive the file, then mirror edits to the file
- * and (once the host confirms a valid API key) to the cloud. No-op outside a
- * webview.
+ * PUT a snapshot to the cloud via the host (host does the read-merge-write so
+ * only the library keys we send are overlaid). Resolves to `{ ok, updatedAt }`.
+ */
+export function hostCloudPut(payload) {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false });
+  post({ type: 'cloudPush', data: payload && payload.data });
+  return awaitReply('push', { ok: false }).then((msg) => ({
+    ok: Boolean(msg && msg.ok),
+    updatedAt: msg && msg.updatedAt,
+  }));
+}
+
+/**
+ * Initialise the host file bridge: receive the open file and mirror edits back
+ * to disk (debounced). Cloud sync is handled separately by cloudSync.js using
+ * the transport above. No-op outside a webview.
  */
 export async function initLocalBridge() {
   if (!isVsCodeHost()) return;
@@ -215,21 +208,20 @@ export async function initLocalBridge() {
         });
         break;
       case 'cloudPulled':
-        applyCloudPull(message.data);
+        settle('pull', message);
         break;
       case 'cloudAck':
-        sync.set(
-          message.ok
-            ? { status: 'synced', lastSyncedAt: message.updatedAt || new Date().toISOString() }
-            : { status: 'error' },
-        );
+        settle('push', message);
+        break;
+      case 'cloudReconcile':
+        if (reconcileHandler) reconcileHandler();
         break;
     }
   });
 
   if (!subscribed) {
     subscribed = true;
-    const debouncedSave = debounce(saveNow, SAVE_DEBOUNCE_MS);
+    const debouncedSave = debounce(saveFileNow, SAVE_DEBOUNCE_MS);
     store.$subscribe(() => debouncedSave());
   }
 

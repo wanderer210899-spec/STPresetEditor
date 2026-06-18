@@ -186,7 +186,6 @@ import {
   connectCloud,
   disconnectCloud,
   isVsCodeHost,
-  pullLibraryNow,
   requestCloudState,
 } from '../stores/localBridge';
 import { useAuthStore } from '../stores/authStore';
@@ -312,6 +311,7 @@ async function connectExt() {
     extEmail.value = r.email || '';
     extKey.value = ''; // never keep the plaintext key around
     error.value = false;
+    await reconnectCloudSync(); // reconcile the library now that we're authed
   } else {
     error.value = true;
     message.value = explainExt(r.reason);
@@ -325,11 +325,14 @@ async function disconnectExt() {
   extConnected.value = false;
   extEmail.value = '';
   message.value = '';
+  await reconnectCloudSync(); // drop to local-only
 }
 
-// Manually pull the cloud library down into this editor (the open file is untouched).
-function syncNow() {
-  pullLibraryNow();
+// Re-reconcile the cloud library now (the open file is untouched).
+async function syncNow() {
+  busy.value = true;
+  await reconnectCloudSync();
+  busy.value = false;
 }
 
 onMounted(async () => {
