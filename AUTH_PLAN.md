@@ -381,6 +381,47 @@ or cherry-pick A4 there. Plan the worker/web auth as fully usable on its own
 (web app gets real accounts immediately); the extension adopts the API key once
 the branches are reconciled.
 
+## 8. Sync setup UX per platform
+
+One shared Vue component **`<SyncSetup>`** renders in all three shapes (the
+codebase already detects the shape via `isVsCodeHost()`), so the panel looks the
+same everywhere; only the auth action differs.
+
+| Platform | What the user does | Why |
+| --- | --- | --- |
+| **PC web** | Open the deployment URL → Sync panel → enter email + password → done. First sign-in claims ownership. | Same-origin: the session cookie just works; presets sync automatically. No URL, no key. |
+| **Mobile web** | **Identical** to PC web — same URL, same component, responsive. Sign in with the same password → same library. | It's literally the same deployed app in another browser. This is the cross-device payoff. |
+| **PC VS Code** | Settings (panel above the old passphrase): enter **Cloud URL** + paste an **API key** generated in the web app (Settings → *Connect VS Code*). Pings the worker → "Connected as …". | The webview is a different origin and can't ride the browser session, so it authenticates with a header credential (the API key). |
+
+**"Same UI" outcome:** PC web ≡ mobile web is identical for free. VS Code reuses
+the same panel component; for v1 its action is "Cloud URL + API key" (vs. the web's
+"email + password"). A later **device-link** upgrade will make VS Code bounce to
+the same web login screen so all three converge on one sign-in screen.
+
+## 9. v1 scope lock (confirmed)
+
+- **Password only.** No Google sign-in in v1 — it would force every deployer to
+  create a per-deployment Google OAuth client (Cloud Console), which is heavier
+  than a password for a single-user self-host. **Keep the Google provider wired
+  in Better Auth but dormant**, enabled only when `GOOGLE_CLIENT_ID` is present —
+  so adding Google later is a config change, not a rewrite.
+- **Recovery:** env-var owner backdoor only (no email service).
+- **Extension:** paste-API-key for v1; **device-link deferred** to v2.
+- **Deployer setup for v1 is minimal:** set `BETTER_AUTH_SECRET` (and optionally
+  `OWNER_EMAIL`, `EMERGENCY_RESET_TOKEN`). No external accounts, no email, no
+  custom domain.
+
+### Revised milestones
+
+| # | Outcome |
+| --- | --- |
+| **A0** | D1 + Better Auth (email/password only; Google provider present but dormant); first-run owner claim |
+| **A1** | `identify()` rewritten (session + `X-API-Key`); `/api/presets` gated; CORS; `X-Sync-Key` retired |
+| **A2** | Web `<SyncSetup>`: login (password) + Account page with API-key generate / list / revoke |
+| **A3** | Emergency-reset endpoint + env-var backdoor (single-use, constant-time) |
+| **A4** | Extension `<SyncSetup>`: Cloud URL + paste-API-key above the passphrase; host sends `X-API-Key`; passphrase retired |
+| **A5** | Polish: README deploy vars, optional Turnstile on login; **v2 stubs:** enable-Google switch, device-link pairing |
+
 ## Sources
 
 - Cloudflare Zero Trust plans (free, 50 users): https://www.cloudflare.com/plans/zero-trust-services/
