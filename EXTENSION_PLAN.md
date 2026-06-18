@@ -16,6 +16,18 @@ written yet. Milestones M0–M4 below are the build order once approved.
 | Delivery shape | **Cursor/VSCode extension** — webview hosting the existing Vue SPA |
 | This session | **Implementation plan** (this document) |
 | ST integration depth | **Auto-notify SillyTavern** to reload the preset after save |
+| SillyTavern location | **Same computer** as the editor — extension writes the preset file directly; no network bridge needed |
+| Cloud sync | **Keep both** — Cloudflare sync (cross-device library) and the extension (local files) coexist; one UI, the data provider is chosen automatically at startup |
+
+Why a cloud-hosted web app can't do this on its own (the question that drove the
+shape): a Cloudflare worker runs on a server in a data center, not on your
+machine, so it can never reach your local SillyTavern files. A normal browser tab
+is sandboxed away from your disk too (the one narrow exception, the File System
+Access API, is Chromium-only, re-prompts every session, can't watch files, and
+can't run in the IDE). Only a program running **locally with file permission** —
+the extension's Node.js "extension host" — can read/write the preset folder and
+sit inside Cursor next to the logs. The cloud deployment stays useful for a
+different job: syncing your library across devices.
 
 ## 2. Core idea: a third runtime shape from one codebase
 
