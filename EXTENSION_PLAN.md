@@ -144,10 +144,49 @@ looks like editable preset data and never triggers a save loop.
 
 **Provider selection** in `src/main.js` `bootstrap()`:
 ```
-if (inHost) await initLocalBridge();   // file-backed, cloud disabled
-else        await initCloudSync();     // unchanged web/Cloudflare behavior
+if (inHost) { await initLocalBridge(); await initCloudSync(); }  // BOTH: files + cloud
+else        { await initCloudSync(); }                           // web/mobile: cloud only
 ```
-Only one provider runs at a time — no cloud/local tug-of-war.
+In the extension **both providers run together** (the confirmed workflow wants
+local *and* cloud on PC). They don't fight because the in-memory Pinia store is
+the single source of truth and each provider is just a mirror of it:
+- **Local file = authoritative on open.** Opening a preset loads it into the
+  store; cloud is then a *downstream mirror* (pushed to match).
+- Cloud's "adopt a newer copy" behavior is suppressed in host mode, so opening a
+  file never gets clobbered by an older cloud snapshot.
+- The existing `suppressPush` / `pendingSync` echo-guards prevent ping-pong.
+
+### 3b.1 The full device loop (reusing the EXISTING Cloudflare deployment)
+
+Confirmed target workflow:
+- **PC (extension):** edit → autosave writes the preset file to ST's folder
+  **and** mirrors to Cloudflare → ST reloads (3e) → test, with logs in the IDE.
+- **Mobile (web):** the *existing* deployed web app, unchanged — pull library
+  from Cloudflare, edit, push back. **Mobile never touches SillyTavern**, so there
+  is no manual import/export hop; ST testing happens on PC only.
+
+Because the *currently-open preset* is already part of the cloud snapshot, the PC
+and mobile editors show the same preset automatically — the loop is fully
+automatic end-to-end, no file copying anywhere.
+
+**No new deployment.** Same worker, same KV, same data, same URL. Two small
+changes let the extension reach the cloud it already has:
+1. **Configurable cloud URL.** `cloudSync.js` currently uses the *relative*
+   `'/api/presets'` (resolves to the app's own origin). On the website that's the
+   Cloudflare domain; inside the extension the origin is local, so add a Settings
+   field for the absolute base URL → `<cloudOrigin>/api/presets`. The webview CSP
+   must also list that origin under `connect-src`.
+2. **CORS on the worker.** "CORS" = the browser rule that a page may only call a
+   server at a *different* origin if that server opts in. The web app and worker
+   are same-origin today, so this never came up; the extension is a different
+   origin, so `worker/index.js` needs a few lines: answer the preflight `OPTIONS`
+   and return `Access-Control-Allow-Origin` + `Access-Control-Allow-Headers:
+   X-Sync-Key`. The **passphrase stays the real security gate.**
+
+Auth from the extension uses **passphrase mode** (`X-Sync-Key`, already
+supported) — it's a plain header that works cross-origin. Cloudflare Access mode
+relies on browser SSO cookies and is awkward from a webview, so passphrase is the
+recommended path there.
 
 ### 3c. Extension host (`extension/`, TypeScript)
 
@@ -265,6 +304,7 @@ Single source of truth rule still applies: when adding a persisted field, update
 | **M0** | Webview build pipeline; the existing Vue UI renders inside a panel (no I/O) | CSP + asset-path pattern works |
 | **M1** | `localBridge` + host fs: open a `.json` → loads into the UI; edits → saved back to the same file | End-to-end parity with the old extension, but with your UI |
 | **M2** | Library tree (`OpenAI Settings/*.json`), multi-file switching, watcher + echo-guard, atomic writes | The many-files model (3d) |
+| **M2c** | Cloud coexistence: configurable cloud URL + CSP `connect-src`; worker CORS lines; both providers run on PC (local authoritative, cloud mirror) | The PC↔cloud↔mobile loop (3b.1); reuses the existing deployment |
 | **M3** | ST auto-notify: companion bridge + WebSocket; save → `/preset` reselect | The chosen "auto-notify" deliverable |
 | **M4** | Polish: edit-prompt-in-tab (3f), settings (folder/port), `.vsix` packaging, README | Shippable |
 
@@ -280,8 +320,11 @@ reload. Each milestone is independently demoable.
 2. **Save/echo loop** between our writes and the FileSystemWatcher → suppress
    events for just-written paths (in-flight set + mtime), mirroring
    `cloudSync.js`'s `suppressPush`.
-3. **Two providers fighting** (cloud vs local) → choose exactly one at bootstrap
-   by environment.
+3. **Two providers running together in the extension** (cloud + local, by design)
+   → no fight because the Pinia store is the single source of truth and each
+   provider only mirrors it; local file is authoritative on open, cloud is a
+   downstream mirror, and the existing `suppressPush`/`pendingSync` guards stop
+   echo loops. (Web/mobile still runs cloud only.)
 4. **ST reload coupling** → keep Tier 0 fully functional without the companion
    extension; Tier 1 is additive.
 5. **Cursor vs VSCode parity** → same extension API; distribute the `.vsix`
