@@ -20,5 +20,17 @@
     {
       "binding": "PRESETS"
     }
+  ],
+
+  // Auth store (accounts, sessions, API keys). When you fork & deploy, run
+  // `wrangler d1 create stpreseteditor-auth` and paste YOUR database_id below,
+  // then `wrangler d1 migrations apply stpreseteditor-auth --remote`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stpreseteditor-auth",
+      "database_id": "ad47e81e-4cfe-469d-888c-34178441e4c1",
+      "migrations_dir": "migrations"
+    }
   ]
 }

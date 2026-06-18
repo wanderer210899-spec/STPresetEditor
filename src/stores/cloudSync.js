@@ -15,16 +15,13 @@ let syncedSerialized = null;
 // Ensures the change subscription is attached only once across reconnects.
 let subscribed = false;
 
-/** Auth header for passphrase mode (no-op when Cloudflare Access is used). */
-function authHeaders() {
-  const key = useSyncStore().syncKey;
-  return key ? { 'X-Sync-Key': key } : {};
-}
-
 /**
  * GET the cloud document.
  * @returns {Promise<{updatedAt: string|null, data: object|null}|null>}
  *   The document, or null when the cloud is unavailable (so we stay local-only).
+ *
+ * Auth is the session cookie (account sign-in); `credentials: 'include'` sends
+ * it. A 401 (signed out) ⇒ null ⇒ local-only, same as offline.
  */
 async function fetchCloudDocument() {
   try {
@@ -32,7 +29,8 @@ async function fetchCloudDocument() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(API_URL, {
-      headers: { accept: 'application/json', ...authHeaders() },
+      headers: { accept: 'application/json' },
+      credentials: 'include',
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -52,7 +50,8 @@ async function pushCloudDocument(payload) {
   try {
     const res = await fetch(API_URL, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
     return res.ok;

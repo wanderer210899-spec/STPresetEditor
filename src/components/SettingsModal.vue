@@ -29,25 +29,7 @@
 
       <!-- Cloud Sync Setting -->
       <div class="py-6">
-        <label class="field-label mb-2">Cloud sync</label>
-        <div class="flex items-center gap-2">
-          <input
-            v-model="syncKeyInput"
-            type="password"
-            autocomplete="off"
-            placeholder="Sync passphrase"
-            class="input"
-            @keyup.enter="connectSync"
-          />
-          <button class="btn btn-primary shrink-0" @click="connectSync">Connect</button>
-        </div>
-        <p class="mt-2 text-xs text-gray-500">
-          Status:
-          <span class="font-medium">{{ sync.statusLabel }}</span>
-          . Enter the same passphrase on each device to sync. On your Worker, set it once with
-          <code class="rounded bg-gray-100 px-1">wrangler secret put SYNC_PASSWORD</code>
-          (or leave blank if you use Cloudflare Access instead).
-        </p>
+        <SyncSetup />
       </div>
 
       <!-- Delete Confirmation Setting -->
@@ -190,10 +172,9 @@
 
 <script setup>
 import { ref } from 'vue';
-import { reconnectCloudSync } from '../stores/cloudSync';
 import { usePresetStore } from '../stores/presetStore';
-import { useSyncStore } from '../stores/syncStore';
 import BaseModal from './BaseModal.vue';
+import SyncSetup from './SyncSetup.vue';
 
 defineProps({
   isOpen: {
@@ -203,15 +184,8 @@ defineProps({
 });
 
 const store = usePresetStore();
-const sync = useSyncStore();
 
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev';
-
-const syncKeyInput = ref(sync.syncKey || '');
-const connectSync = async () => {
-  sync.setSyncKey(syncKeyInput.value.trim());
-  await reconnectCloudSync();
-};
 
 // Custom autocomplete dictionary form state
 const macroDisplay = (name) => `{{${name}}}`;
