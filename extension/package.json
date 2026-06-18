@@ -4,13 +4,23 @@
   "description": "Edit SillyTavern presets from local files using the STPresetEditor UI.",
   "version": "0.0.1",
   "publisher": "wanderer210899",
-  "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wanderer210899-spec/stpreseteditor"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "sillytavern",
+    "preset",
+    "ai",
+    "prompt",
+    "editor"
   ],
   "main": "./extension.js",
   "activationEvents": [
@@ -21,7 +31,8 @@
       {
         "command": "stpe.open",
         "title": "Open in STPresetEditor",
-        "category": "STPresetEditor"
+        "category": "STPresetEditor",
+        "icon": "$(edit)"
       }
     ],
     "menus": {
@@ -37,6 +48,13 @@
           "command": "stpe.open",
           "when": "resourceExtname == .json",
           "group": "navigation@9"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "stpe.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
         }
       ]
     }
