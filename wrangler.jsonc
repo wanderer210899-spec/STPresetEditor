@@ -4,7 +4,9 @@
   // each person who deploys (via the Deploy button or `wrangler deploy`) and
   // writes the id into THEIR copy — never into this repo.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "stpreseteditor",
+  // Target the existing live worker so deploying from master updates it in place
+  // (keeps the stpreseteditor-deploy.workers.dev URL) instead of creating a new one.
+  "name": "stpreseteditor-deploy",
   "main": "worker/index.js",
   "compatibility_date": "2025-06-01",
 
@@ -15,10 +17,12 @@
     "not_found_handling": "single-page-application"
   },
 
-  // Cloud storage for presets. No "id" => auto-provisioned on first deploy.
+  // Cloud storage for presets. Pinned to the existing live namespace so the
+  // deployed worker keeps reading/writing the same KV data it always has.
   "kv_namespaces": [
     {
-      "binding": "PRESETS"
+      "binding": "PRESETS",
+      "id": "d113fcc78c9d4f58af678f8dda5dc533"
     }
   ],
 
