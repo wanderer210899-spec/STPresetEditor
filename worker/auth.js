@@ -14,7 +14,11 @@
 
 const SESSION_COOKIE = 'stpe_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const PBKDF2_ITERS = 210000;
+// 100k is the MAXIMUM Cloudflare Workers' Web Crypto allows for PBKDF2 ("iteration
+// counts above 100000 are not supported"). `wrangler dev` doesn't enforce this cap,
+// the deployed edge does — do not raise it. The stored hash records its own
+// iteration count, so this can change without breaking existing passwords.
+const PBKDF2_ITERS = 100000;
 
 const encoder = new TextEncoder();
 
