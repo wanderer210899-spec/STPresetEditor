@@ -1,8 +1,8 @@
 {
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
-  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI.",
-  "version": "0.0.1",
+  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional cloud sync.",
+  "version": "0.0.2",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -24,15 +24,32 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onCommand:stpe.open"
+    "onCommand:stpe.open",
+    "onCommand:stpe.pullFromCloud"
   ],
   "contributes": {
+    "configuration": {
+      "title": "STPresetEditor",
+      "properties": {
+        "stpe.cloudUrl": {
+          "type": "string",
+          "default": "https://stpreseteditor-deploy.wanderer210899.workers.dev/api/presets",
+          "description": "Your STPresetEditor cloud-sync endpoint (the Cloudflare /api/presets URL). Leave as-is unless you self-host elsewhere."
+        }
+      }
+    },
     "commands": [
       {
         "command": "stpe.open",
         "title": "Open in STPresetEditor",
         "category": "STPresetEditor",
         "icon": "$(edit)"
+      },
+      {
+        "command": "stpe.pullFromCloud",
+        "title": "Pull preset from cloud",
+        "category": "STPresetEditor",
+        "icon": "$(cloud-download)"
       }
     ],
     "menus": {

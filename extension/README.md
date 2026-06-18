@@ -4,9 +4,23 @@ Edit SillyTavern presets straight from local files using the full STPresetEditor
 UI, inside Cursor/VSCode. Open a `.json` preset → edit in the rich UI → it saves
 back to the same file automatically.
 
-> Phase M0 + M1 of `../EXTENSION_PLAN.md`. Not yet included: the preset-library
-> sidebar (M2), live SillyTavern reload (M3), Cloudflare sync inside the
-> extension (M2c).
+> Phase M0 + M1 + M2c of `../EXTENSION_PLAN.md`. Not yet included: the
+> preset-library sidebar (M2) and live SillyTavern reload (M3).
+
+## Cloud sync (optional)
+
+Edits also sync to your Cloudflare deployment so the same preset is available on
+your phone/web app, and vice-versa. To turn it on, open the editor's **Settings →
+Cloud sync** and enter the **same passphrase** you use on your phone.
+
+- On edit, the PC pushes the **current preset** to the cloud — your phone's saved
+  library is never overwritten (the host does a safe read-merge-write).
+- To bring a preset you edited on your phone down to the PC, click
+  **"☁ Pull preset"** in the status bar (or run **STPresetEditor: Pull preset
+  from cloud**). It loads into the editor and saves to the open file.
+
+The cloud URL defaults to your deployment; change it under Settings → Extensions
+→ `stpe.cloudUrl` if you self-host elsewhere.
 
 ## Install (plug and play)
 

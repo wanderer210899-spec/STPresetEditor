@@ -4,10 +4,12 @@ Goal: edit SillyTavern presets **directly from local files** (like the
 `Simamiemie` extension) using **STPresetEditor's feature-rich UI** (this fork),
 all inside Cursor/VSCode, and **auto-notify SillyTavern to reload** after a save.
 
-Milestones M0–M4 below are the build order. **Status: M0 + M1 are implemented**
-(`extension/`, `vite.config.webview.js`, `src/stores/localBridge.js`, and the
-host-mode branch in `src/main.js`) — open a `.json` preset in a Cursor webview,
-edit in the full UI, autosave back to the file. M2 / M2c / M3 / M4 are pending.
+Milestones below are the build order. **Status: M0 + M1 + M2c are implemented and
+verified** — open a `.json` preset in a Cursor webview, edit in the full UI,
+autosave back to the file, and (with a passphrase set) mirror the current preset
+to the existing Cloudflare deployment for the PC↔cloud↔mobile loop. The cloud
+HTTP runs host-side (Node), so there's **no worker change and no CORS** to set up.
+M2 (preset sidebar) and M3 (live SillyTavern reload) are pending.
 
 ---
 
@@ -309,14 +311,14 @@ Single source of truth rule still applies: when adding a persisted field, update
 
 ## 5. Milestones (build order)
 
-| #       | Outcome                                                                                                                                        | Proves                                                            |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **M0** ✅ | Webview build pipeline; the existing Vue UI renders inside a panel (no I/O)                                                                    | CSP + asset-path pattern works                                    |
-| **M1** ✅ | `localBridge` + host fs: open a `.json` → loads into the UI; edits → saved back to the same file                                               | End-to-end parity with the old extension, but with your UI        |
-| **M2**  | Library tree (`OpenAI Settings/*.json`), multi-file switching, watcher + echo-guard, atomic writes                                             | The many-files model (3d)                                         |
-| **M2c** | Cloud coexistence: configurable cloud URL + CSP `connect-src`; worker CORS lines; both providers run on PC (local authoritative, cloud mirror) | The PC↔cloud↔mobile loop (3b.1); reuses the existing deployment |
-| **M3**  | ST auto-notify: companion bridge + WebSocket; save → `/preset` reselect                                                                        | The chosen "auto-notify" deliverable                              |
-| **M4**  | Polish: edit-prompt-in-tab (3f), settings (folder/port), `.vsix` packaging, README                                                             | Shippable                                                         |
+| #          | Outcome                                                                                                                                                                     | Proves                                                            |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **M0** ✅  | Webview build pipeline; the existing Vue UI renders inside a panel (no I/O)                                                                                                 | CSP + asset-path pattern works                                    |
+| **M1** ✅  | `localBridge` + host fs: open a `.json` → loads into the UI; edits → saved back to the same file                                                                            | End-to-end parity with the old extension, but with your UI        |
+| **M2**     | Library tree (`OpenAI Settings/*.json`), multi-file switching, watcher + echo-guard, atomic writes                                                                          | The many-files model (3d)                                         |
+| **M2c** ✅ | Cloud sync in-extension: host-side Node HTTP (no worker change / no CORS), passphrase auth, safe read-merge-write push on edit, "Pull from cloud" command/status-bar button | The PC↔cloud↔mobile loop (3b.1); reuses the existing deployment |
+| **M3**     | ST auto-notify: companion bridge + WebSocket; save → `/preset` reselect                                                                                                     | The chosen "auto-notify" deliverable                              |
+| **M4**     | Polish: edit-prompt-in-tab (3f), settings (folder/port), `.vsix` packaging, README                                                                                          | Shippable                                                         |
 
 M0+M1 already deliver "your UI, on local files, in Cursor." M3 adds the live ST
 reload. Each milestone is independently demoable.

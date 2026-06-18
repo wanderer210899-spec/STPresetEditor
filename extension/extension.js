@@ -1,35 +1,46 @@
-// STPresetEditor — local-files extension host (M0 + M1).
+// STPresetEditor — local-files + cloud extension host (M0 + M1 + M2c).
 //
 // Responsibilities:
-//   • Command "stpe.open" opens a .json preset in a webview that hosts the
-//     STPresetEditor Vue UI (built into ./media by `npm run build:webview`).
-//   • Reads the file and sends it to the webview ({ type: 'load' }).
-//   • Receives edits from the webview ({ type: 'save' }) and writes them back
-//     to the same file atomically.
+//   • Open a .json preset in a webview that hosts the STPresetEditor Vue UI.
+//   • Read the file → webview ({type:'load'}); write edits back atomically
+//     ({type:'save'}).
+//   • Cloud sync (M2c): the HOST does the Cloudflare HTTP over Node (no browser
+//     CORS, no worker change). On edit it PUSHES the current preset with a safe
+//     read-merge-write that never touches the rest of your cloud library; a
+//     "Pull preset from cloud" command brings another device's edits down.
 //
-// Written as plain CommonJS so it runs in the Extension Development Host with no
-// compile step. (A TypeScript + esbuild setup can come later — see EXTENSION_PLAN.md.)
+// Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
-// The cloud origin (for M2c). Listed in connect-src now so cloud sync can be
-// wired without touching CSP later. Not used for I/O in this phase.
+// Default cloud endpoint; override per-user via the `stpe.cloudUrl` setting.
+const DEFAULT_CLOUD_URL = 'https://stpreseteditor-deploy.wanderer210899.workers.dev/api/presets';
+// Keys of the current preset we mirror to the cloud (a subset of the app's
+// SYNC_DATA_PATHS). Merging only these preserves savedPresets/prefs on the cloud.
 const CLOUD_ORIGIN = 'https://stpreseteditor-deploy.wanderer210899.workers.dev';
 
 // One webview per file path, so re-opening a file reveals the existing panel.
 const panels = new Map();
-let statusBar;
+let statusBar; // file-save confirmation
+let statusBarPull; // clickable "Pull preset from cloud"
+let activePanel = null; // last-focused STPE webview (pull target)
+let cloudKey = ''; // passphrase, relayed from the webview Settings
 
 function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  context.subscriptions.push(statusBar);
+  statusBarPull = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  statusBarPull.command = 'stpe.pullFromCloud';
+  statusBarPull.text = '$(cloud-download) Pull preset';
+  statusBarPull.tooltip = 'Load the latest version of this preset from your cloud';
+  context.subscriptions.push(statusBar, statusBarPull);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('stpe.open', (uri) => {
       const filePath = resolveTargetPath(uri);
       if (filePath) openEditor(context, filePath);
     }),
+    vscode.commands.registerCommand('stpe.pullFromCloud', pullFromCloud),
   );
 }
 
@@ -65,29 +76,64 @@ function openEditor(context, filePath) {
     'stpeEditor',
     path.basename(filePath),
     vscode.ViewColumn.One,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [mediaUri],
-    },
+    { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [mediaUri] },
   );
   panels.set(filePath, panel);
-  panel.onDidDispose(() => panels.delete(filePath), null, context.subscriptions);
+  setActivePanel(panel);
+
+  panel.onDidChangeViewState(
+    (e) => {
+      if (e.webviewPanel.active) setActivePanel(e.webviewPanel);
+    },
+    null,
+    context.subscriptions,
+  );
+  panel.onDidDispose(
+    () => {
+      panels.delete(filePath);
+      if (activePanel === panel) setActivePanel(null);
+    },
+    null,
+    context.subscriptions,
+  );
 
   panel.webview.onDidReceiveMessage(
-    (message) => {
-      if (!message || typeof message !== 'object') return;
-      if (message.type === 'ready') {
-        sendLoad(panel, filePath);
-      } else if (message.type === 'save') {
-        handleSave(filePath, message.json);
-      }
-    },
+    (message) => handleMessage(message, panel, filePath),
     undefined,
     context.subscriptions,
   );
 
   panel.webview.html = getWebviewHtml(panel.webview, mediaUri);
+}
+
+function setActivePanel(panel) {
+  activePanel = panel;
+  if (panel && cloudKey) statusBarPull.show();
+  else statusBarPull.hide();
+}
+
+function handleMessage(message, panel, filePath) {
+  if (!message || typeof message !== 'object') return;
+  switch (message.type) {
+    case 'ready':
+      sendLoad(panel, filePath);
+      break;
+    case 'save':
+      handleSave(filePath, message.json);
+      break;
+    case 'cloudConfig':
+      cloudKey = typeof message.key === 'string' ? message.key : '';
+      if (activePanel && cloudKey) statusBarPull.show();
+      else statusBarPull.hide();
+      break;
+    case 'cloudPush':
+      cloudPush(message.data)
+        .then((r) =>
+          panel.webview.postMessage({ type: 'cloudAck', ok: r.ok, updatedAt: r.updatedAt }),
+        )
+        .catch(() => panel.webview.postMessage({ type: 'cloudAck', ok: false }));
+      break;
+  }
 }
 
 /** Read the preset file and push it to the webview. */
@@ -132,6 +178,108 @@ function writeFileAtomic(filePath, content) {
   fs.renameSync(tmp, filePath);
 }
 
+// --- Cloud sync (M2c) ---------------------------------------------------------
+
+function cloudUrl() {
+  const cfg = vscode.workspace.getConfiguration('stpe').get('cloudUrl');
+  return typeof cfg === 'string' && cfg.trim() ? cfg.trim() : DEFAULT_CLOUD_URL;
+}
+
+/** Minimal promise-based HTTPS request (no dependency on global fetch). */
+function httpRequest(urlStr, { method = 'GET', headers = {}, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    let url;
+    try {
+      url = new URL(urlStr);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const lib = url.protocol === 'http:' ? require('http') : require('https');
+    const req = lib.request(url, { method, headers, timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => resolve({ status: res.statusCode || 0, body: data }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('request timed out')));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function cloudGet() {
+  if (!cloudKey) return null;
+  const res = await httpRequest(cloudUrl(), {
+    headers: { accept: 'application/json', 'X-Sync-Key': cloudKey },
+  });
+  if (res.status !== 200) return null;
+  try {
+    return JSON.parse(res.body);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Push the current preset to the cloud with a read-merge-write: fetch the
+ * existing document and overlay ONLY the current-preset fields, so the rest of
+ * the cloud library (savedPresets, prefs) is preserved untouched.
+ */
+async function cloudPush(data) {
+  if (!cloudKey || !data || typeof data !== 'object') return { ok: false };
+  let base = {};
+  try {
+    const doc = await cloudGet();
+    if (doc && doc.data && typeof doc.data === 'object') base = doc.data;
+  } catch {
+    // No existing doc / unreachable on GET — start a fresh document.
+  }
+  const updatedAt = new Date().toISOString();
+  const body = JSON.stringify({ updatedAt, data: { ...base, ...data } });
+  const res = await httpRequest(cloudUrl(), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'X-Sync-Key': cloudKey },
+    body,
+  });
+  return { ok: res.status === 200, updatedAt };
+}
+
+/** Command: fetch the cloud preset and load it into the active editor. */
+async function pullFromCloud() {
+  if (!activePanel) {
+    vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
+    return;
+  }
+  if (!cloudKey) {
+    vscode.window.showWarningMessage(
+      'STPresetEditor: enter your cloud passphrase in the editor’s Settings (Cloud sync) first.',
+    );
+    return;
+  }
+  try {
+    const doc = await cloudGet();
+    if (!doc || !doc.data || typeof doc.data.rawJson !== 'string') {
+      vscode.window.showInformationMessage('STPresetEditor: nothing saved in the cloud yet.');
+      return;
+    }
+    activePanel.webview.postMessage({
+      type: 'cloudPulled',
+      data: doc.data,
+      updatedAt: doc.updatedAt,
+    });
+    vscode.window.showInformationMessage(
+      'STPresetEditor: pulled the latest preset from your cloud.',
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(`STPresetEditor: cloud pull failed — ${error.message}`);
+  }
+}
+
+// --- Webview HTML -------------------------------------------------------------
+
 function getNonce() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let text = '';
@@ -140,12 +288,9 @@ function getNonce() {
 }
 
 /**
- * Build the webview HTML from the Vite build (base:'./'):
- *   • rewrite relative asset URLs to webview-safe URIs,
- *   • strip `crossorigin` (webview resources aren't CORS-fetched),
- *   • add a nonce to scripts and a matching CSP.
- * `script-src 'strict-dynamic'` lets the nonced entry module pull in its
- * code-split chunks (e.g. the dynamic import of example.json).
+ * Build the webview HTML from the Vite build (base:'./'): rewrite relative
+ * asset URLs to webview-safe URIs, strip `crossorigin`, nonce the scripts, and
+ * attach a matching CSP (`'strict-dynamic'` lets the entry module load chunks).
  */
 function getWebviewHtml(webview, mediaUri) {
   const indexPath = vscode.Uri.joinPath(mediaUri, 'index.html');
