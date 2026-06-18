@@ -8,8 +8,6 @@
 
 FORK of https://github.com/Nativu5/STPresetEditor
 
-(I'm really sorry, I don't know how to use git... I'm a noob...please forgive me for the accidental pull requests I sent if u are reading this T_T)
-
 ... am legit trying to add some features for personal use
 
 > **This fork adds, on top of [Nativu5/STPresetEditor](https://github.com/Nativu5/STPresetEditor):**
