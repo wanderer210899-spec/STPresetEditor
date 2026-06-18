@@ -11,15 +11,18 @@ back to the same file automatically.
 
 Cloud sync is **off until you point it at your own deployment** — the extension
 has no built-in endpoint and contacts no server until you configure one. Each
-person uses their **own** Cloudflare Worker (one-click deploy + a `SYNC_PASSWORD`
-secret; see the project README), so nobody's data is shared by accident.
+person runs their **own** Cloudflare Worker (one-click deploy; see the project
+README), so nobody's data is shared.
 
-To turn it on:
+The extension and the web app now share **one account system**. The web app
+signs in with email + password; the extension authenticates with an **API key**
+your account mints:
 
-1. **Settings → Extensions → `stpe.cloudUrl`** → paste your Worker's
-   `https://<your-worker>.workers.dev/api/presets` URL.
-2. In the editor's **Settings → Cloud sync**, enter the **same passphrase** you
-   use on your phone/web app.
+1. Open your deployment **in a browser**, sign in, then go to **Settings → Cloud
+   sync → Generate key**. Copy the key (`stpe_…`) — it is shown only once.
+2. In the editor (this extension), open **Settings → Cloud sync**, paste your
+   **Worker URL** and the **API key**, and click **Connect**. It pings the worker
+   and shows **"Signed in as &lt;you&gt;"**.
 
 Then:
 
@@ -30,10 +33,12 @@ Then:
   **"☁ Pull preset"** in the status bar (or run **STPresetEditor: Pull preset
   from cloud**). It loads into the editor and saves to the open file.
 
-Security notes: traffic is HTTPS and authenticated by your passphrase
-(`X-Sync-Key`); the Worker fails closed without it. Use a long, random
-passphrase (the Worker has no built-in rate limiting) and consider Cloudflare
-Access or a WAF rate-limit in front of `/api/presets` for extra protection.
+Security notes: traffic is HTTPS and authenticated by your API key (`X-API-Key`);
+the Worker fails closed without a valid key. The key is held in the editor's
+encrypted **SecretStorage**, never written to the repo, and never shown back to
+the web UI. You can **revoke** a key anytime from the web app (Settings → Cloud
+sync). The Worker has no built-in rate limiting, so consider a WAF rate-limit in
+front of `/api/auth` and `/api/presets` for extra protection.
 
 ## Install (plug and play)
 

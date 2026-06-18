@@ -7,11 +7,19 @@ all inside Cursor/VSCode, and **auto-notify SillyTavern to reload** after a save
 Milestones below are the build order. **Status: M0 + M1 + M2c are implemented and
 verified** — open a `.json` preset in a Cursor webview, edit in the full UI,
 autosave back to the file, and — once you opt in by setting **your own** Worker
-URL + passphrase — mirror the current preset to your Cloudflare deployment for the
-PC↔cloud↔mobile loop. The cloud HTTP runs host-side (Node), so there's **no worker
-change and no CORS** to set up. Cloud is **off by default with no built-in
+URL + an **API key** — mirror the current preset to your Cloudflare deployment for
+the PC↔cloud↔mobile loop. The cloud HTTP runs host-side (Node), so there's **no
+worker change and no CORS** to set up. Cloud is **off by default with no built-in
 endpoint** (the extension contacts no server until configured), so the build is
 safe to distribute. M2 (preset sidebar) and M3 (live SillyTavern reload) are pending.
+
+**Auth update (A4):** after `feat/cloud-auth` merged in, the extension's cloud
+sync now uses the shared **account/API-key** system instead of the old shared
+passphrase. The webview's `<SyncSetup>` panel (Settings → Cloud sync) takes a
+Worker URL + a pasted **API key** (minted in the web app); the host validates it
+against `/api/auth/me`, stores it in VS Code **SecretStorage**, and sends
+`X-API-Key` on every preset call. See `AUTH_PLAN.md` §7.6 / §10 (A4). References
+to "passphrase / `X-Sync-Key`" below are superseded by this.
 
 ---
 

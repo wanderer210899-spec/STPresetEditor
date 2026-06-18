@@ -1,38 +1,50 @@
-// STPresetEditor — local-files + cloud extension host (M0 + M1 + M2c).
+// STPresetEditor — local-files + cloud extension host (M0 + M1 + A4 auth).
 //
 // Responsibilities:
 //   • Open a .json preset in a webview that hosts the STPresetEditor Vue UI.
 //   • Read the file → webview ({type:'load'}); write edits back atomically
 //     ({type:'save'}).
-//   • Cloud sync (M2c, opt-in): the HOST does the Cloudflare HTTP over Node (no
-//     browser CORS, no worker change). It activates only when the user has set
-//     BOTH a passphrase (Settings → Cloud sync) and their own cloud URL
-//     (`stpe.cloudUrl`) — there is NO built-in default endpoint, so a shared
-//     build never sends anyone's data anywhere until they opt in. On edit it
-//     PUSHES the current preset with a safe read-merge-write that never touches
-//     the rest of the cloud library; a "Pull preset from cloud" command brings
-//     another device's edits down.
+//   • Cloud sync (opt-in, account auth): the HOST does the Cloudflare HTTP over
+//     Node (no browser CORS, no worker change). The webview can't ride the web
+//     app's login cookie (different origin), so the extension authenticates with
+//     a generated **API key** (`X-API-Key`) the user creates in the web app
+//     (Settings → Cloud sync → generate a key). The key lives in VS Code
+//     SecretStorage (encrypted), never in the repo and never echoed to the
+//     webview. There is NO built-in endpoint: nothing is sent anywhere until the
+//     user pastes their own Worker URL + key. On edit it PUSHES the current
+//     preset with a safe read-merge-write that never touches the rest of the
+//     cloud library; "Pull preset from cloud" brings another device's edits down.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+const SECRET_KEY = 'stpe.apiKey';
+
 // One webview per file path, so re-opening a file reveals the existing panel.
 const panels = new Map();
+let extensionContext = null; // for SecretStorage access
 let statusBar; // file-save confirmation
 let statusBarPull; // clickable "Pull preset from cloud"
 let activePanel = null; // last-focused STPE webview (pull target)
-let cloudKey = ''; // passphrase, relayed from the webview Settings
+let cloudKey = ''; // API key, cached from SecretStorage
 let urlPromptShown = false; // one-time nudge to configure the cloud URL
 
 function activate(context) {
+  extensionContext = context;
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarPull = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   statusBarPull.command = 'stpe.pullFromCloud';
   statusBarPull.text = '$(cloud-download) Pull preset';
   statusBarPull.tooltip = 'Load the latest version of this preset from your cloud';
   context.subscriptions.push(statusBar, statusBarPull);
+
+  // Load the stored API key (async) so cloud sync can resume without re-entry.
+  context.secrets.get(SECRET_KEY).then((key) => {
+    cloudKey = key || '';
+    refreshPullStatusBar();
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('stpe.open', (uri) => {
@@ -120,16 +132,19 @@ function handleMessage(message, panel, filePath) {
   switch (message.type) {
     case 'ready':
       sendLoad(panel, filePath);
+      sendCloudState(panel);
       break;
     case 'save':
       handleSave(filePath, message.json);
       break;
-    case 'cloudConfig':
-      cloudKey = typeof message.key === 'string' ? message.key : '';
-      // Cloud is on only when the user supplied BOTH a passphrase and their URL.
-      panel.webview.postMessage({ type: 'cloudReady', ok: cloudConfigured() });
-      if (cloudKey && !cloudUrl()) nudgeForCloudUrl();
-      refreshPullStatusBar();
+    case 'cloudStateRequest':
+      sendCloudState(panel);
+      break;
+    case 'cloudConnect':
+      handleConnect(panel, message);
+      break;
+    case 'cloudDisconnect':
+      handleDisconnect(panel);
       break;
     case 'cloudPush':
       cloudPush(message.data)
@@ -183,20 +198,53 @@ function writeFileAtomic(filePath, content) {
   fs.renameSync(tmp, filePath);
 }
 
-// --- Cloud sync (M2c) ---------------------------------------------------------
+// --- Cloud sync (account auth) -----------------------------------------------
 
-/** The user's cloud endpoint, or '' when unset. There is NO built-in default,
- *  so the extension never talks to anyone else's server. */
-function cloudUrl() {
+/** The user's cloud setting, verbatim. There is NO built-in default, so the
+ *  extension never talks to anyone else's server. */
+function cloudUrlRaw() {
   const cfg = vscode.workspace.getConfiguration('stpe').get('cloudUrl');
   return typeof cfg === 'string' ? cfg.trim() : '';
 }
 
-function cloudConfigured() {
-  return Boolean(cloudKey && cloudUrl());
+/** Normalise the configured URL to the Worker origin, tolerating either a bare
+ *  origin (`https://x.workers.dev`) or a full endpoint pasted by mistake
+ *  (`.../api/presets`). Returns '' when unset. */
+function apiBase() {
+  let raw = cloudUrlRaw();
+  if (!raw) return '';
+  raw = raw.replace(/\/+$/, '');
+  raw = raw.replace(/\/api\/(?:presets|auth(?:\/me)?|keys).*$/i, '');
+  return raw;
 }
 
-/** One-time, actionable nudge when a passphrase is set but no URL yet. */
+function presetsUrl() {
+  const base = apiBase();
+  return base ? `${base}/api/presets` : '';
+}
+
+function meUrl() {
+  const base = apiBase();
+  return base ? `${base}/api/auth/me` : '';
+}
+
+function cloudConfigured() {
+  return Boolean(cloudKey && apiBase());
+}
+
+async function setStoredUrl(url) {
+  await vscode.workspace
+    .getConfiguration('stpe')
+    .update('cloudUrl', url, vscode.ConfigurationTarget.Global);
+}
+
+async function setStoredKey(key) {
+  cloudKey = key || '';
+  if (key) await extensionContext.secrets.store(SECRET_KEY, key);
+  else await extensionContext.secrets.delete(SECRET_KEY);
+}
+
+/** One-time, actionable nudge when a key is set but no URL yet. */
 function nudgeForCloudUrl() {
   if (urlPromptShown) return;
   urlPromptShown = true;
@@ -212,7 +260,7 @@ function nudgeForCloudUrl() {
     });
 }
 
-/** Minimal promise-based HTTPS request (no dependency on global fetch). */
+/** Minimal promise-based HTTP(S) request (no dependency on global fetch). */
 function httpRequest(urlStr, { method = 'GET', headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
     let url;
@@ -237,10 +285,82 @@ function httpRequest(urlStr, { method = 'GET', headers = {}, body = null } = {})
   });
 }
 
+/** Validate an API key against the worker's /api/auth/me. */
+async function validateKey(key) {
+  const url = meUrl();
+  if (!url) return { ok: false, reason: 'no_url' };
+  if (!key) return { ok: false, reason: 'no_key' };
+  try {
+    const res = await httpRequest(url, {
+      headers: { accept: 'application/json', 'X-API-Key': key },
+    });
+    if (res.status !== 200) {
+      return { ok: false, reason: res.status === 401 ? 'invalid_key' : `http_${res.status}` };
+    }
+    let parsed = {};
+    try {
+      parsed = JSON.parse(res.body);
+    } catch {
+      return { ok: false, reason: 'bad_response' };
+    }
+    if (parsed && parsed.authenticated) return { ok: true, email: parsed.email || '' };
+    return { ok: false, reason: 'invalid_key' };
+  } catch {
+    return { ok: false, reason: 'unreachable' };
+  }
+}
+
+/** Report the current cloud config (URL to prefill + connection status). The
+ *  stored key is never sent back to the webview. */
+async function sendCloudState(panel) {
+  const url = cloudUrlRaw();
+  if (!cloudKey || !apiBase()) {
+    panel.webview.postMessage({ type: 'cloudState', url, connected: false, email: '' });
+    return;
+  }
+  const r = await validateKey(cloudKey);
+  panel.webview.postMessage({ type: 'cloudState', url, connected: r.ok, email: r.email || '' });
+}
+
+/** Persist a URL + API key from the panel, validate, and report the result. */
+async function handleConnect(panel, message) {
+  const url = typeof message.url === 'string' ? message.url.trim() : '';
+  const key = typeof message.key === 'string' ? message.key.trim() : '';
+  if (url) await setStoredUrl(url);
+
+  const candidate = key || cloudKey;
+  const r = await validateKey(candidate);
+  // Only persist a key that actually authenticates (never clobber a working key
+  // with a bad paste).
+  if (r.ok) await setStoredKey(candidate);
+
+  panel.webview.postMessage({
+    type: 'cloudReady',
+    ok: r.ok,
+    email: r.email || '',
+    reason: r.reason || '',
+    url: cloudUrlRaw(),
+  });
+  if (key && !apiBase()) nudgeForCloudUrl();
+  refreshPullStatusBar();
+}
+
+async function handleDisconnect(panel) {
+  await setStoredKey('');
+  panel.webview.postMessage({
+    type: 'cloudReady',
+    ok: false,
+    email: '',
+    reason: 'disconnected',
+    url: cloudUrlRaw(),
+  });
+  refreshPullStatusBar();
+}
+
 async function cloudGet() {
   if (!cloudConfigured()) return null;
-  const res = await httpRequest(cloudUrl(), {
-    headers: { accept: 'application/json', 'X-Sync-Key': cloudKey },
+  const res = await httpRequest(presetsUrl(), {
+    headers: { accept: 'application/json', 'X-API-Key': cloudKey },
   });
   if (res.status !== 200) return null;
   try {
@@ -266,9 +386,9 @@ async function cloudPush(data) {
   }
   const updatedAt = new Date().toISOString();
   const body = JSON.stringify({ updatedAt, data: { ...base, ...data } });
-  const res = await httpRequest(cloudUrl(), {
+  const res = await httpRequest(presetsUrl(), {
     method: 'PUT',
-    headers: { 'content-type': 'application/json', 'X-Sync-Key': cloudKey },
+    headers: { 'content-type': 'application/json', 'X-API-Key': cloudKey },
     body,
   });
   return { ok: res.status === 200, updatedAt };
@@ -280,14 +400,14 @@ async function pullFromCloud() {
     vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
     return;
   }
-  if (!cloudKey) {
-    vscode.window.showWarningMessage(
-      'STPresetEditor: enter your cloud passphrase in the editor’s Settings (Cloud sync) first.',
-    );
+  if (!apiBase()) {
+    nudgeForCloudUrl();
     return;
   }
-  if (!cloudUrl()) {
-    nudgeForCloudUrl();
+  if (!cloudKey) {
+    vscode.window.showWarningMessage(
+      'STPresetEditor: connect cloud sync first — paste an API key in the editor’s Settings (Cloud sync).',
+    );
     return;
   }
   try {
