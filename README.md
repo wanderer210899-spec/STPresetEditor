@@ -115,9 +115,11 @@ adds an optional **Cloudflare** backend so your presets live in one central plac
 and stay in sync across devices.
 
 It is **self-hostable and secret-free**: anyone who forks this repo can deploy
-their own private instance in minutes. No keys or deployment-specific ids are
-committed — each deployer gets their **own** Worker, their **own** storage, and
-sets their **own** password. Two people who deploy the fork never share data.
+their own private instance in minutes. No passwords, API keys, or account-specific
+resource ids are committed — the KV namespace and the D1 auth database are bound by
+**name only**, so the one-click Deploy button auto-provisions fresh storage in
+**your** account. Each deployer gets their **own** Worker, their **own** storage,
+and sets their **own** password. Two people who deploy the fork never share data.
 
 ### How it works
 
@@ -142,8 +144,8 @@ service** — see the owner-recovery backdoor below.
   (web) or a generated **API key** (`X-API-Key`, for the VS Code extension and
   any client). Dependency-free: passwords are PBKDF2 (Web Crypto); sessions and
   API keys are stored only as hashes. Fails closed (401) with no identity.
-- `wrangler.jsonc` — Worker config. The KV namespace has no id (auto-provisioned
-  per deployer). The **D1** auth database is per-deployer too (see deploy steps).
+- `wrangler.jsonc` — Worker config. The KV namespace and **D1** auth database have
+  no id committed, so each deployer's storage is auto-provisioned and private.
 - `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
   as an offline cache). If the API is unreachable or signed-out the app silently
   runs local-only, so `npm run dev` is unaffected.
@@ -182,6 +184,10 @@ Optional Worker variables (dashboard → your Worker → **Settings → Variable
 - `OWNER_EMAIL` — lock sign-up/sign-in to exactly this email (recommended so a
   stranger who finds your URL can't claim the instance first).
 - `EMERGENCY_RESET_TOKEN` — enables the **owner-recovery** password reset (below).
+- `ALLOWED_ORIGINS` — only needed if a **browser app on another origin** must call
+  the API. Comma-separated allowlist of origins permitted to make credentialed
+  cross-origin requests. Leave unset (default) for same-origin web + the extension;
+  cross-origin browser access stays off, so a sibling site can't read your data.
 
 **Forgot your password? (owner recovery, no email service)**
 In the dashboard, set the Worker variable `EMERGENCY_RESET_TOKEN` to any secret

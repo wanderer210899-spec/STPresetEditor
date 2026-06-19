@@ -22,13 +22,23 @@ function json(body, status = 200, extraHeaders = {}) {
 
 /**
  * CORS for `/api/*`. The web app is same-origin (no CORS needed) and the
- * extension host calls from Node (CORS is a browser concept), so this is mainly
- * future-proofing for browser clients on another origin. Cookies are SameSite=Lax
- * and state-changing auth is header/credential based, so echoing the origin is safe.
+ * extension host calls from Node (CORS is a browser concept), so cross-origin
+ * browser access is OFF by default. Credentialed CORS is dangerous to hand out
+ * broadly: with SameSite=Lax the session cookie still rides along, so echoing an
+ * arbitrary Origin + `Allow-Credentials: true` would let any origin (e.g. a
+ * sibling subdomain on a custom domain) read `/api/presets` and mint/read API
+ * keys via `/api/keys`. So we grant it ONLY to origins explicitly allowlisted in
+ * the `ALLOWED_ORIGINS` Worker var (comma-separated). No allowlist ⇒ no
+ * cross-origin access (fail closed).
  */
-function corsHeaders(request) {
+function corsHeaders(request, env) {
   const origin = request.headers.get('Origin');
   if (!origin) return {};
+  const allowed = String(env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (!allowed.includes(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Credentials': 'true',
@@ -80,7 +90,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const isApi = url.pathname.startsWith('/api/');
-    const cors = isApi ? corsHeaders(request) : {};
+    const cors = isApi ? corsHeaders(request, env) : {};
 
     // CORS preflight for any API route.
     if (isApi && request.method === 'OPTIONS') {

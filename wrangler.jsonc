@@ -1,12 +1,14 @@
 {
-  // Cloudflare Worker config. Committed on purpose and secret-free: the KV
-  // namespace below has no id, so Cloudflare auto-provisions a fresh one for
-  // each person who deploys (via the Deploy button or `wrangler deploy`) and
-  // writes the id into THEIR copy — never into this repo.
+  // Cloudflare Worker config — committed on purpose and **secret-free**: no
+  // passwords, API keys, or account-specific resource ids live here, so this repo
+  // is a clean template anyone can self-host. The KV namespace and the D1 auth
+  // database are bound by NAME only (no id), so the one-click Deploy button
+  // auto-provisions a fresh, PRIVATE KV + D1 in each deployer's own account —
+  // nobody shares storage. (Deploying with `wrangler` from a clone instead?
+  // Create them and paste YOUR ids in a LOCAL copy — see the README CLI steps —
+  // but don't commit those ids back here.)
   "$schema": "node_modules/wrangler/config-schema.json",
-  // Target the existing live worker so deploying from master updates it in place
-  // (keeps the stpreseteditor-deploy.workers.dev URL) instead of creating a new one.
-  "name": "stpreseteditor-deploy",
+  "name": "stpreseteditor",
   "main": "worker/index.js",
   "compatibility_date": "2025-06-01",
 
@@ -17,23 +19,19 @@
     "not_found_handling": "single-page-application"
   },
 
-  // Cloud storage for presets. Pinned to the existing live namespace so the
-  // deployed worker keeps reading/writing the same KV data it always has.
+  // Presets library storage. No "id" => auto-provisioned per deployer.
   "kv_namespaces": [
     {
-      "binding": "PRESETS",
-      "id": "d113fcc78c9d4f58af678f8dda5dc533"
+      "binding": "PRESETS"
     }
   ],
 
-  // Auth store (accounts, sessions, API keys). When you fork & deploy, run
-  // `wrangler d1 create stpreseteditor-auth` and paste YOUR database_id below,
-  // then `wrangler d1 migrations apply stpreseteditor-auth --remote`.
+  // Auth store (accounts, sessions, API keys). No "database_id" => auto-provisioned
+  // per deployer; the migrations in ./migrations create the tables on deploy.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "stpreseteditor-auth",
-      "database_id": "ad47e81e-4cfe-469d-888c-34178441e4c1",
       "migrations_dir": "migrations"
     }
   ]
