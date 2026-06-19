@@ -128,6 +128,62 @@ export function clearSessionCookie() {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+// --- Schema bootstrap (self-healing for one-click deploys) -------------------
+
+// The one-click Deploy button provisions a fresh D1 database but never runs the
+// migrations in ./migrations, so a brand-new deployment would start with zero
+// tables and every auth query would 500 ("Something went wrong"). To keep the
+// click-and-go experience working, we lazily ensure the schema on first DB use.
+// These statements MUST stay in sync with migrations/0001_auth.sql; they are the
+// same idempotent `CREATE ... IF NOT EXISTS`, so `wrangler d1 migrations apply`
+// remains the source of truth and re-running this is a no-op.
+const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS users (
+     id            TEXT PRIMARY KEY,
+     email         TEXT UNIQUE NOT NULL,
+     password_hash TEXT NOT NULL,
+     created_at    INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS sessions (
+     id          TEXT PRIMARY KEY,
+     user_id     TEXT NOT NULL,
+     created_at  INTEGER NOT NULL,
+     expires_at  INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+  `CREATE TABLE IF NOT EXISTS api_keys (
+     id           TEXT PRIMARY KEY,
+     user_id      TEXT NOT NULL,
+     name         TEXT,
+     key_hash     TEXT NOT NULL UNIQUE,
+     prefix       TEXT NOT NULL,
+     created_at   INTEGER NOT NULL,
+     last_used_at INTEGER,
+     revoked_at   INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)`,
+  `CREATE TABLE IF NOT EXISTS used_reset_tokens (
+     token_hash TEXT PRIMARY KEY,
+     used_at    INTEGER NOT NULL
+   )`,
+];
+
+// Cached per isolate: the schema is ensured at most once per cold start. A
+// failure is not cached, so the next request retries.
+let schemaReady = null;
+
+/** Ensure the auth tables exist before any auth query. Idempotent + cached. */
+async function ensureSchema(env) {
+  if (!env.DB) return;
+  if (!schemaReady) {
+    schemaReady = env.DB.batch(SCHEMA_STATEMENTS.map((sql) => env.DB.prepare(sql))).catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
+  }
+  await schemaReady;
+}
+
 // --- Owner / users -----------------------------------------------------------
 
 async function getOwner(env) {
@@ -216,6 +272,7 @@ async function userFromApiKey(request, env) {
  */
 export async function identify(request, env) {
   if (env.DB) {
+    await ensureSchema(env);
     const sessionUser = await userFromSession(request, env);
     if (sessionUser) return `user:${sessionUser.id}`;
 
@@ -252,6 +309,7 @@ async function readJson(request) {
 export async function handleAuth(request, env, url) {
   const { pathname } = url;
   if (!env.DB) return json({ error: 'db_not_configured' }, 503);
+  await ensureSchema(env);
 
   // --- /api/auth/me : who am I, and is setup needed? ---
   if (pathname === '/api/auth/me' && request.method === 'GET') {
