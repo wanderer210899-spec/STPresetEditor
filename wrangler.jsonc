@@ -8,7 +8,7 @@
   // Create them and paste YOUR ids in a LOCAL copy — see the README CLI steps —
   // but don't commit those ids back here.)
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "stpreseteditor",
+  "name": "stpreseteditor-deploy",
   "main": "worker/index.js",
   "compatibility_date": "2025-06-01",
 
