@@ -44,7 +44,10 @@
             :class="{ 'text-gray-500': !isEnabled }"
             :title="prompt.name"
           >
-            {{ prompt.name }}
+            <template v-for="(seg, i) in nameParts" :key="i">
+              <mark v-if="seg.hit" class="search-mark">{{ seg.text }}</mark>
+              <template v-else>{{ seg.text }}</template>
+            </template>
           </h3>
         </button>
       </div>
@@ -211,6 +214,7 @@
           :macro="part.macroData"
           :display-mode="store.macroDisplayMode"
         />
+        <mark v-else-if="part.isMatch" class="search-mark">{{ part.content }}</mark>
         <span v-else>{{ part.content }}</span>
       </template>
     </div>
@@ -234,6 +238,7 @@ import {
 } from '@heroicons/vue/20/solid';
 import { computed, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { splitByTerm } from '../../utils/highlight';
 import { categoryOf } from '../../utils/macros';
 import MacroRenderer from './MacroRenderer.vue';
 
@@ -308,8 +313,24 @@ const setRole = (newRole) => {
   });
 };
 
+// Title segments with search-hit marks (F6a)
+const nameParts = computed(() => splitByTerm(props.prompt.name || '', store.editorSearchTerm));
+
+// Push a plain-text run, split into highlight segments while a search is
+// active. Macro chips are never split — only the text between them is.
+const pushText = (parts, text) => {
+  const term = store.editorSearchTerm;
+  if (!term) {
+    parts.push({ isMacro: false, content: text });
+    return;
+  }
+  splitByTerm(text, term).forEach((seg) => {
+    if (seg.text) parts.push({ isMacro: false, content: seg.text, isMatch: seg.hit });
+  });
+};
+
 /**
- * @returns {Array<{isMacro: boolean, content?: string, macroData?: import('../../stores/presetStore').MacroData}>}
+ * @returns {Array<{isMacro: boolean, content?: string, isMatch?: boolean, macroData?: import('../../stores/presetStore').MacroData}>}
  */
 const contentParts = computed(() => {
   const content = props.prompt.content || '';
@@ -317,7 +338,9 @@ const contentParts = computed(() => {
   const mode = store.macroDisplayMode;
 
   if (macros.length === 0) {
-    return [{ isMacro: false, content: content }];
+    const parts = [];
+    pushText(parts, content);
+    return parts;
   }
 
   const parts = [];
@@ -334,7 +357,7 @@ const contentParts = computed(() => {
 
     // Add text part before the macro
     if (macroStartIndex > lastIndex) {
-      parts.push({ isMacro: false, content: content.substring(lastIndex, macroStartIndex) });
+      pushText(parts, content.substring(lastIndex, macroStartIndex));
     }
 
     // Add the macro part, applying mode logic
@@ -355,7 +378,7 @@ const contentParts = computed(() => {
 
   // Add remaining text part after the last macro
   if (lastIndex < content.length) {
-    parts.push({ isMacro: false, content: content.substring(lastIndex) });
+    pushText(parts, content.substring(lastIndex));
   }
 
   return parts;

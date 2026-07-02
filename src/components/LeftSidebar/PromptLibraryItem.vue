@@ -39,7 +39,10 @@
       </button>
       <div class="min-w-0 flex-grow">
         <p class="truncate text-sm font-semibold" :title="prompt.name">
-          {{ prompt.name }}
+          <template v-for="(seg, i) in nameParts" :key="i">
+            <mark v-if="seg.hit" class="search-mark">{{ seg.text }}</mark>
+            <template v-else>{{ seg.text }}</template>
+          </template>
         </p>
       </div>
     </div>
@@ -50,6 +53,7 @@
 import { CheckCircleIcon, PlusCircleIcon } from '@heroicons/vue/24/solid';
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { splitByTerm } from '../../utils/highlight';
 
 const props = defineProps({
   prompt: {
@@ -59,6 +63,9 @@ const props = defineProps({
 });
 
 const store = usePresetStore();
+
+// Name segments with search-hit marks (F6a)
+const nameParts = computed(() => splitByTerm(props.prompt.name || '', store.librarySearchTerm));
 
 const isSelectedInLibrary = computed(() => {
   return store.selectedLibraryPrompts.includes(props.prompt.id);

@@ -229,6 +229,9 @@ export const usePresetStore = defineStore('preset', {
     // Search functionality
     librarySearchTerm: '', // Search term for the prompt library
     editorSearchTerm: '', // Search term for the main editor
+    editorSearchActiveIndex: -1, // Current hit in editorSearchMatches (-1 = none yet)
+    searchVisitPromptId: null, // Prompt temporarily expanded while search-navigation visits it
+    isGlobalSearchOpen: false, // Ctrl/Cmd+K palette across all presets
     scrollToPromptId: null, // ID of prompt to scroll to (for navigation)
     scrollToLibraryPromptId: null, // ID of prompt to scroll to in the left library
 
@@ -240,10 +243,14 @@ export const usePresetStore = defineStore('preset', {
     isLeftSidebarOpen: false, // Whether left sidebar is open on mobile
     isRightSidebarOpen: false, // Whether right sidebar is open on mobile
 
+    // Desktop 3-pane layout (persisted locally, never synced — device-specific)
+    paneSizes: [20, 50, 30], // Splitpanes [left, main, right] percentages
+    isRightPaneMaximized: false, // Right pane expanded to 60% (F7)
+    _paneSizesBackup: null, // Sizes to restore when un-maximizing
+
     // Modal visibility state
     isImportModalOpen: false, // Whether import modal is visible
     isExportModalOpen: false, // Whether export modal is visible
-    isDetailsModalOpen: false, // Whether details modal is visible
     isSettingsModalOpen: false, // Whether settings modal is visible
     isBatchReplaceModalOpen: false, // Whether batch replace modal is visible
     focusEditorPromptId: null, // Prompt being edited in the distraction-free focus editor
@@ -340,15 +347,58 @@ export const usePresetStore = defineStore('preset', {
         return prompts;
       }
 
-      // Filter prompts by search term (name or ID)
+      // Filter prompts by search term (name, ID, or content — F6a)
       const searchTerm = state.editorSearchTerm.toLowerCase();
       return prompts.filter(
         (p) =>
           (p.name || '').toLowerCase().includes(searchTerm) ||
+          (p.content || '').toLowerCase().includes(searchTerm) ||
           String(p.id || '')
             .toLowerCase()
             .includes(searchTerm),
       );
+    },
+
+    /**
+     * Flat list of editor-search hits for find-next navigation (F6b): one
+     * entry per occurrence of the term (name + content), in execution order.
+     * A prompt matching only by id contributes a single entry.
+     * @returns {string[]} prompt ids, repeated once per occurrence
+     */
+    editorSearchMatches: (state) => {
+      const q = (state.editorSearchTerm || '').toLowerCase();
+      if (!q) return [];
+      const countIn = (text) => {
+        let n = 0;
+        let i = 0;
+        while ((i = text.indexOf(q, i)) !== -1) {
+          n += 1;
+          i += q.length;
+        }
+        return n;
+      };
+      const hits = [];
+      state.promptOrder.forEach((id) => {
+        const p = state.prompts[id];
+        if (!p) return;
+        let count =
+          countIn((p.name || '').toLowerCase()) + countIn((p.content || '').toLowerCase());
+        if (
+          count === 0 &&
+          String(p.id || '')
+            .toLowerCase()
+            .includes(q)
+        )
+          count = 1;
+        for (let k = 0; k < count; k += 1) hits.push(id);
+      });
+      return hits;
+    },
+
+    /** "N matches in M prompts" numbers for the editor search box (F6a). */
+    editorSearchStats() {
+      const hits = this.editorSearchMatches;
+      return { matches: hits.length, prompts: new Set(hits).size };
     },
 
     /**
@@ -367,6 +417,7 @@ export const usePresetStore = defineStore('preset', {
       return allPrompts.filter(
         (p) =>
           (p.name || '').toLowerCase().includes(searchTerm) ||
+          (p.content || '').toLowerCase().includes(searchTerm) ||
           String(p.id || '')
             .toLowerCase()
             .includes(searchTerm),
@@ -1372,7 +1423,140 @@ export const usePresetStore = defineStore('preset', {
       this.selectedLibraryPrompts = [];
     },
     setEditorSearch(term) {
+      if (term === this.editorSearchTerm) return; // keep find-next position on no-op
       this.editorSearchTerm = term;
+      this.editorSearchActiveIndex = -1;
+      this.searchVisitPromptId = null;
+    },
+    /**
+     * Find-next navigation (F6b): advance the active hit by `step` (±1),
+     * temporarily expand its prompt (via searchVisitPromptId — presentational
+     * only, collapse states are untouched) and scroll to it.
+     */
+    editorSearchNext(step = 1) {
+      const hits = this.editorSearchMatches;
+      if (!hits.length) return;
+      const len = hits.length;
+      if (this.editorSearchActiveIndex === -1) {
+        this.editorSearchActiveIndex = step > 0 ? 0 : len - 1;
+      } else {
+        this.editorSearchActiveIndex = (this.editorSearchActiveIndex + step + len) % len;
+      }
+      const promptId = hits[this.editorSearchActiveIndex];
+      this.searchVisitPromptId = promptId;
+      this.navigateToPrompt(promptId);
+    },
+    editorSearchPrev() {
+      this.editorSearchNext(-1);
+    },
+
+    // Global search palette (F6c) --------------------------------------------
+    openGlobalSearch() {
+      this.isGlobalSearchOpen = true;
+    },
+    closeGlobalSearch() {
+      this.isGlobalSearchOpen = false;
+    },
+    /**
+     * Substring search across the active preset and every saved preset
+     * (names + prompt names + contents). Returns display-ready groups; does
+     * not touch state. In VS Code host mode only the open file is searched —
+     * the library is not loadable in place there (it would overwrite the open
+     * file on disk).
+     * @returns {Array<{presetId: string|null, presetName: string, isActive: boolean,
+     *   nameMatch: boolean, hits: Array<{promptId: string, promptName: string,
+     *   snippet: {before: string, match: string, after: string}}>}>}
+     */
+    searchAllPresets(term) {
+      const q = String(term || '')
+        .trim()
+        .toLowerCase();
+      if (!q) return [];
+      const MAX_HITS_PER_PRESET = 20;
+
+      const makeSnippet = (text, matchIndex) => {
+        const start = Math.max(0, matchIndex - 32);
+        const end = Math.min(text.length, matchIndex + q.length + 48);
+        return {
+          before: (start > 0 ? '…' : '') + text.slice(start, matchIndex),
+          match: text.slice(matchIndex, matchIndex + q.length),
+          after: text.slice(matchIndex + q.length, end) + (end < text.length ? '…' : ''),
+        };
+      };
+
+      const collectHits = (prompts, order) => {
+        const seen = new Set();
+        const ids = [...(order || []), ...Object.keys(prompts || {})].filter((id) => {
+          if (seen.has(id) || !prompts[id]) return false;
+          seen.add(id);
+          return true;
+        });
+        const hits = [];
+        for (const id of ids) {
+          if (hits.length >= MAX_HITS_PER_PRESET) break;
+          const p = prompts[id];
+          const name = p.name || '';
+          const content = p.content || '';
+          const nameIdx = name.toLowerCase().indexOf(q);
+          const contentIdx = content.toLowerCase().indexOf(q);
+          if (nameIdx === -1 && contentIdx === -1) continue;
+          hits.push({
+            promptId: id,
+            promptName: name,
+            snippet:
+              contentIdx !== -1 ? makeSnippet(content, contentIdx) : makeSnippet(name, nameIdx),
+          });
+        }
+        return hits;
+      };
+
+      const groups = [];
+      const activeName =
+        this.currentPresetName || this.originalFilename || this.t('globalSearch.activePreset');
+      const activeHits = collectHits(this.prompts, this.promptOrder);
+      const activeNameMatch = (activeName || '').toLowerCase().includes(q);
+      if (activeHits.length || activeNameMatch) {
+        groups.push({
+          presetId: this.currentPresetId,
+          presetName: activeName,
+          isActive: true,
+          nameMatch: activeNameMatch,
+          hits: activeHits,
+        });
+      }
+      if (!isVsCodeHost()) {
+        for (const [id, entry] of Object.entries(this.savedPresets || {})) {
+          if (id === this.currentPresetId) continue; // mirrored by the active area
+          const data = entry?.data || {};
+          const hits = collectHits(data.prompts || {}, data.promptOrder || []);
+          const nameMatch = (entry?.name || '').toLowerCase().includes(q);
+          if (hits.length || nameMatch) {
+            groups.push({
+              presetId: id,
+              presetName: entry.name,
+              isActive: false,
+              nameMatch,
+              hits,
+            });
+          }
+        }
+      }
+      return groups;
+    },
+    /**
+     * Open a global-search result: load the preset if it isn't the active one
+     * (safe — autosave means there is nothing to lose), then jump to the
+     * prompt once the editor has re-rendered.
+     */
+    openGlobalSearchResult(presetId, promptId) {
+      this.isGlobalSearchOpen = false;
+      if (presetId && presetId !== this.currentPresetId) {
+        if (isVsCodeHost() || !this.savedPresets[presetId]) return;
+        this.loadPreset(presetId);
+      }
+      if (!promptId || !this.prompts[promptId]) return;
+      this.selectPrompt(promptId);
+      setTimeout(() => this.navigateToPrompt(promptId), 150); // after re-render
     },
     navigateToPrompt(promptId) {
       // First, ensure the prompt is in the editor order
@@ -1409,6 +1593,27 @@ export const usePresetStore = defineStore('preset', {
       this.isRightSidebarOpen = typeof isOpen === 'boolean' ? isOpen : !this.isRightSidebarOpen;
     },
 
+    // Desktop 3-pane layout (F7) -------------------------------------------
+    setPaneSizes(sizes) {
+      if (!Array.isArray(sizes) || sizes.length !== 3) return;
+      const nums = sizes.map(Number);
+      if (nums.some((n) => !Number.isFinite(n))) return;
+      this.paneSizes = nums;
+    },
+    /** Expand the right pane to 60% (left collapses); toggling back restores
+     *  the previous drag-set sizes. */
+    toggleRightPaneMaximize() {
+      if (this.isRightPaneMaximized) {
+        this.isRightPaneMaximized = false;
+        this.paneSizes = this._paneSizesBackup || [20, 50, 30];
+        this._paneSizesBackup = null;
+      } else {
+        this._paneSizesBackup = [...this.paneSizes];
+        this.isRightPaneMaximized = true;
+        this.paneSizes = [5, 35, 60];
+      }
+    },
+
     // Modal toggles
     openImportModal() {
       this.isImportModalOpen = true;
@@ -1421,12 +1626,6 @@ export const usePresetStore = defineStore('preset', {
     },
     closeExportModal() {
       this.isExportModalOpen = false;
-    },
-    openDetailsModal() {
-      this.isDetailsModalOpen = true;
-    },
-    closeDetailsModal() {
-      this.isDetailsModalOpen = false;
     },
     openSettingsModal() {
       this.isSettingsModalOpen = true;
@@ -1598,6 +1797,12 @@ export const usePresetStore = defineStore('preset', {
     },
 
     getPromptCollapseState(promptId) {
+      // Search navigation temporarily expands the visited prompt (F6b) —
+      // presentational only, the stored collapse state is untouched.
+      if (this.searchVisitPromptId === promptId) {
+        return false;
+      }
+
       // If not 'mixed', return the global state directly
       if (this.globalCollapseState === 'collapsed') {
         return true;
@@ -2434,12 +2639,16 @@ export const usePresetStore = defineStore('preset', {
       'macroDisplayMode',
       'currentLanguage',
       'promptCollapseStates',
+      'globalCollapseState',
       'skipDeleteConfirmation',
       'savedPresets',
       'currentPresetId',
       'defaultPresetId',
       'customMacros',
       'customWraps',
+      // Device-specific layout — persisted but deliberately NOT in
+      // SYNC_DATA_PATHS (pane sizes should not follow you across devices).
+      'paneSizes',
     ],
     beforeRestore: () => {
       console.log('[Persistence] About to restore store from localStorage');

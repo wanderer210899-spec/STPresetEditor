@@ -30,6 +30,13 @@
    * neutral = secondary, red = destructive only.
    */
 
+  /* Search-hit highlight (editor cards, library rows, global search) ----- */
+  .search-mark {
+    @apply bg-yellow-200 text-inherit;
+    padding: 0;
+    border-radius: 2px;
+  }
+
   /* Text buttons -------------------------------------------------------- */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;

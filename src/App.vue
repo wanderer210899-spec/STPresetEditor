@@ -1,8 +1,10 @@
 <script setup>
+import { onBeforeUnmount, onMounted } from 'vue';
 import AppLayout from './components/AppLayout.vue';
 import AppToolbar from './components/AppToolbar.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import FocusEditorModal from './components/FocusEditorModal.vue';
+import GlobalSearchModal from './components/GlobalSearchModal.vue';
 import JsonExportModal from './components/JsonExportModal.vue';
 import JsonImportModal from './components/JsonImportModal.vue';
 import LeftSidebar from './components/LeftSidebar/PromptLibrary.vue';
@@ -16,6 +18,22 @@ import { usePresetStore } from './stores/presetStore';
 // Initialize the preset store. App startup (cloud reconcile + example fallback)
 // is handled in main.js so the cloud library loads before any default content.
 const store = usePresetStore();
+
+// Global shortcuts (F6): Ctrl/Cmd+F focuses the editor search, Ctrl/Cmd+K
+// opens the cross-preset search palette.
+const onGlobalKeydown = (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key === 'k') {
+    event.preventDefault();
+    store.openGlobalSearch();
+  } else if (key === 'f' && !store.isGlobalSearchOpen) {
+    event.preventDefault();
+    document.getElementById('editor-search-input')?.focus();
+  }
+};
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
 </script>
 
 <template>
@@ -52,6 +70,9 @@ const store = usePresetStore();
 
     <!-- Distraction-free focus editor (opened from a prompt card) -->
     <FocusEditorModal />
+
+    <!-- Cross-preset search palette (Ctrl/Cmd+K) -->
+    <GlobalSearchModal />
 
     <!-- Global in-app confirmation dialog + toast notifications -->
     <ConfirmDialog />

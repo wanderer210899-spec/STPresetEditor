@@ -12,12 +12,43 @@
             <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
           </div>
           <input
+            id="editor-search-input"
             type="text"
             :value="store.editorSearchTerm"
             class="input pl-10"
+            :class="{ 'pr-16': store.editorSearchTerm }"
             :placeholder="store.t('editor.searchPlaceholder')"
             @input="onSearch"
+            @keydown.enter.prevent="onSearchEnter"
           />
+          <!-- "x / N" find-next counter inside the box -->
+          <div
+            v-if="store.editorSearchTerm"
+            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-gray-400 tabular-nums"
+            :title="matchStatsLabel"
+          >
+            {{ matchPositionLabel }}
+          </div>
+        </div>
+
+        <!-- Find-next navigation (visible only while searching) -->
+        <div v-if="store.editorSearchTerm" class="flex shrink-0 items-center">
+          <button
+            class="btn-icon btn-icon-sm"
+            :disabled="!store.editorSearchStats.matches"
+            :title="store.t('editor.prevMatch')"
+            @click="store.editorSearchPrev()"
+          >
+            <ChevronUpIcon class="h-4 w-4" />
+          </button>
+          <button
+            class="btn-icon btn-icon-sm"
+            :disabled="!store.editorSearchStats.matches"
+            :title="store.t('editor.nextMatch')"
+            @click="store.editorSearchNext()"
+          >
+            <ChevronDownIcon class="h-4 w-4" />
+          </button>
         </div>
 
         <!-- View + action controls -->
@@ -97,6 +128,11 @@
             <ChevronDownIcon class="h-4 w-4" />
           </button>
         </div>
+      </div>
+
+      <!-- Search result summary (F6a): "N matches in M prompts" -->
+      <div v-if="store.editorSearchTerm" class="px-1 text-xs text-gray-500">
+        {{ matchStatsLabel }}
       </div>
 
       <!-- Contextual batch bar: only shown while in multi-select mode -->
@@ -212,6 +248,28 @@ const hasSelection = computed(() => store.selectedEditorPrompts.length > 0);
 const onSearch = debounce((event) => {
   store.setEditorSearch(event.target.value);
 }, 500); // 500ms debounce delay as requested
+
+// Enter / Shift+Enter cycles through matches (F6b). Commit any pending
+// debounced input first so navigation uses what's visible in the box.
+const onSearchEnter = (event) => {
+  onSearch.cancel();
+  store.setEditorSearch(event.target.value); // no-op if unchanged
+  if (event.shiftKey) store.editorSearchPrev();
+  else store.editorSearchNext();
+};
+
+// "x / N" and "N matches in M prompts" labels
+const matchPositionLabel = computed(() => {
+  const { matches } = store.editorSearchStats;
+  const pos = store.editorSearchActiveIndex === -1 ? '–' : store.editorSearchActiveIndex + 1;
+  return `${pos} / ${matches}`;
+});
+const matchStatsLabel = computed(() =>
+  store.t('editor.matchStats', {
+    matches: store.editorSearchStats.matches,
+    prompts: store.editorSearchStats.prompts,
+  }),
+);
 
 // Before each update, clear the refs object to avoid memory leaks
 onBeforeUpdate(() => {

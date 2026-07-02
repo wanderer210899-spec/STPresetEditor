@@ -71,7 +71,10 @@
       "batchReplace": "Batch Replace",
       "selectAll": "Select All",
       "deselectAll": "Deselect All",
-      "selectedCount": "{selected}/{total} selected"
+      "selectedCount": "{selected}/{total} selected",
+      "matchStats": "{matches} matches in {prompts} prompts",
+      "nextMatch": "Next match (Enter)",
+      "prevMatch": "Previous match (Shift+Enter)"
     },
     "promptCard": {
       "expandEditor": "Open focus editor",
@@ -112,7 +115,9 @@
     "rightSidebar": {
       "details": "Details",
       "variables": "Variables",
-      "selectPromptOrMacro": "Select a prompt or a macro to see details here."
+      "selectPromptOrMacro": "Select a prompt or a macro to see details here.",
+      "maximize": "Maximize panel",
+      "restore": "Restore panel size"
     },
     "variableManager": {
       "invalidVariableName": "Invalid or conflicting new variable name.",
@@ -144,8 +149,7 @@
       "notDefinedAnywhere": "This variable is not defined anywhere.",
       "referencedIn": "Referenced In",
       "notReferencedByAnyPrompt": "Not referenced by any other prompt.",
-      "unknownPrompt": "Unknown Prompt",
-      "expand": "Expand"
+      "unknownPrompt": "Unknown Prompt"
     },
     "common": {
       "close": "Close",
@@ -324,6 +328,13 @@
       "serialStart": "Start from",
       "serialDigits": "Digits",
       "resultSummary2": "Changed {matches} field operation(s) across {prompts} prompt(s)."
+    },
+    "globalSearch": {
+      "title": "Search all presets",
+      "placeholder": "Search prompt titles and contents across every preset…",
+      "noResults": "No matches found",
+      "activePreset": "Current preset",
+      "hint": "Type to search. ↑↓ to choose, Enter to open — results in another preset load it automatically."
     }
   },
   "zh": {
@@ -398,7 +409,10 @@
       "batchReplace": "批量替换",
       "selectAll": "全选",
       "deselectAll": "取消全选",
-      "selectedCount": "已选 {selected}/{total}"
+      "selectedCount": "已选 {selected}/{total}",
+      "matchStats": "{prompts} 个提示词中共 {matches} 处匹配",
+      "nextMatch": "下一个匹配（Enter）",
+      "prevMatch": "上一个匹配（Shift+Enter）"
     },
     "promptCard": {
       "expandEditor": "打开专注编辑器",
@@ -439,7 +453,9 @@
     "rightSidebar": {
       "details": "详情",
       "variables": "变量",
-      "selectPromptOrMacro": "选择一个提示或宏来查看详情。"
+      "selectPromptOrMacro": "选择一个提示或宏来查看详情。",
+      "maximize": "最大化面板",
+      "restore": "还原面板大小"
     },
     "variableManager": {
       "invalidVariableName": "无效或冲突的新变量名。",
@@ -471,8 +487,7 @@
       "notDefinedAnywhere": "此变量未在任何地方定义。",
       "referencedIn": "引用于",
       "notReferencedByAnyPrompt": "未被任何其他提示引用。",
-      "unknownPrompt": "未知提示",
-      "expand": "展开"
+      "unknownPrompt": "未知提示"
     },
     "common": {
       "close": "关闭",
@@ -651,6 +666,13 @@
       "serialStart": "起始数",
       "serialDigits": "位数",
       "resultSummary2": "对 {prompts} 个提示更改 {matches} 次字段操作。"
+    },
+    "globalSearch": {
+      "title": "全局搜索",
+      "placeholder": "搜索所有预设中的提示词标题与内容…",
+      "noResults": "没有找到匹配项",
+      "activePreset": "当前预设",
+      "hint": "输入以搜索。↑↓ 选择，Enter 打开 — 其他预设中的结果会自动加载该预设。"
     }
   }
 }

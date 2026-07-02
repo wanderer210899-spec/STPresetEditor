@@ -3,7 +3,7 @@ import { Dialog, DialogPanel, TransitionChild, TransitionRoot } from '@headlessu
 import { useBreakpoints } from '@vueuse/core';
 import { Pane, Splitpanes } from 'splitpanes';
 import 'splitpanes/dist/splitpanes.css';
-import { watchEffect } from 'vue';
+import { ref, watchEffect } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
 
 // Use VueUse to detect screen size based on Tailwind's breakpoints
@@ -18,25 +18,36 @@ const store = usePresetStore();
 watchEffect(() => {
   store.setIsMobile(!isDesktop.value);
 });
+
+// Persist drag-resized pane sizes (F7). The splitpanes v4 `resized` event only
+// carries the dragged splitter's panes, so read all three sizes from the
+// inline styles it just applied.
+const splitRoot = ref(null);
+const onPanesResized = () => {
+  const paneEls = splitRoot.value?.querySelectorAll(':scope > .splitpanes > .splitpanes__pane');
+  if (!paneEls || paneEls.length !== 3) return;
+  const sizes = Array.from(paneEls).map((el) => parseFloat(el.style.width));
+  if (sizes.every((n) => Number.isFinite(n))) store.setPaneSizes(sizes);
+};
 </script>
 
 <template>
   <!-- DESKTOP LAYOUT: 3-pane view with draggable splitters -->
-  <div v-if="isDesktop" class="flex-grow">
+  <div v-if="isDesktop" ref="splitRoot" class="flex-grow">
     <!-- eslint-disable-next-line tailwindcss/no-custom-classname -->
-    <splitpanes class="default-theme">
-      <pane :size="20" min-size="15">
+    <splitpanes class="default-theme" @resized="onPanesResized">
+      <pane :size="store.paneSizes[0]" :min-size="store.isRightPaneMaximized ? 0 : 12">
         <div class="h-full overflow-auto bg-gray-50 p-4">
           <slot name="left" />
         </div>
       </pane>
-      <pane :size="50" min-size="30">
+      <pane :size="store.paneSizes[1]" min-size="25">
         <!-- The editor is the focus: a bright white canvas against muted sidebars -->
         <div class="h-full overflow-auto bg-white p-4">
           <slot name="main" />
         </div>
       </pane>
-      <pane :size="30" min-size="20">
+      <pane :size="store.paneSizes[2]" min-size="20">
         <div class="relative h-full overflow-auto bg-gray-50 p-4">
           <slot name="right" />
         </div>
