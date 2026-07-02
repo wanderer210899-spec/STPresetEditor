@@ -15,16 +15,21 @@
 // web app, just with a different transport.
 //
 // Protocol (this file <-> extension/extension.js):
-//   webview -> host : ready | save{path,json} | cloudStateRequest
-//                     | cloudConnect{url,key} | cloudDisconnect
+//   webview -> host : ready | save{path,json} | createFile{name,json}
+//                     | cloudStateRequest | cloudConnect{url,key} | cloudDisconnect
 //                     | cloudPullRequest | cloudPush{data}
-//   host -> webview : load{...} | cloudState{url,connected,email}
+//   host -> webview : load{...} | fileCreated{ok,path,name,reason}
+//                     | cloudState{url,connected,email}
 //                     | cloudReady{ok,email,reason,url}
 //                     | cloudPulled{connected,data,updatedAt} | cloudAck{ok,updatedAt}
 //                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
 import { debounce } from 'lodash-es';
+import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
+
+// Re-export so existing consumers keep one import site for host detection.
+export { isVsCodeHost };
 
 const SAVE_DEBOUNCE_MS = 800;
 const REPLY_TIMEOUT_MS = 12000;
@@ -46,12 +51,7 @@ let cloudUrlValue = '';
 let reconcileHandler = null;
 
 // One-shot resolvers awaiting a host reply, keyed by reply kind.
-const pending = { connect: [], state: [], pull: [], push: [] };
-
-/** True when running inside a Cursor/VSCode webview (host mode). */
-export function isVsCodeHost() {
-  return typeof window !== 'undefined' && typeof window.acquireVsCodeApi === 'function';
-}
+const pending = { connect: [], state: [], pull: [], push: [], file: [] };
 
 function getApi() {
   if (!vscodeApi && isVsCodeHost()) vscodeApi = window.acquireVsCodeApi();
@@ -149,6 +149,18 @@ export function setReconcileHandler(fn) {
   reconcileHandler = fn;
 }
 
+/**
+ * Ask the host to write a preset JSON to a NEW file next to the open one and
+ * open it in its own editor tab. Used by the Preset Manager in host mode so
+ * loading a library preset never overwrites the open file on disk.
+ * Resolves to { ok, path?, name?, reason? }.
+ */
+export function createPresetFile(name, json) {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false, reason: 'not_host' });
+  post({ type: 'createFile', name: name || '', json: json || '' });
+  return awaitReply('file', { ok: false, reason: 'timeout' });
+}
+
 // --- Cloud transport for cloudSync.js (host mode) ----------------------------
 
 /**
@@ -222,6 +234,9 @@ export async function initLocalBridge() {
         break;
       case 'cloudAck':
         settle('push', message);
+        break;
+      case 'fileCreated':
+        settle('file', message);
         break;
       case 'cloudReconcile':
         if (reconcileHandler) reconcileHandler();

@@ -140,6 +140,9 @@ function handleMessage(message, panel, filePath) {
     case 'save':
       handleSave(filePath, message.json);
       break;
+    case 'createFile':
+      handleCreateFile(panel, filePath, message);
+      break;
     case 'cloudStateRequest':
       sendCloudState(panel);
       break;
@@ -215,6 +218,41 @@ function handleSave(filePath, json) {
     vscode.window.showErrorMessage(
       `STPresetEditor: failed to save ${path.basename(filePath)} — ${error.message}`,
     );
+  }
+}
+
+/**
+ * Write a preset to a NEW .json next to the open file and open it in its own
+ * editor tab. Used by the webview's Preset Manager so loading a library preset
+ * never overwrites the file being edited. Replies with 'fileCreated'.
+ */
+function handleCreateFile(panel, basePath, message) {
+  try {
+    const json = typeof message.json === 'string' ? message.json : '';
+    JSON.parse(json); // guard: never create an invalid preset file
+    const dir = path.dirname(basePath);
+    const rawName = String(message.name || 'preset.json').replace(/[\\/:*?"<>|]/g, '_');
+    const base = rawName.toLowerCase().endsWith('.json') ? rawName.slice(0, -5) : rawName;
+    let target = path.join(dir, `${base}.json`);
+    let n = 2;
+    while (fs.existsSync(target)) {
+      target = path.join(dir, `${base} (${n}).json`);
+      n += 1;
+    }
+    fs.writeFileSync(target, json, 'utf8');
+    panel.webview.postMessage({
+      type: 'fileCreated',
+      ok: true,
+      path: target,
+      name: path.basename(target),
+    });
+    openEditor(extensionContext, target);
+  } catch (error) {
+    panel.webview.postMessage({
+      type: 'fileCreated',
+      ok: false,
+      reason: String((error && error.message) || error),
+    });
   }
 }
 

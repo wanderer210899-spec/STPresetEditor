@@ -81,7 +81,7 @@ API key (`X-API-Key`). Both resolve to the KV key `user:<id>`. Recovery is the
   `reconnectCloudSync()` re-runs after sign-in/out (web) or connect/disconnect
   (extension). Any failure ⇒ local-only. **Transport is pluggable:** the web app
   uses `fetch('/api/presets', {credentials:'include'})` and syncs the full
-  `SYNC_DATA_PATHS`; the VS Code extension routes the *same* reconcile through the
+  `SYNC_DATA_PATHS`; the VS Code extension routes the _same_ reconcile through the
   host bridge (`hostCloudGet`/`hostCloudPut`) and syncs `EXTENSION_LIBRARY_PATHS`
   only (the saved-preset library + prefs — the open file stays local).
 - **`src/stores/localBridge.js`** — the extension's host seam. (a) File: mirrors

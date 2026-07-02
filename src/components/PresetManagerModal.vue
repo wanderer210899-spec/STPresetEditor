@@ -24,10 +24,10 @@
         </div>
         <button class="btn btn-primary" @click="saveCurrentPreset">
           <BookmarkIcon class="h-4 w-4" />
-          {{ store.t('presetManager.save') }}
+          {{ store.t('presetManager.saveAsCopy') }}
         </button>
       </div>
-      <p class="mt-2 text-xs text-gray-500">{{ store.t('presetManager.autoNameNote') }}</p>
+      <p class="mt-2 text-xs text-gray-500">{{ store.t('presetManager.autosaveNote') }}</p>
     </div>
 
     <!-- Factory settings management -->
@@ -109,62 +109,135 @@
         {{ store.t('presetManager.noPresets') }}
       </div>
       <div v-else class="max-h-96 space-y-2 overflow-y-auto">
-        <div
-          v-for="preset in store.savedPresetsList"
-          :key="preset.id"
-          class="flex items-center justify-between rounded-lg border border-gray-200 p-4 hover:bg-gray-50"
-          :class="{
-            'border-blue-200 bg-blue-50': preset.id === store.currentPresetId,
-            'border-yellow-200 bg-yellow-50':
-              store.presetMultiSelectActive && store.isPresetSelected(preset.id),
-          }"
-        >
-          <div class="flex flex-1 items-center">
-            <div v-if="store.presetMultiSelectActive" class="mr-3">
-              <input
-                type="checkbox"
-                :checked="store.isPresetSelected(preset.id)"
-                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                @change="togglePresetSelection(preset.id)"
-              />
-            </div>
-            <div class="flex-1">
-              <div class="flex items-center">
-                <h5 class="text-sm font-medium text-gray-900">{{ preset.name }}</h5>
-                <span
-                  v-if="preset.id === store.currentPresetId"
-                  class="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800"
-                >
-                  {{ store.t('presetManager.current') }}
-                </span>
+        <div v-for="preset in store.savedPresetsList" :key="preset.id">
+          <div
+            class="flex items-center justify-between rounded-lg border border-gray-200 p-4 hover:bg-gray-50"
+            :class="{
+              'border-blue-200 bg-blue-50': preset.id === store.currentPresetId,
+              'border-yellow-200 bg-yellow-50':
+                store.presetMultiSelectActive && store.isPresetSelected(preset.id),
+            }"
+          >
+            <div class="flex flex-1 items-center">
+              <div v-if="store.presetMultiSelectActive" class="mr-3">
+                <input
+                  type="checkbox"
+                  :checked="store.isPresetSelected(preset.id)"
+                  class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  @change="togglePresetSelection(preset.id)"
+                />
               </div>
-              <p class="mt-1 text-xs text-gray-500">
-                {{ store.t('presetManager.created') }}: {{ formatDate(preset.createdAt) }}
-                {{ store.t('presetManager.updated') }}: {{ formatDate(preset.updatedAt) }}
-              </p>
+              <div class="flex-1">
+                <div class="flex items-center">
+                  <h5 class="text-sm font-medium text-gray-900">{{ preset.name }}</h5>
+                  <span
+                    v-if="preset.id === store.currentPresetId"
+                    class="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800"
+                  >
+                    {{ store.t('presetManager.current') }}
+                  </span>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">
+                  {{ store.t('presetManager.created') }}: {{ formatDate(preset.createdAt) }}
+                  {{ store.t('presetManager.updated') }}: {{ formatDate(preset.updatedAt) }}
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- Web: load into the editor. Host: never overwrite the open
+                   file — write the preset to a NEW .json and open that. -->
+              <button
+                v-if="!isHost"
+                class="btn btn-sm btn-primary"
+                :disabled="preset.id === store.currentPresetId"
+                @click="loadPreset(preset.id)"
+              >
+                <ArrowDownTrayIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.load') }}
+              </button>
+              <button v-else class="btn btn-sm btn-primary" @click="openAsFile(preset)">
+                <ArrowDownTrayIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.openAsNewFile') }}
+              </button>
+              <button
+                class="btn btn-sm btn-secondary"
+                :title="store.t('presetManager.snapshots.title')"
+                @click="toggleSnapshots(preset.id)"
+              >
+                <ClockIcon class="h-3.5 w-3.5" />
+                {{ (preset.snapshots || []).length }}
+              </button>
+              <button class="btn btn-sm btn-secondary" @click="startRename(preset)">
+                <PencilIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.rename') }}
+              </button>
+              <button class="btn btn-sm btn-secondary" @click="duplicatePreset(preset)">
+                <DocumentDuplicateIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.duplicate') }}
+              </button>
+              <button class="btn btn-sm btn-danger" @click="deletePreset(preset.id)">
+                <TrashIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.delete') }}
+              </button>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <button
-              class="btn btn-sm btn-primary"
-              :disabled="preset.id === store.currentPresetId"
-              @click="loadPreset(preset.id)"
+
+          <!-- Snapshot list (named versions of this preset) -->
+          <div
+            v-if="expandedSnapshots[preset.id]"
+            class="mt-1 mb-2 ml-6 rounded-lg border border-gray-200 bg-gray-50 p-3"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <h6 class="text-xs font-semibold text-gray-700">
+                {{ store.t('presetManager.snapshots.title') }}
+              </h6>
+              <button class="btn btn-sm btn-secondary" @click="takeSnapshot(preset.id)">
+                <CameraIcon class="h-3.5 w-3.5" />
+                {{ store.t('presetManager.snapshots.take') }}
+              </button>
+            </div>
+            <p
+              v-if="!(preset.snapshots || []).length"
+              class="py-2 text-center text-xs text-gray-500"
             >
-              <ArrowDownTrayIcon class="h-3.5 w-3.5" />
-              {{ store.t('presetManager.load') }}
-            </button>
-            <button class="btn btn-sm btn-secondary" @click="startRename(preset)">
-              <PencilIcon class="h-3.5 w-3.5" />
-              {{ store.t('presetManager.rename') }}
-            </button>
-            <button class="btn btn-sm btn-secondary" @click="duplicatePreset(preset)">
-              <DocumentDuplicateIcon class="h-3.5 w-3.5" />
-              {{ store.t('presetManager.duplicate') }}
-            </button>
-            <button class="btn btn-sm btn-danger" @click="deletePreset(preset.id)">
-              <TrashIcon class="h-3.5 w-3.5" />
-              {{ store.t('presetManager.delete') }}
-            </button>
+              {{ store.t('presetManager.snapshots.none') }}
+            </p>
+            <ul v-else class="space-y-1">
+              <li
+                v-for="snap in preset.snapshots"
+                :key="snap.id"
+                class="flex items-center justify-between rounded-md bg-white px-2 py-1.5"
+              >
+                <div class="min-w-0">
+                  <span class="block truncate text-xs font-medium text-gray-800">
+                    {{ snap.name }}
+                  </span>
+                  <span class="text-[11px] text-gray-400">{{ formatDate(snap.createdAt) }}</span>
+                </div>
+                <div class="flex flex-shrink-0 items-center gap-1">
+                  <button
+                    class="btn btn-sm btn-secondary"
+                    @click="restoreSnapshot(preset.id, snap)"
+                  >
+                    {{ store.t('presetManager.snapshots.restore') }}
+                  </button>
+                  <button
+                    class="btn-icon btn-icon-sm"
+                    :title="store.t('presetManager.rename')"
+                    @click="startRenameSnapshot(preset.id, snap)"
+                  >
+                    <PencilIcon class="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    class="btn-icon btn-icon-sm btn-icon-danger"
+                    :title="store.t('presetManager.delete')"
+                    @click="deleteSnapshotConfirm(preset.id, snap.id)"
+                  >
+                    <TrashIcon class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
@@ -201,11 +274,14 @@ import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   BookmarkIcon,
+  CameraIcon,
+  ClockIcon,
   DocumentDuplicateIcon,
   PencilIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline';
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, reactive, ref, watch } from 'vue';
+import { createPresetFile, isVsCodeHost } from '../stores/localBridge';
 import { usePresetStore } from '../stores/presetStore';
 import BaseModal from './BaseModal.vue';
 
@@ -218,10 +294,21 @@ defineProps({
 
 const store = usePresetStore();
 
+// In host (VS Code) mode the open file must never be overwritten by a library
+// preset — "Load" becomes "Open as new file".
+const isHost = isVsCodeHost();
+
 const isRenameModalOpen = ref(false);
 const renameValue = ref('');
-const renamePresetId = ref(null);
+// Rename dialog target: { type: 'preset', presetId } or { type: 'snapshot', presetId, snapshotId }
+const renameTarget = ref(null);
 const renameInput = ref(null);
+
+// Which presets have their snapshot list expanded (UI-only).
+const expandedSnapshots = reactive({});
+const toggleSnapshots = (presetId) => {
+  expandedSnapshots[presetId] = !expandedSnapshots[presetId];
+};
 
 // Preset management reactive variables
 const presetSearchTerm = ref('');
@@ -240,7 +327,57 @@ const openExportModal = () => {
 };
 
 const saveCurrentPreset = () => {
-  store.savePreset();
+  const id = store.saveActivePresetAsCopy();
+  if (id) {
+    store.showToast(
+      store.t('presetManager.copySaved', { name: store.savedPresets[id]?.name || '' }),
+      'success',
+    );
+  }
+};
+
+// --- Snapshots ---------------------------------------------------------------
+
+const takeSnapshot = (presetId) => {
+  if (store.createSnapshot(presetId)) {
+    store.showToast(store.t('presetManager.snapshots.created'), 'success');
+  }
+};
+
+const restoreSnapshot = (presetId, snap) => {
+  store.requestConfirm({
+    message: store.t('presetManager.snapshots.restoreConfirm', { name: snap.name }),
+    onConfirm: () => {
+      if (store.restoreSnapshot(presetId, snap.id)) {
+        store.showToast(store.t('presetManager.snapshots.restored'), 'success');
+      }
+    },
+  });
+};
+
+const deleteSnapshotConfirm = (presetId, snapshotId) => {
+  store.requestConfirm({
+    message: store.t('presetManager.snapshots.deleteConfirm'),
+    confirmLabel: store.t('common.delete'),
+    danger: true,
+    onConfirm: () => store.deleteSnapshot(presetId, snapshotId),
+  });
+};
+
+// Host mode: materialise a library preset as a NEW local file and open it.
+const openAsFile = async (preset) => {
+  const json = store.buildPresetJsonById(preset.id);
+  if (!json) return;
+  const res = await createPresetFile(`${preset.name}.json`, json);
+  if (res?.ok) {
+    store.showToast(
+      store.t('presetManager.openedAsFile', { name: res.name || preset.name }),
+      'success',
+    );
+    closeModal();
+  } else {
+    store.showToast(store.t('presetManager.openAsFileFailed'), 'error');
+  }
 };
 
 const saveFactoryAsDefault = () => {
@@ -259,9 +396,9 @@ const loadPreset = (presetId) => {
   }
 };
 
-const startRename = (preset) => {
-  renamePresetId.value = preset.id;
-  renameValue.value = preset.name;
+const openRenameDialog = (target, currentName) => {
+  renameTarget.value = target;
+  renameValue.value = currentName;
   isRenameModalOpen.value = true;
   nextTick(() => {
     renameInput.value?.focus();
@@ -269,17 +406,30 @@ const startRename = (preset) => {
   });
 };
 
+const startRename = (preset) => {
+  openRenameDialog({ type: 'preset', presetId: preset.id }, preset.name);
+};
+
+const startRenameSnapshot = (presetId, snap) => {
+  openRenameDialog({ type: 'snapshot', presetId, snapshotId: snap.id }, snap.name);
+};
+
 const confirmRename = () => {
-  if (renameValue.value.trim() && renamePresetId.value) {
-    store.updatePreset(renamePresetId.value, renameValue.value.trim());
-    cancelRename();
+  const target = renameTarget.value;
+  const name = renameValue.value.trim();
+  if (!name || !target) return;
+  if (target.type === 'snapshot') {
+    store.renameSnapshot(target.presetId, target.snapshotId, name);
+  } else {
+    store.updatePreset(target.presetId, name);
   }
+  cancelRename();
 };
 
 const cancelRename = () => {
   isRenameModalOpen.value = false;
   renameValue.value = '';
-  renamePresetId.value = null;
+  renameTarget.value = null;
 };
 
 const duplicatePreset = (preset) => {

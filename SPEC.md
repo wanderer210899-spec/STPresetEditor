@@ -11,22 +11,23 @@ implementation contract for the next round of work. It has three layers:
 
 Owner decisions from the questionnaire:
 
-| Topic | Decision |
-| --- | --- |
-| Saving model | **Autosave + named snapshots** (F1) |
-| Cloud sync | **Automatic**: focus + ~30 s polling, conflict prompt on clobber (F2) |
-| Editor look | **Notion-style borderless blocks + hover controls + click-to-edit, desktop only; mobile view must not regress** (F3) |
-| Variables | **Hover info cards + live variables panel + variable timeline** (F4) |
-| VS Code | **Folder workspace: preset tree, create/duplicate/delete, folder ↔ cloud library sync** (F5) |
-| Search | **Title + content, find-next navigation, global search across presets** (F6) |
-| Right panel | **Expandable/maximizable; retire the pop-up Expand modal** (F7) |
-| QoL | **Undo/redo everywhere, dark mode (incl. VS Code theme), keyboard shortcuts, token counts** (F8) |
+| Topic        | Decision                                                                                                             |
+| ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Saving model | **Autosave + named snapshots** (F1)                                                                                  |
+| Cloud sync   | **Automatic**: focus + ~30 s polling, conflict prompt on clobber (F2)                                                |
+| Editor look  | **Notion-style borderless blocks + hover controls + click-to-edit, desktop only; mobile view must not regress** (F3) |
+| Variables    | **Hover info cards + live variables panel + variable timeline** (F4)                                                 |
+| VS Code      | **Folder workspace: preset tree, create/duplicate/delete, folder ↔ cloud library sync** (F5)                        |
+| Search       | **Title + content, find-next navigation, global search across presets** (F6)                                         |
+| Right panel  | **Expandable/maximizable; retire the pop-up Expand modal** (F7)                                                      |
+| QoL          | **Undo/redo everywhere, dark mode (incl. VS Code theme), keyboard shortcuts, token counts** (F8)                     |
 
 ---
 
 ## Part A — Mandatory fixes
 
-### A1. Save/load data-loss model *(superseded by F1, listed for traceability)*
+### A1. Save/load data-loss model _(superseded by F1, listed for traceability)_
+
 `savePreset()` (`src/stores/presetStore.js`) always generates a new ID —
 saving twice duplicates the preset. `loadPreset()` overwrites the active area
 without saving current edits (its comment claims otherwise). Both are replaced
@@ -34,6 +35,7 @@ by the F1 autosave model; no standalone fix needed, but F1's acceptance
 criteria cover these cases explicitly.
 
 ### A2. Variable rename misses `{{if}}` conditions
+
 `renameVariable()` rewrites `{{setvar::name…}}` / `{{.name…}}` forms but not
 bare shorthand refs inside control macros (`{{if .flag}}`, `{{if $x > 3}}`),
 even though `extractVarRefs()` counts them as references.
@@ -46,6 +48,7 @@ plain text containing `.flag` outside macros is untouched; Variables panel
 shows zero remaining uses of the old name.
 
 ### A3. Collapse state persisted but ignored
+
 `promptCollapseStates` is persisted + synced; `globalCollapseState` is not.
 After reload the getter short-circuits on the default `'expanded'` and ignores
 the saved map.
@@ -54,6 +57,7 @@ the saved map.
 **Accept:** collapse two prompts, reload → the same two are collapsed.
 
 ### A4. System-prompt delete guards are inconsistent
+
 Library multi-delete (`_performDeleteSelectedPrompts`) deletes
 `system_prompt` prompts; single delete and editor batch-delete refuse.
 `selectAllEditorPrompts()` also selects system prompts whose checkboxes are
@@ -65,6 +69,7 @@ skipped count, same as editor batch-delete) and out of
 multi-delete never removes a system prompt.
 
 ### A5. VS Code: loading a library preset overwrites the open file on disk
+
 In extension mode, Preset Manager → Load replaces the active area, and the
 debounced file mirror then writes that other preset over the open `.json`.
 **Fix (interim, before F5):** in `isVsCodeHost()` mode, the Load action is
@@ -75,19 +80,22 @@ tab. The open file's content is never replaced by a library preset.
 open file; a new file appears and opens instead.
 
 ### A6. Search robustness
+
 `orderedPrompts` / `libraryPrompts` call `p.name.toLowerCase()`; a prompt
 without a `name` throws and blanks the list.
 **Fix:** null-guard name/id/content in all search getters (folded into F6).
 
 ### A7. View preference stored as synced data
+
 `macroDisplayMode` lives in `SYNC_DATA_PATHS` **and** inside each saved
 preset's `data`. Flipping raw/preview marks the whole document dirty and
 pushes to the cloud.
 **Fix:** stop storing `macroDisplayMode` inside `savedPresets[*].data` (ignore
-it on load for backward compat). It remains a synced *preference* at top
+it on load for backward compat). It remains a synced _preference_ at top
 level. Same rule applies to new prefs (C2).
 
 ### A8. Stale collapse-state entries
+
 `_performBatchDelete` and `_performDeleteSelectedPrompts` skip
 `cleanupPromptCollapseState`. **Fix:** call it for every removed ID.
 
@@ -127,7 +135,7 @@ Behaviour:
    }, …]
    ```
    Actions: `createSnapshot(presetId, name?)`, `restoreSnapshot(presetId,
-   snapshotId)`, `renameSnapshot`, `deleteSnapshot`. Restore first
+snapshotId)`, `renameSnapshot`, `deleteSnapshot`. Restore first
    auto-creates a snapshot named `Before restore: <name>` so a restore is
    itself reversible. Cap **20 snapshots per preset**; creating the 21st
    deletes the oldest (toast informs). Snapshots live inside `savedPresets`,
@@ -146,6 +154,7 @@ Behaviour:
 `AppToolbar.vue`, `languages.json`.
 
 **Accept:**
+
 - Edit a loaded preset, wait 1 s, reload the page → edits are in the library
   entry; no duplicate entries exist.
 - Repeatedly clicking Save-as-copy creates "Name (2)", "Name (3)", never two
@@ -157,6 +166,7 @@ Behaviour:
 ### F2. Automatic cloud sync
 
 **Pull triggers** (web and extension webview):
+
 - `visibilitychange` → visible, and `window.focus`;
 - every **30 s** while the document is visible (skip while hidden);
 - after sign-in / key connect (existing `reconnectCloudSync`).
@@ -167,6 +177,7 @@ and there are **no pending local edits**, adopt silently (existing
 
 **Conflict-safe push.** Worker `PUT /api/presets` gains an optional
 `baseUpdatedAt` field in the body:
+
 - If present and ≠ stored doc's `updatedAt` → **409**
   `{ error: 'conflict', updatedAt: <stored> }` (one extra KV read per PUT).
 - If absent → current blind-write behaviour (backward compatible with old
@@ -175,10 +186,11 @@ and there are **no pending local edits**, adopt silently (existing
 Client (`cloudSync.js` `pushNow`): always send
 `baseUpdatedAt = sync.lastSyncedAt`. On 409 → fetch cloud doc, open a confirm
 dialog (existing `requestConfirm` service):
-> "Another device updated this library at *time*. Keep **this device's**
+
+> "Another device updated this library at _time_. Keep **this device's**
 > version, or use the **cloud** version?"
-Keep-mine → force PUT (no `baseUpdatedAt`). Use-cloud → `applyCloudData` and
-discard the local push. Either way `lastSyncedAt` converges.
+> Keep-mine → force PUT (no `baseUpdatedAt`). Use-cloud → `applyCloudData` and
+> discard the local push. Either way `lastSyncedAt` converges.
 
 **Extension.** The webview runs the same poll cadence (webviews receive
 visibility events; poll only while the panel is visible) through
@@ -197,6 +209,7 @@ out of scope per questionnaire.
 `test/` for 409/reconcile paths.
 
 **Accept:**
+
 - Device A edits; device B (tab already open) shows the change within ~30 s
   or on refocus, with no reload.
 - A and B both edit offline → the second pusher gets the conflict dialog; no
@@ -211,6 +224,7 @@ behind the `md:` breakpoint **and** `@media (hover: hover) and (pointer:
 fine)`. Side panels and the toolbar remain.
 
 **Desktop block design** (`PromptCard.vue`, `EditorView.vue`, `style.css`):
+
 - Remove card chrome: no border, shadow, or filled background per prompt;
   blocks separated by whitespace (`space-y-4` → ~`space-y-1` + block
   `py-1.5`); drop the `px-8` content indent (align content with the title);
@@ -241,6 +255,7 @@ styling), `EditorView.vue`, `AppLayout.vue` (pane padding), `style.css`
 (new `.block`/`.block-controls` primitives), `languages.json`.
 
 **Accept:**
+
 - Desktop: idle editor shows only text blocks + titles; controls appear on
   hover; clicking text places a caret and edits in place; screen fits ≈2×
   the prompts it does today at default zoom.
@@ -251,6 +266,7 @@ styling), `EditorView.vue`, `AppLayout.vue` (pane padding), `style.css`
 ### F4. Variable tracking (hover cards + live panel + timeline)
 
 **Analysis additions** (`analyzeAllMacros`, derived — never persisted):
+
 - `variableEndValues[varName]` — simulated value after the full pass.
 - `variableTimelines[varName]` — ordered events:
   `{ macroId, promptId, promptName, op, kind, valueAfter, enabled }` for every
@@ -284,6 +300,7 @@ defined-in / referenced-in lists.
 `languages.json`.
 
 **Accept:**
+
 - Hover a `{{getvar::x}}` mid-preset → card shows the value x holds at that
   exact point (not the end value) with working jump links.
 - Toggle a prompt containing `{{setvar::x::5}}` off → panel end value and
@@ -295,6 +312,7 @@ defined-in / referenced-in lists.
 
 **5a. Presets tree.** New Explorer view **"ST Presets"** (TreeView,
 `extension/extension.js` + `package.json` contributions):
+
 - Lists workspace `.json` files matching `stpe.presetGlob` (default
   `**/*.json`, excluding `node_modules`) that parse as ST presets (heuristic:
   object with a `prompts` array). Badge non-presets out silently.
@@ -306,6 +324,7 @@ defined-in / referenced-in lists.
 
 **5b. Folder ↔ cloud library sync (opt-in).** Command **"STPE: Link folder to
 cloud library"**:
+
 - Mapping file `.stpe-library.json` at the folder root:
   `{ files: { "<relative path>": { presetId, lastSyncedHash } } }` (committed
   or gitignored at the user's choice; document both).
@@ -333,6 +352,7 @@ Manager "Load" follows A5 ("Open as new file").
 `EXTENSION_PLAN.md` update.
 
 **Accept:**
+
 - A folder of 5 preset JSONs shows 5 tree items; New/Duplicate/Rename/Delete
   work and refresh the tree; each opens in its own tab.
 - Link the folder, edit a file → the same preset appears/updates in the web
@@ -368,6 +388,7 @@ no regex (batch-replace already owns regex).
 new `GlobalSearchModal.vue`, `App.vue` (mount), `languages.json`.
 
 **Accept:**
+
 - Searching a word that appears only inside prompt text filters correctly in
   both panes and highlights the hits.
 - Enter cycles through 7 matches across 4 prompts, expanding collapsed ones.
@@ -396,6 +417,7 @@ new `GlobalSearchModal.vue`, `App.vue` (mount), `languages.json`.
 ### F8. Quality of life
 
 **8a. Undo/redo everywhere.** Store-level history (not persisted, cap 100):
+
 - Command pattern over mutating actions: add/delete/hide prompt, reorder,
   enable/role changes, rename variable, batch ops (absorb the existing
   batch-replace stacks into the unified history), snapshot restore.
@@ -434,6 +456,7 @@ toolbar total for **enabled, in-order** prompts. Upgrade path (out of scope):
 optional real tokenizer via lazy-loaded chunk.
 
 **Accept:**
+
 - Delete a prompt, `Ctrl+Z` → it returns in the same position with its
   collapse state; redo removes it again. Reordering and role changes undo.
 - OS dark mode → app follows in "system"; VS Code dark theme → extension
@@ -449,13 +472,16 @@ optional real tokenizer via lazy-loaded chunk.
 ## Part C — Cross-cutting rules
 
 ### C1. i18n
+
 Every new user-facing string gets a key in `languages.json` under **both**
 `en` and `zh`, consumed via `store.t()`. No hard-coded strings (existing
 convention, CLAUDE.md).
 
 ### C2. Persistence & sync paths
+
 New persisted fields go to `persist.paths` **and** `SYNC_DATA_PATHS`
 (CLAUDE.md rule) with these exceptions:
+
 - Local-only UI state (`paneSizes`, `isRightPaneMaximized`, undo stacks,
   search terms): neither list.
 - Prefs that must not live inside preset `data`: `globalCollapseState` (A3),
@@ -465,6 +491,7 @@ New persisted fields go to `persist.paths` **and** `SYNC_DATA_PATHS`
   automatically; anything active-area goes in `EXTENSION_LOCAL_ONLY_PATHS`.
 
 ### C3. Backward compatibility / migration
+
 - Old cloud docs and localStorage restore cleanly: missing `snapshots` ⇒
   treated as `[]`; presets whose `data` still contains `macroDisplayMode` /
   `promptCollapseStates` load but no longer write those keys (A7).
@@ -473,6 +500,7 @@ New persisted fields go to `persist.paths` **and** `SYNC_DATA_PATHS`
 - `.stpe-library.json` is additive; unlinked folders behave exactly as today.
 
 ### C4. Testing (vitest, existing setup)
+
 Minimum new coverage: F2 conflict matrix (409 → keep-mine / keep-cloud;
 silent adopt; poll no-op), F1 autosave + snapshot cap + restore-creates-
 snapshot, A2 rename-in-conditionals, F6 getters (content match, null name),
@@ -480,6 +508,7 @@ snapshot, A2 rename-in-conditionals, F6 getters (content match, null name),
 `test/extensionSync.test.js` for the mapping/merge rules.
 
 ### C5. Lint/format
+
 `npx eslint .` and `npx prettier --write .` clean before each commit.
 
 ---
@@ -488,14 +517,14 @@ snapshot, A2 rename-in-conditionals, F6 getters (content match, null name),
 
 Ordered so data-safety lands first and visual churn lands together:
 
-| Phase | Contents | Rationale |
-| --- | --- | --- |
-| **1** | F1 autosave + snapshots; fixes A2–A8 | Stops all data loss; unblocks F2 |
-| **2** | F2 automatic sync + Worker conditional PUT | The "seamless" ask; needs F1 |
-| **3** | F6 search (a+b+c); F7 expandable panel | High value, low risk, independent |
-| **4** | F3 Notion restyle + 8b dark mode + 8d token counts | One visual overhaul, one review |
-| **5** | F4 variables (hover cards, live panel, timeline) | Builds on restyled chips |
-| **6** | 8a undo/redo + 8c shortcuts | Touches many actions; after churn settles |
+| Phase | Contents                                                    | Rationale                                     |
+| ----- | ----------------------------------------------------------- | --------------------------------------------- |
+| **1** | F1 autosave + snapshots; fixes A2–A8                        | Stops all data loss; unblocks F2              |
+| **2** | F2 automatic sync + Worker conditional PUT                  | The "seamless" ask; needs F1                  |
+| **3** | F6 search (a+b+c); F7 expandable panel                      | High value, low risk, independent             |
+| **4** | F3 Notion restyle + 8b dark mode + 8d token counts          | One visual overhaul, one review               |
+| **5** | F4 variables (hover cards, live panel, timeline)            | Builds on restyled chips                      |
+| **6** | 8a undo/redo + 8c shortcuts                                 | Touches many actions; after churn settles     |
 | **7** | F5 VS Code folder workspace (+ A5 interim ships in Phase 1) | Largest extension work; uses F2 conflict flow |
 
 Each phase is independently shippable and ends green on lint + tests.

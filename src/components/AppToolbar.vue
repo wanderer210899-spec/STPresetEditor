@@ -5,16 +5,27 @@ import {
   ArrowUpTrayIcon,
   Bars3Icon,
   BookmarkIcon,
+  CameraIcon,
   Cog6ToothIcon,
   EllipsisVerticalIcon,
   InformationCircleIcon,
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
+import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// Snapshots act on the active library preset — hidden in host (VS Code) mode
+// where the open file is not a library entry.
+const isHost = isVsCodeHost();
+const takeSnapshot = () => {
+  if (store.createSnapshot()) {
+    store.showToast(store.t('toolbar.snapshotTaken'), 'success');
+  }
+};
 
 // Cloud sync status (Cloudflare KV) for the indicator
 const sync = useSyncStore();
@@ -71,6 +82,10 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
       <button class="btn btn-sm btn-secondary" @click="store.openExportModal()">
         <ArrowUpTrayIcon class="h-4 w-4" />
         {{ store.t('toolbar.export') }}
+      </button>
+      <button v-if="!isHost" class="btn btn-sm btn-secondary" @click="takeSnapshot">
+        <CameraIcon class="h-4 w-4" />
+        {{ store.t('toolbar.snapshot') }}
       </button>
       <button class="btn btn-sm btn-secondary" @click="store.openPresetManager()">
         <BookmarkIcon class="h-4 w-4" />
@@ -135,6 +150,12 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
             </div>
             <!-- Presets / Settings -->
             <div class="px-1 py-1">
+              <MenuItem v-if="!isHost" v-slot="{ active }">
+                <button :class="[active ? 'bg-gray-100' : '', menuItemClass]" @click="takeSnapshot">
+                  <CameraIcon class="mr-2 h-5 w-5 text-gray-500" />
+                  {{ store.t('toolbar.snapshot') }}
+                </button>
+              </MenuItem>
               <MenuItem v-slot="{ active }">
                 <button
                   :class="[active ? 'bg-gray-100' : '', menuItemClass]"

@@ -20,7 +20,7 @@ a static, local-only SPA when no backend is configured.
 ### What the fork added
 
 - **Cloudflare cloud-sync backend.** A single Worker (`worker/index.js`) serves the
-  built SPA *and* a small `/api/presets` GET/PUT API backed by Cloudflare KV.
+  built SPA _and_ a small `/api/presets` GET/PUT API backed by Cloudflare KV.
   Config lives in `wrangler.jsonc`.
 - **Client sync orchestration.** `src/stores/cloudSync.js` pulls on load and pushes
   (debounced) on change; `src/stores/syncStore.js` holds sync status and the
@@ -40,15 +40,15 @@ a static, local-only SPA when no backend is configured.
 
 ### Fork commit history (most recent first)
 
-| Date | Commit | Change |
-| :--- | :----- | :----- |
+| Date       | Commit    | Change                                                          |
+| :--------- | :-------- | :-------------------------------------------------------------- |
 | 2026-06-16 | `7d12b76` | Consolidate dev docs into `CLAUDE.md`; document passphrase sync |
-| 2026-06-16 | `e8312e1` | Show deployed build/commit in Settings |
-| 2026-06-16 | `b822282` | Passphrase auth (works without Cloudflare Access) |
-| 2026-06-15 | `6c620a4` | Seamless cloud-first load on every device |
-| 2026-06-15 | `12b274c` | Convert hosting to Cloudflare Workers (one-click self-host) |
-| 2026-06-15 | `1f44858` | Make cloud sync self-hostable, per-user, secret-free |
-| 2026-06-15 | `61b8164` | Initial private Cloudflare cloud sync |
+| 2026-06-16 | `e8312e1` | Show deployed build/commit in Settings                          |
+| 2026-06-16 | `b822282` | Passphrase auth (works without Cloudflare Access)               |
+| 2026-06-15 | `6c620a4` | Seamless cloud-first load on every device                       |
+| 2026-06-15 | `12b274c` | Convert hosting to Cloudflare Workers (one-click self-host)     |
+| 2026-06-15 | `1f44858` | Make cloud sync self-hostable, per-user, secret-free            |
+| 2026-06-15 | `61b8164` | Initial private Cloudflare cloud sync                           |
 
 > Everything below predates the fork and documents the base editor (in Chinese).
 

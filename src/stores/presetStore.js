@@ -1,6 +1,7 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
+import { isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
 
 /**
@@ -25,6 +26,7 @@ export const SYNC_DATA_PATHS = [
   'macroDisplayMode',
   'currentLanguage',
   'promptCollapseStates',
+  'globalCollapseState',
   'skipDeleteConfirmation',
   'savedPresets',
   'currentPresetId',
@@ -45,6 +47,7 @@ const EXTENSION_LOCAL_ONLY_PATHS = [
   'prompts',
   'promptOrder',
   'promptCollapseStates',
+  'globalCollapseState',
 ];
 
 /**
@@ -67,6 +70,92 @@ export const defaultCustomWraps = () => [
   { label: 'if … /if', open: '{{if }}', close: '{{/if}}', hint: 'conditional block' },
   { label: 'XML example', open: '<example>\n', close: '\n</example>', hint: 'wrap an example' },
 ];
+
+/** Maximum stored snapshots per preset; creating one past the cap prunes the oldest. */
+export const MAX_SNAPSHOTS_PER_PRESET = 20;
+
+/** Deep-clone store data to plain JSON (strips Vue reactive proxies). */
+const toPlainClone = (value) => JSON.parse(JSON.stringify(value));
+
+/**
+ * Snapshot the active editing area in the shape stored inside a library entry.
+ * The derived `macros` arrays are excluded (re-attached by analyzeAllMacros on
+ * load), as is `macroDisplayMode` — a preference, not preset data.
+ */
+function activeAreaData(state) {
+  const prompts = {};
+  Object.entries(state.prompts || {}).forEach(([id, prompt]) => {
+    // eslint-disable-next-line no-unused-vars
+    const { macros, ...rest } = prompt;
+    prompts[id] = toPlainClone(rest);
+  });
+  return {
+    rawJson: state.rawJson,
+    originalFilename: state.originalFilename,
+    prompts,
+    promptOrder: [...(state.promptOrder || [])],
+    promptCollapseStates: toPlainClone(state.promptCollapseStates || {}),
+  };
+}
+
+/**
+ * Compose an exportable SillyTavern preset JSON from stored editor data
+ * ({ rawJson, prompts, promptOrder }). Shared by the finalJson getter (active
+ * area) and by-preset export (Preset Manager / VS Code open-as-file).
+ * @returns {string} pretty-printed JSON
+ */
+function composePresetJson({ rawJson, prompts, promptOrder }) {
+  const preset = JSON.parse(rawJson || '{}');
+
+  // Create a clean version of prompts for export, removing internal-use properties
+  const cleanedPrompts = Object.values(prompts || {}).map((p) => {
+    // eslint-disable-next-line no-unused-vars
+    const { macros, ...rest } = p;
+    return rest;
+  });
+
+  preset.prompts = cleanedPrompts;
+
+  // Regenerate prompt_order based on current editor state
+  // Only include prompts that are in the editor (promptOrder array)
+  const editorPrompts = (promptOrder || [])
+    .map((id) => ({
+      identifier: id,
+      enabled: prompts[id]?.enabled !== false,
+    }))
+    .filter((item) => prompts[item.identifier]); // Ensure prompt exists
+
+  // Create or update prompt_order configuration
+  if (Array.isArray(preset.prompt_order)) {
+    // Prioritize updating character_id: 100001 order
+    let characterOrderIndex = preset.prompt_order.findIndex((item) => item.character_id === 100001);
+
+    // If 100001 not found, use the first available
+    if (characterOrderIndex === -1 && preset.prompt_order.length > 0) {
+      characterOrderIndex = 0;
+    }
+
+    if (characterOrderIndex !== -1) {
+      preset.prompt_order[characterOrderIndex].order = editorPrompts;
+    } else {
+      // If no available order configuration found, create new one
+      preset.prompt_order.push({
+        character_id: 100001,
+        order: editorPrompts,
+      });
+    }
+  } else {
+    // If no prompt_order exists, create a default one
+    preset.prompt_order = [
+      {
+        character_id: 100001,
+        order: editorPrompts,
+      },
+    ];
+  }
+
+  return JSON.stringify(preset, null, 2);
+}
 
 /**
  * @typedef {object} MacroData
@@ -251,7 +340,11 @@ export const usePresetStore = defineStore('preset', {
       // Filter prompts by search term (name or ID)
       const searchTerm = state.editorSearchTerm.toLowerCase();
       return prompts.filter(
-        (p) => p.name.toLowerCase().includes(searchTerm) || p.id.toLowerCase().includes(searchTerm),
+        (p) =>
+          (p.name || '').toLowerCase().includes(searchTerm) ||
+          String(p.id || '')
+            .toLowerCase()
+            .includes(searchTerm),
       );
     },
 
@@ -261,13 +354,19 @@ export const usePresetStore = defineStore('preset', {
      * @returns {Object[]} Array of all prompts sorted by name, filtered by search term
      */
     libraryPrompts: (state) => {
-      const allPrompts = Object.values(state.prompts).sort((a, b) => a.name.localeCompare(b.name));
+      const allPrompts = Object.values(state.prompts).sort((a, b) =>
+        (a.name || '').localeCompare(b.name || ''),
+      );
       if (!state.librarySearchTerm) {
         return allPrompts;
       }
       const searchTerm = state.librarySearchTerm.toLowerCase();
       return allPrompts.filter(
-        (p) => p.name.toLowerCase().includes(searchTerm) || p.id.toLowerCase().includes(searchTerm),
+        (p) =>
+          (p.name || '').toLowerCase().includes(searchTerm) ||
+          String(p.id || '')
+            .toLowerCase()
+            .includes(searchTerm),
       );
     },
     /**
@@ -276,58 +375,11 @@ export const usePresetStore = defineStore('preset', {
      * @returns {string} JSON string ready for export
      */
     finalJson: (state) => {
-      const preset = JSON.parse(state.rawJson || '{}');
-
-      // Create a clean version of prompts for export, removing internal-use properties
-      const cleanedPrompts = Object.values(state.prompts).map((p) => {
-        // eslint-disable-next-line no-unused-vars
-        const { macros, ...rest } = p;
-        return rest;
+      return composePresetJson({
+        rawJson: state.rawJson,
+        prompts: state.prompts,
+        promptOrder: state.promptOrder,
       });
-
-      preset.prompts = cleanedPrompts;
-
-      // Regenerate prompt_order based on current editor state
-      // Only include prompts that are in the editor (promptOrder array)
-      const editorPrompts = state.promptOrder
-        .map((id) => ({
-          identifier: id,
-          enabled: state.prompts[id]?.enabled !== false,
-        }))
-        .filter((item) => state.prompts[item.identifier]); // Ensure prompt exists
-
-      // Create or update prompt_order configuration
-      if (Array.isArray(preset.prompt_order)) {
-        // Prioritize updating character_id: 100001 order
-        let characterOrderIndex = preset.prompt_order.findIndex(
-          (item) => item.character_id === 100001,
-        );
-
-        // If 100001 not found, use the first available
-        if (characterOrderIndex === -1 && preset.prompt_order.length > 0) {
-          characterOrderIndex = 0;
-        }
-
-        if (characterOrderIndex !== -1) {
-          preset.prompt_order[characterOrderIndex].order = editorPrompts;
-        } else {
-          // If no available order configuration found, create new one
-          preset.prompt_order.push({
-            character_id: 100001,
-            order: editorPrompts,
-          });
-        }
-      } else {
-        // If no prompt_order exists, create a default one
-        preset.prompt_order = [
-          {
-            character_id: 100001,
-            order: editorPrompts,
-          },
-        ];
-      }
-
-      return JSON.stringify(preset, null, 2);
     },
     /**
      * Get variable statistics for the variable manager
@@ -802,10 +854,69 @@ export const usePresetStore = defineStore('preset', {
       this.analyzeAllMacros();
     }, 300),
 
+    // --- Autosave (F1): the active area is always a view onto one library entry ---
+
+    /**
+     * Write the active editing area into its library entry. No-op in the VS
+     * Code extension (the open file is mirrored to disk instead, and is not a
+     * library entry) and when nothing actually changed (so loads/reloads don't
+     * bump updatedAt). Adopts the active area into a new entry when it isn't
+     * linked to one yet (fresh example, factory reset, legacy state).
+     */
+    _touchActivePreset() {
+      if (isVsCodeHost()) return;
+      if (!this.currentPresetId || !this.savedPresets[this.currentPresetId]) {
+        this._adoptActivePreset();
+        return;
+      }
+      const entry = this.savedPresets[this.currentPresetId];
+      const next = activeAreaData(this);
+      if (JSON.stringify(entry.data) === JSON.stringify(next)) return;
+      entry.data = next;
+      entry.updatedAt = new Date().toISOString();
+    },
+    /** Debounced autosave — call after every active-area mutation. */
+    touchActivePresetDebounced: debouncedAction(function () {
+      this._touchActivePreset();
+    }, 1000),
+
+    /** Link the active area to a (new) library entry so autosave has a home. */
+    _adoptActivePreset() {
+      if (isVsCodeHost()) return;
+      const baseName = this.originalFilename
+        ? this.originalFilename.replace(/\.[^/.]+$/, '')
+        : this.t('presetManager.defaultName');
+      const name = this._dedupedPresetName(baseName);
+      const id = window.crypto.randomUUID();
+      const now = new Date().toISOString();
+      this.savedPresets[id] = {
+        name,
+        data: activeAreaData(this),
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.currentPresetId = id;
+    },
+
+    /** Find a saved preset by exact name. @returns {string|null} its id */
+    _findPresetIdByName(name) {
+      for (const [id, preset] of Object.entries(this.savedPresets || {})) {
+        if (preset?.name === name) return id;
+      }
+      return null;
+    },
+    /** Return baseName, or "baseName (2)" / "(3)" … if the name is taken. */
+    _dedupedPresetName(baseName) {
+      return this._findPresetIdByName(baseName)
+        ? this._uniquePresetName(baseName, (n) => this._findPresetIdByName(n))
+        : baseName;
+    },
+
     // --- Actions that trigger re-analysis ---
     updatePromptOrder(newOrder) {
       this.promptOrder = newOrder.map((p) => p.id);
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     movePromptTop(promptId) {
       const index = this.promptOrder.indexOf(promptId);
@@ -813,6 +924,7 @@ export const usePresetStore = defineStore('preset', {
         this.promptOrder.splice(index, 1);
         this.promptOrder.unshift(promptId);
         this.analyzeAllMacros();
+        this.touchActivePresetDebounced();
       }
     },
     movePromptBottom(promptId) {
@@ -821,6 +933,7 @@ export const usePresetStore = defineStore('preset', {
         this.promptOrder.splice(index, 1);
         this.promptOrder.push(promptId);
         this.analyzeAllMacros();
+        this.touchActivePresetDebounced();
       }
     },
     movePromptAfter(draggedPromptId, targetPromptId) {
@@ -842,6 +955,7 @@ export const usePresetStore = defineStore('preset', {
       this.promptOrder.splice(insertIndex, 0, draggedPromptId);
 
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     insertPromptAfter(draggedPromptId, targetPromptId) {
       // Validate existence
@@ -869,12 +983,14 @@ export const usePresetStore = defineStore('preset', {
         console.warn('[insertPromptAfter] Target not in order, append to end as fallback');
         this.promptOrder.push(draggedPromptId);
         this.analyzeAllMacros();
+        this.touchActivePresetDebounced();
         return;
       }
 
       const insertIndex = targetIndex + 1;
       this.promptOrder.splice(insertIndex, 0, draggedPromptId);
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     duplicatePrompt(promptId) {
       const originalPrompt = this.prompts[promptId];
@@ -900,12 +1016,14 @@ export const usePresetStore = defineStore('preset', {
       }
 
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
       this.selectPrompt(newId);
       this.navigateToPrompt(newId);
     },
     hidePrompt(promptId) {
       this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     removePrompt(promptId) {
       delete this.prompts[promptId];
@@ -918,6 +1036,7 @@ export const usePresetStore = defineStore('preset', {
       if (prompt) {
         prompt.enabled = !(prompt.enabled !== false);
         this.analyzeAllMacros();
+        this.touchActivePresetDebounced();
       }
     },
     updatePromptDetail({ promptId, field, value }) {
@@ -927,6 +1046,7 @@ export const usePresetStore = defineStore('preset', {
         if (field === 'content') {
           this.analyzeAllMacrosDebounced();
         }
+        this.touchActivePresetDebounced();
       }
     },
     renameVariable({ oldName, newName }) {
@@ -954,17 +1074,44 @@ export const usePresetStore = defineStore('preset', {
         `({{\\s*[.$]\\s*)${oldNameEscaped}(?=\\s*(?:\\?\\?=|\\|\\|=|\\+=|-=|\\+\\+|--|==|!=|>=|<=|=|>|<|}}))`,
         'g',
       );
+      // References inside control-macro bodies (`{{if .flag}}`, `{{if $x > 3}}`,
+      // `{{if getvar::flag}}`): the two regexes above anchor on `{{`, so they
+      // cannot reach a name that appears after the `if` keyword. These are only
+      // rewritten inside tokens classified as control, never in plain text.
+      const controlShorthandRegex = new RegExp(`([.$]\\s*)${oldNameEscaped}(?![\\w-])`, 'g');
+      const controlClassicRegex = new RegExp(
+        `((?:${varMacroNames})\\s*::\\s*)${oldNameEscaped}(?![\\w-])`,
+        'gi',
+      );
+      const renameInControlMacros = (content) => {
+        const tokens = tokenizeMacros(content);
+        let result = content;
+        for (let k = tokens.length - 1; k >= 0; k -= 1) {
+          const token = tokens[k];
+          if (classifyMacro(token.inner).op !== 'control') continue;
+          const rewritten = token.full
+            .replace(controlShorthandRegex, `$1${trimmedNewName}`)
+            .replace(controlClassicRegex, `$1${trimmedNewName}`);
+          if (rewritten !== token.full) {
+            result = result.slice(0, token.start) + rewritten + result.slice(token.end);
+          }
+        }
+        return result;
+      };
 
       for (const promptId in this.prompts) {
         const prompt = this.prompts[promptId];
         if (prompt.content) {
-          prompt.content = prompt.content
-            .replace(renameRegex, `$1${trimmedNewName}$2`)
-            .replace(shorthandRegex, `$1${trimmedNewName}`);
+          prompt.content = renameInControlMacros(
+            prompt.content
+              .replace(renameRegex, `$1${trimmedNewName}$2`)
+              .replace(shorthandRegex, `$1${trimmedNewName}`),
+          );
         }
       }
 
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
       if (this.selectedMacro && this.selectedMacro.variableName === oldName) {
         this.selectMacro(trimmedNewName);
       }
@@ -1042,26 +1189,41 @@ export const usePresetStore = defineStore('preset', {
       }
 
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
       this.selectPrompt(newId);
       this.navigateToPrompt(newId);
     },
     deleteSelectedPrompts() {
       if (this.selectedLibraryPrompts.length === 0) return;
+      // System prompts are never deletable — mirror the editor batch-delete guard.
+      const deletable = this.selectedLibraryPrompts.filter(
+        (promptId) => this.prompts[promptId] && !this.prompts[promptId].system_prompt,
+      );
+      if (deletable.length === 0) {
+        this.showToast(this.t('editor.noDeletablePrompts'), 'error');
+        return;
+      }
+      const skipped = this.selectedLibraryPrompts.length - deletable.length;
       this.requestConfirm({
-        message: this.t('delete.confirm', { count: this.selectedLibraryPrompts.length }),
+        message: this.t('delete.confirm', { count: deletable.length }),
         confirmLabel: this.t('common.delete'),
         danger: true,
-        onConfirm: () => this._performDeleteSelectedPrompts(),
+        onConfirm: () => this._performDeleteSelectedPrompts(deletable, skipped),
       });
     },
-    _performDeleteSelectedPrompts() {
-      this.selectedLibraryPrompts.forEach((promptId) => {
+    _performDeleteSelectedPrompts(deletable, skipped = 0) {
+      deletable.forEach((promptId) => {
         delete this.prompts[promptId];
         this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
+        this.cleanupPromptCollapseState(promptId);
       });
       this.selectedLibraryPrompts = [];
       this.isMultiSelectActive = false;
+      if (skipped > 0) {
+        this.showToast(this.t('delete.systemSkipped', { count: skipped }), 'info');
+      }
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     addPromptToOrder(promptId) {
       if (!this.promptOrder.includes(promptId)) {
@@ -1072,6 +1234,7 @@ export const usePresetStore = defineStore('preset', {
           this.promptOrder.unshift(promptId);
         }
         this.analyzeAllMacros();
+        this.touchActivePresetDebounced();
         this.navigateToPrompt(promptId);
       }
     },
@@ -1136,6 +1299,7 @@ export const usePresetStore = defineStore('preset', {
       // Move selected prompts to the top
       this.promptOrder = [...selectedIds, ...remainingIds];
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     batchMoveSelectedToBottom() {
       if (this.selectedEditorPrompts.length === 0) return;
@@ -1148,6 +1312,7 @@ export const usePresetStore = defineStore('preset', {
       // Move selected prompts to the bottom
       this.promptOrder = [...remainingIds, ...selectedIds];
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     batchDeleteSelected() {
       if (this.selectedEditorPrompts.length === 0) return;
@@ -1174,6 +1339,7 @@ export const usePresetStore = defineStore('preset', {
       // Delete only deletable prompts
       deletablePrompts.forEach((promptId) => {
         delete this.prompts[promptId];
+        this.cleanupPromptCollapseState(promptId);
       });
 
       // Remove from prompt order
@@ -1183,10 +1349,14 @@ export const usePresetStore = defineStore('preset', {
       this.selectedEditorPrompts = [];
 
       this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     // Editor selection helpers
     selectAllEditorPrompts() {
-      this.selectedEditorPrompts = [...this.promptOrder];
+      // System prompts have disabled checkboxes; don't sneak them into the count.
+      this.selectedEditorPrompts = this.promptOrder.filter(
+        (id) => !this.prompts[id]?.system_prompt,
+      );
     },
     deselectAllEditorPrompts() {
       this.selectedEditorPrompts = [];
@@ -1345,12 +1515,14 @@ export const usePresetStore = defineStore('preset', {
       this.globalCollapseState = 'collapsed';
       // Clear per-prompt states so all follow the global state
       this.promptCollapseStates = {};
+      this.touchActivePresetDebounced();
     },
 
     expandAllPrompts() {
       this.globalCollapseState = 'expanded';
       // Clear per-prompt states so all follow the global state
       this.promptCollapseStates = {};
+      this.touchActivePresetDebounced();
     },
 
     setGlobalCollapseState(state) {
@@ -1371,6 +1543,7 @@ export const usePresetStore = defineStore('preset', {
       this.ensurePromptCollapseState(promptId);
       // Toggle collapse state for the prompt
       this.promptCollapseStates[promptId] = !this.promptCollapseStates[promptId];
+      this.touchActivePresetDebounced();
     },
 
     // Initialize 'mixed' state: seed per-prompt states from current global setting
@@ -1492,7 +1665,6 @@ export const usePresetStore = defineStore('preset', {
           originalFilename: filename || '',
           prompts,
           promptOrder,
-          macroDisplayMode: 'raw',
           promptCollapseStates: {},
         };
 
@@ -1558,7 +1730,6 @@ export const usePresetStore = defineStore('preset', {
         originalFilename: filename || '',
         prompts,
         promptOrder,
-        macroDisplayMode: 'raw',
         promptCollapseStates: {},
       };
 
@@ -1622,68 +1793,161 @@ export const usePresetStore = defineStore('preset', {
       }
       return uniqueName;
     },
-    savePreset(name = null) {
-      console.log('[savePreset] Starting to save preset...');
+    /**
+     * Duplicate the active area into a NEW library entry and switch to it.
+     * Routine saving is handled by autosave (_touchActivePreset) — this is the
+     * deliberate "keep a separate copy" action.
+     * @param {string|null} name - optional name; defaults to the current name deduped
+     * @returns {string} the new preset id
+     */
+    saveActivePresetAsCopy(name = null) {
+      // Flush pending edits into the current entry before branching off a copy.
+      this._touchActivePreset();
+
+      const baseName =
+        (name || '').trim() ||
+        (this.originalFilename
+          ? this.originalFilename.replace(/\.[^/.]+$/, '')
+          : this.currentPresetName || this.t('presetManager.defaultName'));
+      const presetName = this._dedupedPresetName(baseName);
+
       const presetId = window.crypto.randomUUID();
       const now = new Date().toISOString();
-
-      // If no name provided, use current filename
-      // If no name provided, derive from current filename
-      let presetName;
-      if (name) {
-        presetName = name.trim();
-      } else {
-        // Inline getCurrentPresetName logic here
-        if (this.originalFilename) {
-          presetName = this.originalFilename.replace(/\.[^/.]+$/, '');
-        } else {
-          presetName = 'Untitled Preset';
-        }
-      }
-      console.log('[savePreset] Preset name:', presetName);
-
-      const presetData = {
-        rawJson: this.rawJson,
-        originalFilename: this.originalFilename,
-        prompts: this.prompts,
-        promptOrder: this.promptOrder,
-        macroDisplayMode: this.macroDisplayMode,
-        promptCollapseStates: this.promptCollapseStates,
-      };
-
       this.savedPresets[presetId] = {
         name: presetName,
-        data: presetData,
+        data: activeAreaData(this),
         createdAt: now,
         updatedAt: now,
       };
-
       this.currentPresetId = presetId;
-      console.log('[savePreset] Preset saved successfully. ID:', presetId);
-      console.log('[savePreset] Total saved presets:', Object.keys(this.savedPresets).length);
       return presetId;
     },
     loadPreset(presetId) {
-      console.log('[loadPreset] Attempting to load preset:', presetId);
       const preset = this.savedPresets[presetId];
       if (!preset) {
         console.log('[loadPreset] Preset not found:', presetId);
         return false;
       }
 
-      console.log('[loadPreset] Loading preset:', preset.name);
-      // Save current state before loading
-      this.rawJson = preset.data.rawJson;
-      this.originalFilename = preset.data.originalFilename;
-      this.prompts = preset.data.prompts;
-      this.promptOrder = preset.data.promptOrder;
-      this.macroDisplayMode = preset.data.macroDisplayMode;
-      this.promptCollapseStates = preset.data.promptCollapseStates || {};
+      // Flush any pending autosave for the outgoing preset first — switching
+      // must never lose the last second of edits.
+      this._touchActivePreset();
+
+      // Deep-clone so the active area never aliases the library entry (writes
+      // back go through autosave explicitly).
+      const data = toPlainClone(preset.data || {});
+      this.rawJson = data.rawJson || '';
+      this.originalFilename = data.originalFilename || '';
+      this.prompts = data.prompts || {};
+      this.promptOrder = data.promptOrder || [];
+      // Note: data.macroDisplayMode from legacy entries is intentionally
+      // ignored — display mode is a preference, not preset data.
+      this.promptCollapseStates = data.promptCollapseStates || {};
 
       this.currentPresetId = presetId;
       this.analyzeAllMacros();
-      console.log('[loadPreset] Preset loaded successfully');
       return true;
+    },
+
+    // --- Snapshots (named per-preset versions, cap MAX_SNAPSHOTS_PER_PRESET) ---
+
+    /**
+     * Store a named snapshot of a preset's current data.
+     * @param {string|null} presetId - defaults to the active preset
+     * @param {string} name - label; defaults to a timestamped name
+     * @returns {string|null} the snapshot id
+     */
+    createSnapshot(presetId = null, name = '') {
+      let targetId = presetId;
+      if (!targetId) {
+        if (isVsCodeHost()) return null; // no active library preset in host mode
+        this._touchActivePreset(); // flush + adopt so the snapshot is current
+        targetId = this.currentPresetId;
+      } else if (targetId === this.currentPresetId) {
+        this._touchActivePreset();
+      }
+      const entry = this.savedPresets[targetId];
+      if (!entry) return null;
+
+      if (!Array.isArray(entry.snapshots)) entry.snapshots = [];
+      const now = new Date();
+      const label =
+        (name || '').trim() ||
+        this.t('presetManager.snapshots.defaultName', {
+          time: now.toISOString().slice(0, 16).replace('T', ' '),
+        });
+      const snapshot = {
+        id: window.crypto.randomUUID(),
+        name: label,
+        createdAt: now.toISOString(),
+        // Snapshot the durable preset content only (no UI state).
+        data: (({ rawJson, originalFilename, prompts, promptOrder }) => ({
+          rawJson,
+          originalFilename,
+          prompts,
+          promptOrder,
+        }))(toPlainClone(entry.data || {})),
+      };
+      entry.snapshots.unshift(snapshot);
+      if (entry.snapshots.length > MAX_SNAPSHOTS_PER_PRESET) {
+        entry.snapshots.length = MAX_SNAPSHOTS_PER_PRESET;
+        this.showToast(this.t('presetManager.snapshots.limitPruned'), 'info');
+      }
+      return snapshot.id;
+    },
+    /**
+     * Roll a preset back to a snapshot. The pre-restore state is snapshotted
+     * automatically first, so a restore is itself reversible.
+     */
+    restoreSnapshot(presetId, snapshotId) {
+      const entry = this.savedPresets[presetId];
+      const snapshot = entry?.snapshots?.find((s) => s.id === snapshotId);
+      if (!entry || !snapshot) return false;
+
+      this.createSnapshot(
+        presetId,
+        this.t('presetManager.snapshots.beforeRestore', { name: snapshot.name }),
+      );
+
+      entry.data = { ...toPlainClone(entry.data || {}), ...toPlainClone(snapshot.data) };
+      entry.updatedAt = new Date().toISOString();
+
+      if (presetId === this.currentPresetId) {
+        const data = toPlainClone(entry.data);
+        this.rawJson = data.rawJson || '';
+        this.originalFilename = data.originalFilename || '';
+        this.prompts = data.prompts || {};
+        this.promptOrder = data.promptOrder || [];
+        this.promptCollapseStates = data.promptCollapseStates || {};
+        this.analyzeAllMacros();
+      }
+      return true;
+    },
+    renameSnapshot(presetId, snapshotId, name) {
+      const snapshot = this.savedPresets[presetId]?.snapshots?.find((s) => s.id === snapshotId);
+      const trimmed = (name || '').trim();
+      if (!snapshot || !trimmed) return false;
+      snapshot.name = trimmed;
+      return true;
+    },
+    deleteSnapshot(presetId, snapshotId) {
+      const entry = this.savedPresets[presetId];
+      if (!entry?.snapshots) return false;
+      const index = entry.snapshots.findIndex((s) => s.id === snapshotId);
+      if (index === -1) return false;
+      entry.snapshots.splice(index, 1);
+      return true;
+    },
+
+    /**
+     * Compose the exportable preset JSON for a saved library entry (used by
+     * the Preset Manager's export and the VS Code "open as new file" flow).
+     * @returns {string|null}
+     */
+    buildPresetJsonById(presetId) {
+      const entry = this.savedPresets[presetId];
+      if (!entry?.data) return null;
+      return composePresetJson(entry.data);
     },
     updatePreset(presetId, name) {
       const preset = this.savedPresets[presetId];
@@ -1762,7 +2026,6 @@ export const usePresetStore = defineStore('preset', {
           originalFilename: 'factory-default.json',
           prompts: prompts,
           promptOrder: promptOrder,
-          macroDisplayMode: 'raw',
           promptCollapseStates: {},
         };
 
@@ -2041,6 +2304,7 @@ export const usePresetStore = defineStore('preset', {
         this.batchReplaceHistory.push(historyEntry);
         // Any new forward change invalidates redo stack
         this.batchReplaceRedoStack = [];
+        this.touchActivePresetDebounced();
       }
 
       return { matches: totalChanges, prompts: historyEntry.changes.length };
@@ -2072,6 +2336,7 @@ export const usePresetStore = defineStore('preset', {
         this.analyzeAllMacros();
       }
       // promptsAffected counts fields; for user-facing, count distinct prompts
+      this.touchActivePresetDebounced();
       const distinctPrompts = new Set(entry.changes.map((c) => c.promptId)).size;
       return { prompts: distinctPrompts };
     },
@@ -2101,6 +2366,7 @@ export const usePresetStore = defineStore('preset', {
       }
       // Push back to history as a new step (so we can undo the redo)
       this.batchReplaceHistory.push(entry);
+      this.touchActivePresetDebounced();
       const distinctPrompts = new Set(entry.changes.map((c) => c.promptId)).size;
       return { prompts: distinctPrompts };
     },

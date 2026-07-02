@@ -12,7 +12,9 @@
       "reset": "Reset",
       "importFromJson": "Import from JSON",
       "exportToJson": "Export to JSON",
-      "resetToDefault": "Reset to Default"
+      "resetToDefault": "Reset to Default",
+      "snapshot": "Snapshot",
+      "snapshotTaken": "Snapshot saved"
     },
     "importModal": {
       "title": "Import JSON File",
@@ -50,7 +52,8 @@
       "confirm": "Are you sure you want to reset all data and return to the factory default? This will permanently delete all your changes and cannot be undone."
     },
     "delete": {
-      "confirm": "Are you sure you want to permanently delete {count} selected prompt(s)?"
+      "confirm": "Are you sure you want to permanently delete {count} selected prompt(s)?",
+      "systemSkipped": "Skipped {count} system prompt(s) — they cannot be deleted"
     },
     "editor": {
       "title": "Editor",
@@ -262,6 +265,25 @@
         "addDefaultPreset": "Add Default Preset",
         "loadDefaultPreset": "Load Default Preset",
         "factoryDefaultName": "Factory Default"
+      },
+      "saveAsCopy": "Save as copy",
+      "autosaveNote": "Edits save automatically into the loaded preset. Use this to keep a separate copy.",
+      "copySaved": "Saved a copy as \"{name}\"",
+      "openAsNewFile": "Open as new file",
+      "openedAsFile": "Created and opened {name}",
+      "openAsFileFailed": "Could not create the preset file",
+      "snapshots": {
+        "title": "Snapshots",
+        "take": "Take snapshot",
+        "none": "No snapshots yet",
+        "restore": "Restore",
+        "restoreConfirm": "Restore snapshot \"{name}\"? The current state is snapshotted first, so this can be undone.",
+        "restored": "Snapshot restored",
+        "created": "Snapshot saved",
+        "beforeRestore": "Before restore: {name}",
+        "limitPruned": "Snapshot limit reached — the oldest snapshot was removed",
+        "deleteConfirm": "Delete this snapshot?",
+        "defaultName": "Snapshot {time}"
       }
     },
     "batchReplaceModal": {
@@ -311,7 +333,9 @@
       "reset": "重置",
       "importFromJson": "从JSON导入",
       "exportToJson": "导出为JSON",
-      "resetToDefault": "重置为默认"
+      "resetToDefault": "重置为默认",
+      "snapshot": "快照",
+      "snapshotTaken": "已创建快照"
     },
     "importModal": {
       "title": "导入JSON文件",
@@ -349,7 +373,8 @@
       "confirm": "您确定要重置所有数据并恢复到出厂默认设置吗？这将永久删除您的所有更改且无法撤销。"
     },
     "delete": {
-      "confirm": "您确定要永久删除选中的 {count} 个提示吗？"
+      "confirm": "您确定要永久删除选中的 {count} 个提示吗？",
+      "systemSkipped": "已跳过 {count} 个系统提示词（不可删除）"
     },
     "editor": {
       "title": "编辑器",
@@ -561,6 +586,25 @@
         "addDefaultPreset": "添加默认预设",
         "loadDefaultPreset": "加载默认预设",
         "factoryDefaultName": "出厂默认"
+      },
+      "saveAsCopy": "另存为副本",
+      "autosaveNote": "编辑会自动保存到当前载入的预设。使用此按钮可另外保留一份副本。",
+      "copySaved": "已另存为副本“{name}”",
+      "openAsNewFile": "另存为新文件并打开",
+      "openedAsFile": "已创建并打开 {name}",
+      "openAsFileFailed": "创建预设文件失败",
+      "snapshots": {
+        "title": "快照",
+        "take": "创建快照",
+        "none": "暂无快照",
+        "restore": "恢复",
+        "restoreConfirm": "恢复快照“{name}”？当前状态会先自动保存为快照，因此该操作可以撤销。",
+        "restored": "已恢复快照",
+        "created": "已创建快照",
+        "beforeRestore": "恢复前备份：{name}",
+        "limitPruned": "快照数量已达上限，最早的快照已被删除",
+        "deleteConfirm": "确定删除此快照吗？",
+        "defaultName": "快照 {time}"
       }
     },
     "batchReplaceModal": {

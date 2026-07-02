@@ -16,14 +16,14 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
   },
 
   // Presets library storage. No "id" => auto-provisioned per deployer.
   "kv_namespaces": [
     {
-      "binding": "PRESETS"
-    }
+      "binding": "PRESETS",
+    },
   ],
 
   // Auth store (accounts, sessions, API keys). No "database_id" => auto-provisioned
@@ -32,7 +32,7 @@
     {
       "binding": "DB",
       "database_name": "stpreseteditor-auth",
-      "migrations_dir": "migrations"
-    }
-  ]
+      "migrations_dir": "migrations",
+    },
+  ],
 }
