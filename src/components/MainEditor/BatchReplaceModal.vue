@@ -2,13 +2,15 @@
   <!-- Inline panel rendered inside the right-pane overlay -->
   <div class="flex h-full flex-col space-y-2">
     <TabGroup>
-      <TabList class="flex flex-shrink-0 space-x-1 rounded-xl bg-gray-200 p-1">
+      <TabList class="flex flex-shrink-0 space-x-1 rounded-xl bg-gray-200 p-1 dark:bg-gray-700">
         <Tab v-for="tab in tabs" :key="tab.key" v-slot="{ selected }" as="template">
           <button
             :class="[
               'w-full rounded-lg py-2 text-sm leading-5 font-medium',
               'ring-white/60 ring-offset-2 ring-offset-blue-400 focus:ring-2 focus:outline-none',
-              selected ? 'bg-white text-blue-700 shadow' : 'text-blue-700/60 hover:text-blue-700',
+              selected
+                ? 'bg-white text-blue-700 shadow dark:bg-gray-800 dark:text-blue-300'
+                : 'text-blue-700/60 hover:text-blue-700',
             ]"
           >
             {{ tab.label }}
@@ -16,7 +18,7 @@
         </Tab>
       </TabList>
 
-      <TabPanels class="rounded-xl bg-white shadow-sm">
+      <TabPanels class="rounded-xl bg-white shadow-sm dark:bg-gray-800">
         <!-- Replace tab -->
         <TabPanel :key="'replace'" class="p-4">
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -60,7 +62,7 @@
                     />
                     <span
                       :class="{
-                        'text-gray-400':
+                        'text-gray-400 dark:text-gray-500':
                           !store.isEditorMultiSelectActive ||
                           store.selectedEditorPrompts.length === 0,
                       }"
@@ -88,7 +90,7 @@
                 </label>
                 <label class="flex items-center gap-2">
                   <input v-model="form.wholeWord" type="checkbox" :disabled="form.useRegex" />
-                  <span :class="{ 'text-gray-400': form.useRegex }">
+                  <span :class="{ 'text-gray-400 dark:text-gray-500': form.useRegex }">
                     {{ store.t('batchReplaceModal.wholeWord') }}
                   </span>
                 </label>
@@ -165,7 +167,7 @@
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <label class="mb-1 block text-xs text-gray-500">
+                  <label class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
                     {{ store.t('batchReplaceModal.serialStart') }}
                   </label>
                   <input
@@ -177,7 +179,7 @@
                   />
                 </div>
                 <div>
-                  <label class="mb-1 block text-xs text-gray-500">
+                  <label class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
                     {{ store.t('batchReplaceModal.serialDigits') }}
                   </label>
                   <input
@@ -195,8 +197,12 @@
       </TabPanels>
     </TabGroup>
 
-    <div v-if="errorMessage" class="mt-2 text-xs text-gray-500">{{ errorMessage }}</div>
-    <div v-if="resultMessage" class="mt-2 text-xs text-gray-600">{{ resultMessage }}</div>
+    <div v-if="errorMessage" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+      {{ errorMessage }}
+    </div>
+    <div v-if="resultMessage" class="mt-2 text-xs text-gray-600 dark:text-gray-400">
+      {{ resultMessage }}
+    </div>
 
     <div class="mt-4 flex items-center justify-between">
       <div class="flex items-center gap-2">

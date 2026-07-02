@@ -9,7 +9,10 @@
         <!-- Inline search box -->
         <div class="relative min-w-0 flex-1">
           <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-            <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
+            <MagnifyingGlassIcon
+              class="h-5 w-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
           <input
             id="editor-search-input"
@@ -24,7 +27,7 @@
           <!-- "x / N" find-next counter inside the box -->
           <div
             v-if="store.editorSearchTerm"
-            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-gray-400 tabular-nums"
+            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-gray-400 tabular-nums dark:text-gray-500"
             :title="matchStatsLabel"
           >
             {{ matchPositionLabel }}
@@ -55,7 +58,10 @@
         <div class="flex shrink-0 items-center gap-2">
           <!-- Macro display mode toggle -->
           <SwitchGroup as="div" class="flex items-center">
-            <SwitchLabel as="span" class="mr-2 hidden text-sm font-medium text-gray-700 lg:inline">
+            <SwitchLabel
+              as="span"
+              class="mr-2 hidden text-sm font-medium text-gray-700 lg:inline dark:text-gray-300"
+            >
               {{ isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode') }}
             </SwitchLabel>
             <Switch
@@ -67,7 +73,7 @@
               <span
                 aria-hidden="true"
                 :class="isPreviewMode ? 'translate-x-5' : 'translate-x-0'"
-                class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out dark:bg-gray-200"
               >
                 <span
                   :class="
@@ -78,7 +84,7 @@
                   class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
                   aria-hidden="true"
                 >
-                  <CodeBracketIcon class="h-3 w-3 text-gray-400" />
+                  <CodeBracketIcon class="h-3 w-3 text-gray-400 dark:text-gray-500" />
                 </span>
                 <span
                   :class="
@@ -89,13 +95,13 @@
                   class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
                   aria-hidden="true"
                 >
-                  <EyeIcon class="h-3 w-3 text-green-600" />
+                  <EyeIcon class="h-3 w-3 text-green-600 dark:text-green-400" />
                 </span>
               </span>
             </Switch>
           </SwitchGroup>
 
-          <span class="mx-0.5 h-6 w-px bg-gray-200" aria-hidden="true"></span>
+          <span class="mx-0.5 h-6 w-px bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
 
           <!-- Primary action: new prompt -->
           <button class="btn btn-sm btn-primary" @click="store.createNewPrompt()">
@@ -131,16 +137,16 @@
       </div>
 
       <!-- Search result summary (F6a): "N matches in M prompts" -->
-      <div v-if="store.editorSearchTerm" class="px-1 text-xs text-gray-500">
+      <div v-if="store.editorSearchTerm" class="px-1 text-xs text-gray-500 dark:text-gray-400">
         {{ matchStatsLabel }}
       </div>
 
       <!-- Contextual batch bar: only shown while in multi-select mode -->
       <div
         v-if="store.isEditorMultiSelectActive"
-        class="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5"
+        class="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
       >
-        <span class="mr-1 text-xs font-medium text-gray-600">
+        <span class="mr-1 text-xs font-medium text-gray-600 dark:text-gray-400">
           {{
             store.t('editor.selectedCount', {
               selected: store.selectedEditorPrompts.length,
@@ -155,7 +161,7 @@
           {{ store.t('editor.deselectAll') }}
         </button>
 
-        <span class="mx-1 h-5 w-px bg-gray-300" aria-hidden="true"></span>
+        <span class="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" aria-hidden="true"></span>
 
         <button
           class="btn-icon btn-icon-sm"
@@ -191,9 +197,10 @@
       </div>
     </div>
 
-    <!-- Prompt list container -->
+    <!-- Prompt list container: cards on mobile, a centred column of
+         Notion-style blocks on desktop (F3) -->
     <div ref="scrollContainer" class="overflow-y-auto">
-      <div class="space-y-4">
+      <div class="space-y-4 md:mx-auto md:w-full md:max-w-[92ch] md:space-y-0.5">
         <PromptCard
           v-for="prompt in prompts"
           :key="prompt.id"

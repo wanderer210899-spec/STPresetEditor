@@ -14,7 +14,9 @@
       "exportToJson": "Export to JSON",
       "resetToDefault": "Reset to Default",
       "snapshot": "Snapshot",
-      "snapshotTaken": "Snapshot saved"
+      "snapshotTaken": "Snapshot saved",
+      "tokenTotal": "≈{count} tokens",
+      "tokenTotalTitle": "Approximate token count of enabled prompts (estimate)"
     },
     "importModal": {
       "title": "Import JSON File",
@@ -95,7 +97,12 @@
         "system": "System",
         "user": "User",
         "assistant": "Assistant"
-      }
+      },
+      "dragHandle": "Drag to reorder",
+      "toggleCollapse": "Collapse / expand",
+      "offChip": "OFF",
+      "tokenEstimate": "Approximate tokens (estimate)",
+      "emptyClickToEdit": "Click to write…"
     },
     "promptLibrary": {
       "title": "Prompt Library",
@@ -178,7 +185,11 @@
         "reset": "Reset to defaults",
         "resetConfirm": "Reset the autocomplete dictionary? This removes your custom macros and restores the default wrapping pairs.",
         "duplicateMacro": "A custom macro with that name already exists."
-      }
+      },
+      "theme": "Appearance",
+      "theme_light": "Light",
+      "theme_dark": "Dark",
+      "theme_system": "System"
     },
     "sync": {
       "title": "Cloud sync",
@@ -352,7 +363,9 @@
       "exportToJson": "导出为JSON",
       "resetToDefault": "重置为默认",
       "snapshot": "快照",
-      "snapshotTaken": "已创建快照"
+      "snapshotTaken": "已创建快照",
+      "tokenTotal": "≈{count} tokens",
+      "tokenTotalTitle": "已启用提示词的估算 token 数（近似值）"
     },
     "importModal": {
       "title": "导入JSON文件",
@@ -433,7 +446,12 @@
         "system": "系统",
         "user": "用户",
         "assistant": "助手"
-      }
+      },
+      "dragHandle": "拖动以重新排序",
+      "toggleCollapse": "折叠 / 展开",
+      "offChip": "已关闭",
+      "tokenEstimate": "估算 token 数（近似值）",
+      "emptyClickToEdit": "点击开始输入…"
     },
     "promptLibrary": {
       "title": "提示库",
@@ -516,7 +534,11 @@
         "reset": "恢复默认",
         "resetConfirm": "重置自动补全词典？这将删除你的自定义宏并恢复默认的包裹标记对。",
         "duplicateMacro": "已存在同名的自定义宏。"
-      }
+      },
+      "theme": "外观",
+      "theme_light": "浅色",
+      "theme_dark": "深色",
+      "theme_system": "跟随系统"
     },
     "sync": {
       "title": "云同步",

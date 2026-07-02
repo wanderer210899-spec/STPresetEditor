@@ -30,7 +30,7 @@
     <!-- Search Box -->
     <div class="relative mb-4 flex-shrink-0">
       <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-        <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
+        <MagnifyingGlassIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
       </div>
       <input
         type="text"
@@ -44,7 +44,7 @@
     <!-- Prompt List -->
     <div ref="scrollContainer" class="overflow-y-auto">
       <!-- List Header with Count -->
-      <div class="mb-2 flex items-center justify-between text-xs text-gray-500">
+      <div class="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{{ store.t('promptLibrary.sortedByName') }}</span>
         <span>{{ store.t('promptLibrary.count', { count: libraryPrompts.length }) }}</span>
       </div>
@@ -54,7 +54,7 @@
       <!-- Empty State -->
       <div
         v-if="libraryPrompts.length === 0"
-        class="flex flex-col items-center justify-center py-8 text-gray-500"
+        class="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400"
       >
         <MagnifyingGlassIcon class="mb-2 h-12 w-12 text-gray-300" />
         <p class="text-sm">{{ store.t('promptLibrary.noResults') }}</p>

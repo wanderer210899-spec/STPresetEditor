@@ -34,6 +34,10 @@ app.mount('#app');
 async function bootstrap() {
   const store = usePresetStore();
 
+  // Apply the persisted theme immediately (before any cloud round-trip) and
+  // keep it live (OS scheme changes / VS Code theme switches).
+  store.initTheme();
+
   // Inside the Cursor/VSCode extension the OPEN preset comes from a local file
   // via the host bridge — not the cloud, and not the bundled example. The host
   // pushes the file content as a 'load' message right after we signal 'ready'.

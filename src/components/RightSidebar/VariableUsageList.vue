@@ -16,13 +16,13 @@
           <p class="text-sm font-medium" :class="[textClass, { '!text-gray-500': !item.enabled }]">
             {{ getPromptName(item.promptId) }}
           </p>
-          <p class="font-mono text-xs text-gray-500">{{ item.promptId }}</p>
+          <p class="font-mono text-xs text-gray-500 dark:text-gray-400">{{ item.promptId }}</p>
         </li>
       </ul>
       <div v-else-if="emptyIsError" class="rounded-md border border-red-200 bg-red-50 p-2">
-        <p class="text-sm font-medium text-red-700">{{ emptyText }}</p>
+        <p class="text-sm font-medium text-red-700 dark:text-red-300">{{ emptyText }}</p>
       </div>
-      <p v-else class="mt-1 text-sm text-gray-500 italic">{{ emptyText }}</p>
+      <p v-else class="mt-1 text-sm text-gray-500 italic dark:text-gray-400">{{ emptyText }}</p>
     </div>
   </div>
 </template>
@@ -53,7 +53,7 @@ const getPromptName = (promptId) => {
 const itemClass = computed(() =>
   props.variant === 'referenced'
     ? 'border-green-200 bg-green-50 hover:bg-green-100'
-    : 'border-blue-200 bg-blue-50 hover:bg-blue-100',
+    : 'border-blue-200 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100',
 );
 
 const textClass = computed(() =>

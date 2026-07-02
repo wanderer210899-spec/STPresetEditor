@@ -21,7 +21,7 @@
         type="text"
         :value="prompt.identifier"
         readonly
-        class="input mt-1 cursor-not-allowed bg-gray-100"
+        class="input mt-1 cursor-not-allowed bg-gray-100 dark:bg-gray-800"
       />
     </div>
     <div>
@@ -67,7 +67,7 @@ const contentClass = computed(() =>
   [
     'input font-mono',
     props.autoGrow ? 'resize-none overflow-hidden' : '',
-    props.prompt.marker ? 'cursor-not-allowed bg-gray-100' : '',
+    props.prompt.marker ? 'cursor-not-allowed bg-gray-100 dark:bg-gray-800' : '',
   ]
     .filter(Boolean)
     .join(' '),

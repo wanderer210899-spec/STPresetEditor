@@ -10,7 +10,10 @@
       <!-- Query input -->
       <div class="relative">
         <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-          <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
+          <MagnifyingGlassIcon
+            class="h-5 w-5 text-gray-400 dark:text-gray-500"
+            aria-hidden="true"
+          />
         </div>
         <input
           ref="inputEl"
@@ -29,13 +32,15 @@
           <button
             class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left"
             :class="[
-              group.isActive ? 'cursor-default' : 'hover:bg-gray-100',
-              isActiveRow(group.presetId, null) ? 'bg-blue-50 ring-1 ring-blue-300' : '',
+              group.isActive ? 'cursor-default' : 'hover:bg-gray-100 dark:hover:bg-gray-700',
+              isActiveRow(group.presetId, null)
+                ? 'bg-blue-50 ring-1 ring-blue-300 dark:bg-blue-900/30'
+                : '',
             ]"
             @click="!group.isActive && open(group.presetId, null)"
           >
-            <BookmarkIcon class="h-4 w-4 shrink-0 text-gray-400" />
-            <span class="truncate text-sm font-semibold text-gray-700">
+            <BookmarkIcon class="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500" />
+            <span class="truncate text-sm font-semibold text-gray-700 dark:text-gray-300">
               <template v-for="(seg, i) in splitByTerm(group.presetName, committedQuery)" :key="i">
                 <mark v-if="seg.hit" class="search-mark">{{ seg.text }}</mark>
                 <template v-else>{{ seg.text }}</template>
@@ -43,7 +48,7 @@
             </span>
             <span
               v-if="group.isActive"
-              class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
+              class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/60 dark:text-blue-300"
             >
               {{ store.t('globalSearch.activePreset') }}
             </span>
@@ -53,19 +58,22 @@
           <button
             v-for="hit in group.hits"
             :key="hit.promptId"
-            class="mt-1 flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-gray-100"
+            class="mt-1 flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
             :class="{
-              'bg-blue-50 ring-1 ring-blue-300': isActiveRow(group.presetId, hit.promptId),
+              'bg-blue-50 ring-1 ring-blue-300 dark:bg-blue-900/30': isActiveRow(
+                group.presetId,
+                hit.promptId,
+              ),
             }"
             @click="open(group.presetId, hit.promptId)"
           >
-            <span class="truncate text-sm font-medium text-gray-800">
+            <span class="truncate text-sm font-medium text-gray-800 dark:text-gray-200">
               <template v-for="(seg, i) in splitByTerm(hit.promptName, committedQuery)" :key="i">
                 <mark v-if="seg.hit" class="search-mark">{{ seg.text }}</mark>
                 <template v-else>{{ seg.text }}</template>
               </template>
             </span>
-            <span class="truncate text-xs text-gray-500">
+            <span class="truncate text-xs text-gray-500 dark:text-gray-400">
               {{ hit.snippet.before }}
               <mark class="search-mark">{{ hit.snippet.match }}</mark>
               {{ hit.snippet.after }}
@@ -75,10 +83,13 @@
       </div>
 
       <!-- Empty / idle states -->
-      <p v-else-if="committedQuery" class="py-6 text-center text-sm text-gray-500">
+      <p
+        v-else-if="committedQuery"
+        class="py-6 text-center text-sm text-gray-500 dark:text-gray-400"
+      >
         {{ store.t('globalSearch.noResults') }}
       </p>
-      <p v-else class="py-6 text-center text-xs text-gray-400">
+      <p v-else class="py-6 text-center text-xs text-gray-400 dark:text-gray-500">
         {{ store.t('globalSearch.hint') }}
       </p>
     </div>

@@ -5,7 +5,7 @@
       <input
         v-if="prompt"
         :value="prompt.name"
-        class="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-lg font-semibold text-gray-900 hover:border-gray-200 focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        class="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-lg font-semibold text-gray-900 hover:border-gray-200 focus:border-blue-500 focus:bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none dark:text-gray-100"
         :placeholder="store.t('promptDetails.name')"
         @input="updateName($event.target.value)"
       />
@@ -22,7 +22,9 @@
     />
 
     <template #footer-start>
-      <span class="text-xs text-gray-400">{{ store.t('focusEditor.hint') }}</span>
+      <span class="text-xs text-gray-400 dark:text-gray-500">
+        {{ store.t('focusEditor.hint') }}
+      </span>
     </template>
     <template #footer>
       <button class="btn btn-primary" @click="store.closeFocusEditor()">

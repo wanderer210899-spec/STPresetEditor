@@ -12,6 +12,7 @@ import {
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
 import { isVsCodeHost } from '../utils/host';
+import { formatTokenCount } from '../utils/tokens';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
 
@@ -30,7 +31,7 @@ const takeSnapshot = () => {
 // Cloud sync status (Cloudflare KV) for the indicator
 const sync = useSyncStore();
 const syncDotClass = computed(() => {
-  if (!sync.cloudEnabled) return 'bg-gray-300';
+  if (!sync.cloudEnabled) return 'bg-gray-300 dark:bg-gray-600';
   switch (sync.status) {
     case 'synced':
       return 'bg-green-500';
@@ -41,26 +42,29 @@ const syncDotClass = computed(() => {
     case 'error':
       return 'bg-red-500';
     default:
-      return 'bg-gray-300';
+      return 'bg-gray-300 dark:bg-gray-600';
   }
 });
 
 // Shared class for mobile dropdown menu items (kept neutral for consistency)
-const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-sm text-gray-900';
+const menuItemClass =
+  'group flex w-full items-center rounded-md px-2 py-2 text-sm text-gray-900 dark:text-gray-100';
 
 // Reset & Language now live in Settings modal
 </script>
 
 <template>
   <!-- Main toolbar container with responsive layout -->
-  <div class="flex w-full items-center justify-between bg-white">
+  <div class="flex w-full items-center justify-between bg-white dark:bg-gray-800">
     <!-- Mobile: Left Sidebar Toggle Button -->
     <button class="btn-icon md:hidden" @click="store.toggleLeftSidebar()">
       <Bars3Icon class="h-6 w-6" />
     </button>
 
     <!-- Desktop: Application Title -->
-    <h1 class="hidden text-base font-bold text-gray-800 md:block">{{ store.t('app.title') }}</h1>
+    <h1 class="hidden text-base font-bold text-gray-800 md:block dark:text-gray-200">
+      {{ store.t('app.title') }}
+    </h1>
 
     <!-- Mobile: Spacer to center the title -->
     <div class="flex-1 md:hidden"></div>
@@ -72,8 +76,18 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
 
     <!-- Desktop: Action Buttons Group (one consistent secondary style) -->
     <div class="hidden items-center gap-2 md:flex">
+      <!-- Approximate token total of enabled, in-order prompts (F8d) -->
+      <span
+        class="text-xs text-gray-400 tabular-nums dark:text-gray-500"
+        :title="store.t('toolbar.tokenTotalTitle')"
+      >
+        {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
+      </span>
       <!-- Cloud sync status indicator -->
-      <div class="mr-1 flex items-center gap-1.5 text-xs text-gray-500" :title="sync.statusLabel">
+      <div
+        class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+        :title="sync.statusLabel"
+      >
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
       </div>
@@ -127,25 +141,25 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
           leave-to-class="transform scale-95 opacity-0"
         >
           <MenuItems
-            class="absolute right-0 z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none"
+            class="absolute right-0 z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none dark:divide-gray-700 dark:bg-gray-800 dark:ring-gray-700"
           >
             <!-- Import / Export -->
             <div class="px-1 py-1">
               <MenuItem v-slot="{ active }">
                 <button
-                  :class="[active ? 'bg-gray-100' : '', menuItemClass]"
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="store.openImportModal()"
                 >
-                  <ArrowDownTrayIcon class="mr-2 h-5 w-5 text-gray-500" />
+                  <ArrowDownTrayIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
                   {{ store.t('toolbar.importFromJson') }}
                 </button>
               </MenuItem>
               <MenuItem v-slot="{ active }">
                 <button
-                  :class="[active ? 'bg-gray-100' : '', menuItemClass]"
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="store.openExportModal()"
                 >
-                  <ArrowUpTrayIcon class="mr-2 h-5 w-5 text-gray-500" />
+                  <ArrowUpTrayIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
                   {{ store.t('toolbar.exportToJson') }}
                 </button>
               </MenuItem>
@@ -153,26 +167,29 @@ const menuItemClass = 'group flex w-full items-center rounded-md px-2 py-2 text-
             <!-- Presets / Settings -->
             <div class="px-1 py-1">
               <MenuItem v-if="!isHost" v-slot="{ active }">
-                <button :class="[active ? 'bg-gray-100' : '', menuItemClass]" @click="takeSnapshot">
-                  <CameraIcon class="mr-2 h-5 w-5 text-gray-500" />
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="takeSnapshot"
+                >
+                  <CameraIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
                   {{ store.t('toolbar.snapshot') }}
                 </button>
               </MenuItem>
               <MenuItem v-slot="{ active }">
                 <button
-                  :class="[active ? 'bg-gray-100' : '', menuItemClass]"
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="store.openPresetManager()"
                 >
-                  <BookmarkIcon class="mr-2 h-5 w-5 text-gray-500" />
+                  <BookmarkIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
                   {{ store.t('toolbar.presets') }}
                 </button>
               </MenuItem>
               <MenuItem v-slot="{ active }">
                 <button
-                  :class="[active ? 'bg-gray-100' : '', menuItemClass]"
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="store.isSettingsModalOpen = true"
                 >
-                  <Cog6ToothIcon class="mr-2 h-5 w-5 text-gray-500" />
+                  <Cog6ToothIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
                   {{ store.t('toolbar.settings') }}
                 </button>
               </MenuItem>

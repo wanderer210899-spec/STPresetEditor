@@ -38,9 +38,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
 
 <template>
   <!-- Main application container with full height layout -->
-  <div id="app-container" class="flex h-screen flex-col bg-gray-100 font-sans text-gray-800">
+  <div
+    id="app-container"
+    class="flex h-screen flex-col bg-gray-100 font-sans text-gray-800 dark:bg-gray-900 dark:text-gray-200"
+  >
     <!-- Application header with toolbar -->
-    <header class="relative z-10 flex-shrink-0 bg-white px-3 py-1.5 shadow-md md:py-1">
+    <header
+      class="relative z-10 flex-shrink-0 bg-white px-3 py-1.5 shadow-md md:py-1 dark:bg-gray-800"
+    >
       <AppToolbar />
     </header>
 

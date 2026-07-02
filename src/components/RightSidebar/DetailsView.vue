@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full rounded-lg bg-white">
+  <div class="h-full rounded-lg bg-white dark:bg-gray-800">
     <div v-if="selectedMacro">
       <MacroDetails />
     </div>
@@ -7,7 +7,9 @@
       <PromptDetails :prompt="selectedPrompt" />
     </div>
     <div v-else>
-      <p class="text-gray-500 italic">{{ store.t('rightSidebar.selectPromptOrMacro') }}</p>
+      <p class="text-gray-500 italic dark:text-gray-400">
+        {{ store.t('rightSidebar.selectPromptOrMacro') }}
+      </p>
     </div>
   </div>
 </template>

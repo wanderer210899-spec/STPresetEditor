@@ -5,16 +5,18 @@
     size="sm"
     @close="store.dismissConfirm()"
   >
-    <p class="text-sm whitespace-pre-line text-gray-600">{{ store.confirmState.message }}</p>
+    <p class="text-sm whitespace-pre-line text-gray-600 dark:text-gray-400">
+      {{ store.confirmState.message }}
+    </p>
 
     <label
       v-if="store.confirmState.showSkip"
-      class="mt-4 flex items-center gap-2 text-sm text-gray-700"
+      class="mt-4 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
     >
       <input
         type="checkbox"
         :checked="store.confirmState.skipChecked"
-        class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:text-blue-400"
         @change="store.setConfirmSkip($event.target.checked)"
       />
       {{ store.confirmState.skipLabel || store.t('common.dontAskAgain') }}

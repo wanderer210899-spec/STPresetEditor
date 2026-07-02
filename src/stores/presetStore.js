@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
 import { isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
+import { estimateTokens } from '../utils/tokens';
 
 /**
  * Holders for the in-app confirmation dialog's callbacks. Kept out of reactive
@@ -36,6 +37,7 @@ export const SYNC_DATA_PATHS = [
   'defaultPresetId',
   'customMacros',
   'customWraps',
+  'themeMode',
 ];
 
 /**
@@ -284,6 +286,7 @@ export const usePresetStore = defineStore('preset', {
 
     // User preferences
     skipDeleteConfirmation: false, // Whether to skip delete confirmation dialog
+    themeMode: 'system', // 'light' | 'dark' | 'system' — ignored in the VS Code webview (follows the editor theme)
 
     // Custom autocomplete dictionary (additive; persisted + synced)
     customMacros: [], // Array<{ name, hint }> — extra {{name}} macros for the {{ menu
@@ -399,6 +402,15 @@ export const usePresetStore = defineStore('preset', {
     editorSearchStats() {
       const hits = this.editorSearchMatches;
       return { matches: hits.length, prompts: new Set(hits).size };
+    },
+
+    /** Approximate token total of enabled, in-order prompts (F8d). */
+    enabledTokenTotal: (state) => {
+      return state.promptOrder.reduce((sum, id) => {
+        const p = state.prompts[id];
+        if (!p || p.enabled === false) return sum;
+        return sum + estimateTokens(p.content || '');
+      }, 0);
     },
 
     /**
@@ -1849,6 +1861,54 @@ export const usePresetStore = defineStore('preset', {
       this.skipDeleteConfirmation = skip;
     },
 
+    // Theme (F8b) -----------------------------------------------------------
+    setThemeMode(mode) {
+      if (!['light', 'dark', 'system'].includes(mode)) return;
+      this.themeMode = mode;
+      this.applyTheme();
+    },
+    /**
+     * Toggle the `.dark` root class from the current theme source. Web: the
+     * light/dark/system setting (system = prefers-color-scheme). VS Code
+     * webview: the setting is ignored — the editor's theme wins (VS Code
+     * maintains a `vscode-dark`/`vscode-high-contrast` class on <body>).
+     */
+    applyTheme() {
+      if (typeof document === 'undefined') return;
+      let dark;
+      if (isVsCodeHost()) {
+        const cls = document.body?.classList;
+        dark = Boolean(
+          cls && (cls.contains('vscode-dark') || cls.contains('vscode-high-contrast')),
+        );
+        // 'vscode-high-contrast-light' also carries 'vscode-high-contrast' in
+        // older hosts; prefer the explicit light marker when present.
+        if (cls && cls.contains('vscode-high-contrast-light')) dark = false;
+      } else if (this.themeMode === 'system') {
+        dark = Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+      } else {
+        dark = this.themeMode === 'dark';
+      }
+      document.documentElement.classList.toggle('dark', dark);
+    },
+    /** Attach the listeners that keep the theme live (call once at startup). */
+    initTheme() {
+      this.applyTheme();
+      if (typeof window === 'undefined') return;
+      if (isVsCodeHost()) {
+        // React to VS Code theme switches by watching the body class VS Code
+        // maintains — no bridge protocol needed.
+        new MutationObserver(() => this.applyTheme()).observe(document.body, {
+          attributes: true,
+          attributeFilter: ['class', 'data-vscode-theme-kind'],
+        });
+      } else {
+        window.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener?.('change', () => {
+          if (this.themeMode === 'system') this.applyTheme();
+        });
+      }
+    },
+
     // Preset management
     openPresetManager() {
       this.isPresetManagerOpen = true;
@@ -2627,6 +2687,7 @@ export const usePresetStore = defineStore('preset', {
         if (key in data) this[key] = data[key];
       });
       this.analyzeAllMacros();
+      this.applyTheme(); // the snapshot may carry a different themeMode
     },
   },
   persist: {
@@ -2646,6 +2707,7 @@ export const usePresetStore = defineStore('preset', {
       'defaultPresetId',
       'customMacros',
       'customWraps',
+      'themeMode',
       // Device-specific layout — persisted but deliberately NOT in
       // SYNC_DATA_PATHS (pane sizes should not follow you across devices).
       'paneSizes',

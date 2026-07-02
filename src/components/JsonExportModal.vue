@@ -72,7 +72,7 @@ function downloadJsonFile() {
     size="lg"
     @close="store.closeExportModal"
   >
-    <p class="text-sm text-gray-500">{{ store.t('exportModal.description') }}</p>
+    <p class="text-sm text-gray-500 dark:text-gray-400">{{ store.t('exportModal.description') }}</p>
 
     <!-- Filename input section -->
     <div class="mt-4">
@@ -88,11 +88,17 @@ function downloadJsonFile() {
           {{ store.t('exportModal.autoGenerate') }}
         </button>
       </div>
-      <p class="mt-1 text-xs text-gray-500">{{ store.t('exportModal.filenameHint') }}</p>
+      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+        {{ store.t('exportModal.filenameHint') }}
+      </p>
     </div>
 
     <div class="mt-4">
-      <textarea :value="finalJson" readonly class="input h-64 bg-gray-50 font-mono" />
+      <textarea
+        :value="finalJson"
+        readonly
+        class="input h-64 bg-gray-50 font-mono dark:bg-gray-900"
+      />
     </div>
 
     <template #footer>

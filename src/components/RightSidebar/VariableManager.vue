@@ -1,9 +1,11 @@
 <template>
   <div class="flex h-full flex-col space-y-4">
     <!-- Variable List for Navigation -->
-    <div class="flex-shrink-0 rounded-lg border border-gray-200 p-2">
+    <div class="flex-shrink-0 rounded-lg border border-gray-200 p-2 dark:border-gray-700">
       <!-- Header with stats -->
-      <div class="mb-2 flex items-center justify-between border-b border-gray-200 pb-1">
+      <div
+        class="mb-2 flex items-center justify-between border-b border-gray-200 pb-1 dark:border-gray-700"
+      >
         <h4 class="px-2 text-base font-semibold">{{ store.t('variableManager.variableList') }}</h4>
         <!-- Stats display -->
         <div
@@ -32,11 +34,11 @@
         <ul class="space-y-1">
           <li v-for="variable in variables" :key="`nav-${variable}`">
             <button
-              class="group relative flex w-full items-center justify-between rounded-md p-2 text-left font-mono text-sm transition-colors hover:bg-gray-100"
+              class="group relative flex w-full items-center justify-between rounded-md p-2 text-left font-mono text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
               @click="goToVariableDetails(variable)"
             >
               <div class="flex items-center">
-                <VariableIcon class="mr-2 h-4 w-4 text-gray-500" />
+                <VariableIcon class="mr-2 h-4 w-4 text-gray-500 dark:text-gray-400" />
                 <span>{{ variable }}</span>
                 <!-- Unused variable icon -->
                 <QuestionMarkCircleIcon
@@ -57,7 +59,7 @@
                 />
               </div>
               <ArrowTopRightOnSquareIcon
-                class="h-4 w-4 text-gray-400 opacity-0 transition-opacity group-hover:opacity-100"
+                class="h-4 w-4 text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-gray-500"
               />
             </button>
           </li>
@@ -66,7 +68,7 @@
     </div>
 
     <!-- Rename Tool -->
-    <div class="flex-grow rounded-lg border border-gray-200 p-3">
+    <div class="flex-grow rounded-lg border border-gray-200 p-3 dark:border-gray-700">
       <h4 class="mb-2 text-base font-semibold">{{ store.t('variableManager.renameVariable') }}</h4>
       <div class="space-y-4">
         <Combobox v-model="selectedVariableForRename" nullable>
@@ -84,7 +86,10 @@
               <ComboboxButton
                 class="absolute inset-y-0 right-0 flex items-center rounded-r-md px-2 focus:outline-none"
               >
-                <ChevronUpDownIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
+                <ChevronUpDownIcon
+                  class="h-5 w-5 text-gray-400 dark:text-gray-500"
+                  aria-hidden="true"
+                />
               </ComboboxButton>
             </div>
             <transition
@@ -93,11 +98,11 @@
               leave-to-class="opacity-0"
             >
               <ComboboxOptions
-                class="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black/5 focus:outline-none sm:text-sm"
+                class="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black/5 focus:outline-none sm:text-sm dark:bg-gray-800"
               >
                 <div
                   v-if="filteredVariables.length === 0 && query !== ''"
-                  class="relative cursor-default px-4 py-2 text-gray-700 select-none"
+                  class="relative cursor-default px-4 py-2 text-gray-700 select-none dark:text-gray-300"
                 >
                   {{ store.t('variableManager.nothingFound') }}
                 </div>
@@ -111,7 +116,7 @@
                   <li
                     :class="[
                       'relative cursor-default py-2 pr-4 pl-10 select-none',
-                      active ? 'bg-blue-600 text-white' : 'text-gray-900',
+                      active ? 'bg-blue-600 text-white' : 'text-gray-900 dark:text-gray-100',
                     ]"
                   >
                     <span :class="['block truncate', selected ? 'font-medium' : 'font-normal']">
@@ -121,7 +126,7 @@
                       v-if="selected"
                       :class="[
                         'absolute inset-y-0 left-0 flex items-center pl-3',
-                        active ? 'text-white' : 'text-blue-600',
+                        active ? 'text-white' : 'text-blue-600 dark:text-blue-400',
                       ]"
                     >
                       <CheckIcon class="h-5 w-5" aria-hidden="true" />

@@ -37,18 +37,18 @@ const onPanesResized = () => {
     <!-- eslint-disable-next-line tailwindcss/no-custom-classname -->
     <splitpanes class="default-theme" @resized="onPanesResized">
       <pane :size="store.paneSizes[0]" :min-size="store.isRightPaneMaximized ? 0 : 12">
-        <div class="h-full overflow-auto bg-gray-50 p-4">
+        <div class="h-full overflow-auto bg-gray-50 p-4 dark:bg-gray-900">
           <slot name="left" />
         </div>
       </pane>
       <pane :size="store.paneSizes[1]" min-size="25">
         <!-- The editor is the focus: a bright white canvas against muted sidebars -->
-        <div class="h-full overflow-auto bg-white p-4">
+        <div class="h-full overflow-auto bg-white p-4 dark:bg-gray-800">
           <slot name="main" />
         </div>
       </pane>
       <pane :size="store.paneSizes[2]" min-size="20">
-        <div class="relative h-full overflow-auto bg-gray-50 p-4">
+        <div class="relative h-full overflow-auto bg-gray-50 p-4 dark:bg-gray-900">
           <slot name="right" />
         </div>
       </pane>
@@ -58,7 +58,7 @@ const onPanesResized = () => {
   <!-- MOBILE LAYOUT: Main view with off-canvas drawers -->
   <div v-else class="flex-grow overflow-hidden">
     <!-- Main content is always visible -->
-    <div class="h-full overflow-auto bg-white p-2">
+    <div class="h-full overflow-auto bg-white p-2 dark:bg-gray-800">
       <slot name="main" />
     </div>
 
@@ -85,7 +85,9 @@ const onPanesResized = () => {
           leave-from="translate-x-0"
           leave-to="-translate-x-full"
         >
-          <DialogPanel class="fixed inset-y-0 left-0 w-4/5 max-w-sm bg-white p-4 shadow-xl">
+          <DialogPanel
+            class="fixed inset-y-0 left-0 w-4/5 max-w-sm bg-white p-4 shadow-xl dark:bg-gray-800"
+          >
             <slot name="left" />
           </DialogPanel>
         </TransitionChild>
@@ -115,7 +117,9 @@ const onPanesResized = () => {
           leave-from="translate-x-0"
           leave-to="translate-x-full"
         >
-          <DialogPanel class="fixed inset-y-0 right-0 w-4/5 max-w-sm bg-white p-4 shadow-xl">
+          <DialogPanel
+            class="fixed inset-y-0 right-0 w-4/5 max-w-sm bg-white p-4 shadow-xl dark:bg-gray-800"
+          >
             <slot name="right" />
           </DialogPanel>
         </TransitionChild>
@@ -125,15 +129,15 @@ const onPanesResized = () => {
 </template>
 
 <style>
-@reference "tailwindcss";
+@reference "../style.css";
 .splitpanes.default-theme .splitpanes__splitter {
-  @apply bg-gray-200 transition-colors duration-200 ease-in-out;
+  @apply bg-gray-200 dark:bg-gray-700 transition-colors duration-200 ease-in-out;
   width: 6px;
 }
 
 /* On hover, the splitter subtly darkens */
 .splitpanes.default-theme .splitpanes__splitter:hover {
-  @apply bg-gray-300;
+  @apply bg-gray-300 dark:bg-gray-600;
 }
 
 /* When dragging, it becomes more prominent */

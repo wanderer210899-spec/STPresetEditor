@@ -34,8 +34,9 @@ const toastClass = (type) =>
   ({
     success: 'bg-green-50 text-green-800 ring-green-200',
     error: 'bg-red-50 text-red-800 ring-red-200',
-    info: 'bg-white text-gray-800 ring-gray-200',
-  })[type] || 'bg-white text-gray-800 ring-gray-200';
+    info: 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 ring-gray-200 dark:ring-gray-700',
+  })[type] ||
+  'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 ring-gray-200 dark:ring-gray-700';
 
 const toastIcon = (type) =>
   ({

@@ -13,12 +13,12 @@
 
     <!-- Save current preset section -->
     <div class="mb-6">
-      <h4 class="mb-3 text-sm font-medium text-gray-900">
+      <h4 class="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">
         {{ store.t('presetManager.saveCurrent') }}
       </h4>
       <div class="flex items-center gap-3">
         <div
-          class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+          class="flex-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
         >
           {{ store.getCurrentPresetName }}
         </div>
@@ -27,12 +27,14 @@
           {{ store.t('presetManager.saveAsCopy') }}
         </button>
       </div>
-      <p class="mt-2 text-xs text-gray-500">{{ store.t('presetManager.autosaveNote') }}</p>
+      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+        {{ store.t('presetManager.autosaveNote') }}
+      </p>
     </div>
 
     <!-- Factory settings management -->
     <div class="mb-6">
-      <h4 class="mb-3 text-sm font-medium text-gray-900">
+      <h4 class="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">
         {{ store.t('presetManager.factorySettings.title') }}
       </h4>
       <div class="flex items-center gap-3">
@@ -54,7 +56,7 @@
     <!-- Saved presets list -->
     <div>
       <div class="mb-3 flex items-center justify-between gap-2">
-        <h4 class="text-sm font-medium text-gray-900">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100">
           {{ store.t('presetManager.savedPresets') }}
         </h4>
         <div class="flex items-center gap-2">
@@ -82,7 +84,7 @@
       <!-- Multi-select controls -->
       <div
         v-if="store.presetMultiSelectActive"
-        class="mb-3 flex items-center justify-between rounded-lg bg-blue-50 p-3"
+        class="mb-3 flex items-center justify-between rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30"
       >
         <div class="flex items-center gap-2">
           <button class="btn btn-sm btn-ghost" @click="selectAllPresets">
@@ -91,7 +93,10 @@
           <button class="btn btn-sm btn-ghost" @click="deselectAllPresets">
             {{ store.t('presetManager.deselectAll') }}
           </button>
-          <span v-if="store.selectedPresetsCount > 0" class="text-sm text-gray-600">
+          <span
+            v-if="store.selectedPresetsCount > 0"
+            class="text-sm text-gray-600 dark:text-gray-400"
+          >
             ({{ store.selectedPresetsCount }} {{ store.t('presetManager.selected') }})
           </span>
         </div>
@@ -105,15 +110,18 @@
         </button>
       </div>
 
-      <div v-if="store.savedPresetsList.length === 0" class="py-8 text-center text-gray-500">
+      <div
+        v-if="store.savedPresetsList.length === 0"
+        class="py-8 text-center text-gray-500 dark:text-gray-400"
+      >
         {{ store.t('presetManager.noPresets') }}
       </div>
       <div v-else class="max-h-96 space-y-2 overflow-y-auto">
         <div v-for="preset in store.savedPresetsList" :key="preset.id">
           <div
-            class="flex items-center justify-between rounded-lg border border-gray-200 p-4 hover:bg-gray-50"
+            class="flex items-center justify-between rounded-lg border border-gray-200 p-4 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
             :class="{
-              'border-blue-200 bg-blue-50': preset.id === store.currentPresetId,
+              'border-blue-200 bg-blue-50 dark:bg-blue-900/30': preset.id === store.currentPresetId,
               'border-yellow-200 bg-yellow-50':
                 store.presetMultiSelectActive && store.isPresetSelected(preset.id),
             }"
@@ -123,21 +131,23 @@
                 <input
                   type="checkbox"
                   :checked="store.isPresetSelected(preset.id)"
-                  class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:text-blue-400"
                   @change="togglePresetSelection(preset.id)"
                 />
               </div>
               <div class="flex-1">
                 <div class="flex items-center">
-                  <h5 class="text-sm font-medium text-gray-900">{{ preset.name }}</h5>
+                  <h5 class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {{ preset.name }}
+                  </h5>
                   <span
                     v-if="preset.id === store.currentPresetId"
-                    class="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800"
+                    class="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900/60"
                   >
                     {{ store.t('presetManager.current') }}
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-gray-500">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ store.t('presetManager.created') }}: {{ formatDate(preset.createdAt) }}
                   {{ store.t('presetManager.updated') }}: {{ formatDate(preset.updatedAt) }}
                 </p>
@@ -185,10 +195,10 @@
           <!-- Snapshot list (named versions of this preset) -->
           <div
             v-if="expandedSnapshots[preset.id]"
-            class="mt-1 mb-2 ml-6 rounded-lg border border-gray-200 bg-gray-50 p-3"
+            class="mt-1 mb-2 ml-6 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
           >
             <div class="mb-2 flex items-center justify-between">
-              <h6 class="text-xs font-semibold text-gray-700">
+              <h6 class="text-xs font-semibold text-gray-700 dark:text-gray-300">
                 {{ store.t('presetManager.snapshots.title') }}
               </h6>
               <button class="btn btn-sm btn-secondary" @click="takeSnapshot(preset.id)">
@@ -198,7 +208,7 @@
             </div>
             <p
               v-if="!(preset.snapshots || []).length"
-              class="py-2 text-center text-xs text-gray-500"
+              class="py-2 text-center text-xs text-gray-500 dark:text-gray-400"
             >
               {{ store.t('presetManager.snapshots.none') }}
             </p>
@@ -206,13 +216,15 @@
               <li
                 v-for="snap in preset.snapshots"
                 :key="snap.id"
-                class="flex items-center justify-between rounded-md bg-white px-2 py-1.5"
+                class="flex items-center justify-between rounded-md bg-white px-2 py-1.5 dark:bg-gray-800"
               >
                 <div class="min-w-0">
-                  <span class="block truncate text-xs font-medium text-gray-800">
+                  <span class="block truncate text-xs font-medium text-gray-800 dark:text-gray-200">
                     {{ snap.name }}
                   </span>
-                  <span class="text-[11px] text-gray-400">{{ formatDate(snap.createdAt) }}</span>
+                  <span class="text-[11px] text-gray-400 dark:text-gray-500">
+                    {{ formatDate(snap.createdAt) }}
+                  </span>
                 </div>
                 <div class="flex flex-shrink-0 items-center gap-1">
                   <button
