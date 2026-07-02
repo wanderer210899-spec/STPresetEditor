@@ -17,11 +17,12 @@
 // Protocol (this file <-> extension/extension.js):
 //   webview -> host : ready | save{path,json} | createFile{name,json}
 //                     | cloudStateRequest | cloudConnect{url,key} | cloudDisconnect
-//                     | cloudPullRequest | cloudPush{data}
+//                     | cloudPullRequest | cloudPush{data,baseUpdatedAt?}
 //   host -> webview : load{...} | fileCreated{ok,path,name,reason}
 //                     | cloudState{url,connected,email}
 //                     | cloudReady{ok,email,reason,url}
-//                     | cloudPulled{connected,data,updatedAt} | cloudAck{ok,updatedAt}
+//                     | cloudPulled{connected,data,updatedAt}
+//                     | cloudAck{ok,conflict?,updatedAt}
 //                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
 import { debounce } from 'lodash-es';
 import { isVsCodeHost } from '../utils/host';
@@ -179,7 +180,10 @@ export function hostCloudGet() {
 
 /**
  * PUT a snapshot to the cloud via the host (host does the read-merge-write so
- * only the library keys we send are overlaid). Resolves to `{ ok, updatedAt }`.
+ * only the library keys we send are overlaid). Forwards `baseUpdatedAt` when
+ * present so the host can detect conflicts before merging (F2); omit it for
+ * the explicit "keep mine" force push. Resolves to
+ * `{ ok, conflict?, updatedAt }`.
  */
 export function hostCloudPut(payload) {
   if (!isVsCodeHost()) return Promise.resolve({ ok: false });
@@ -188,9 +192,12 @@ export function hostCloudPut(payload) {
   // on those. Serialise to a plain, JSON-safe object before crossing the bridge
   // (the same normalisation the web transport gets for free via JSON.stringify).
   const data = toPlain(payload && payload.data);
-  post({ type: 'cloudPush', data });
+  const message = { type: 'cloudPush', data };
+  if (payload && 'baseUpdatedAt' in payload) message.baseUpdatedAt = payload.baseUpdatedAt ?? null;
+  post(message);
   return awaitReply('push', { ok: false }).then((msg) => ({
     ok: Boolean(msg && msg.ok),
+    conflict: Boolean(msg && msg.conflict),
     updatedAt: msg && msg.updatedAt,
   }));
 }

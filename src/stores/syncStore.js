@@ -11,7 +11,7 @@ import { defineStore } from 'pinia';
 export const useSyncStore = defineStore('sync', {
   state: () => ({
     cloudEnabled: false, // Whether the cloud API is reachable/configured
-    status: 'idle', // 'idle' | 'syncing' | 'synced' | 'offline' | 'error'
+    status: 'idle', // 'idle' | 'syncing' | 'synced' | 'offline' | 'error' | 'conflict'
     lastSyncedAt: null, // ISO timestamp of the cloud document we last reconciled with
     pendingSync: false, // True when local has edits not yet pushed to the cloud
   }),
@@ -26,6 +26,8 @@ export const useSyncStore = defineStore('sync', {
           return 'Synced';
         case 'error':
           return 'Sync error';
+        case 'conflict':
+          return 'Sync conflict';
         case 'offline':
           return 'Offline';
         default:

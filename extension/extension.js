@@ -13,10 +13,12 @@
 //     webview. There is NO built-in endpoint: nothing is sent anywhere until the
 //     user pastes their own Worker URL + key. The cloud is the central drive for
 //     the preset LIBRARY only (savedPresets + prefs) — the open file stays local.
-//     The reconcile engine (seed/adopt-newer/flush, last-write-wins) lives in the
+//     The reconcile engine (seed/adopt-newer/flush, conflict dialog) lives in the
 //     webview (shared with the web app); this host is just the Node HTTP
 //     TRANSPORT: cloudPullRequest -> GET, cloudPush -> read-merge-write PUT. The
 //     PUT overlays only the library keys the webview sends, never the open file.
+//     When the webview sends baseUpdatedAt, the push is CONDITIONAL: a cloud doc
+//     newer than that base returns {conflict:true} instead of overwriting.
 //
 // Plain CommonJS so it runs with no compile step.
 const fs = require('fs');
@@ -153,9 +155,14 @@ function handleMessage(message, panel, filePath) {
       handleDisconnect(panel);
       break;
     case 'cloudPush':
-      cloudPush(message.data)
+      cloudPush(message.data, message.baseUpdatedAt)
         .then((r) =>
-          panel.webview.postMessage({ type: 'cloudAck', ok: r.ok, updatedAt: r.updatedAt }),
+          panel.webview.postMessage({
+            type: 'cloudAck',
+            ok: r.ok,
+            conflict: Boolean(r.conflict),
+            updatedAt: r.updatedAt,
+          }),
         )
         .catch(() => panel.webview.postMessage({ type: 'cloudAck', ok: false }));
       break;
@@ -444,23 +451,49 @@ async function cloudGet() {
  * existing document and overlay ONLY the library fields the webview sent
  * (savedPresets + prefs), so the rest of the cloud document — e.g. the web app's
  * active-area fields like rawJson — is preserved untouched.
+ *
+ * Conflict detection (F2): when the webview passes `baseUpdatedAt` (the cloud
+ * timestamp its edits are based on), compare it with the freshly fetched doc
+ * BEFORE merging — a mismatch means another device pushed in between, so we
+ * return `{ conflict: true }` and let the webview's dialog decide. The PUT then
+ * forwards the fetched doc's timestamp as its own `baseUpdatedAt`, so the
+ * Worker also rejects a write racing into the GET→PUT window. Calls without
+ * `baseUpdatedAt` (old builds, or the "keep mine" override) blind-write.
  */
-async function cloudPush(data) {
+async function cloudPush(data, baseUpdatedAt) {
   if (!cloudConfigured() || !data || typeof data !== 'object') return { ok: false };
+  const conditional = baseUpdatedAt !== undefined;
   let base = {};
+  let cloudAt = null;
   try {
     const doc = await cloudGet();
-    if (doc && doc.data && typeof doc.data === 'object') base = doc.data;
+    if (doc && typeof doc === 'object') {
+      if (doc.data && typeof doc.data === 'object') base = doc.data;
+      cloudAt = doc.updatedAt || null;
+    }
   } catch {
     // No existing doc / unreachable on GET — start a fresh document.
   }
+  if (conditional && cloudAt !== null && baseUpdatedAt !== cloudAt) {
+    return { ok: false, conflict: true, updatedAt: cloudAt };
+  }
   const updatedAt = new Date().toISOString();
-  const body = JSON.stringify({ updatedAt, data: { ...base, ...data } });
+  const payload = { updatedAt, data: { ...base, ...data } };
+  if (conditional) payload.baseUpdatedAt = cloudAt;
   const res = await httpRequest(presetsUrl(), {
     method: 'PUT',
     headers: { 'content-type': 'application/json', 'X-API-Key': cloudKey },
-    body,
+    body: JSON.stringify(payload),
   });
+  if (res.status === 409) {
+    let at = null;
+    try {
+      at = JSON.parse(res.body).updatedAt || null;
+    } catch {
+      // Conflict without a readable body — still a conflict.
+    }
+    return { ok: false, conflict: true, updatedAt: at };
+  }
   return { ok: res.status === 200, updatedAt };
 }
 

@@ -79,7 +79,32 @@ async function handlePresets(request, env) {
     if (typeof parsed !== 'object' || parsed === null || !('updatedAt' in parsed)) {
       return json({ error: 'invalid_shape' }, 400);
     }
-    await env.PRESETS.put(identity, raw);
+
+    // Conditional write (conflict detection). When the client sends
+    // `baseUpdatedAt` — the `updatedAt` of the cloud doc its edits are based
+    // on — reject the write with 409 if another device has stored a different
+    // version since. Omitting the field keeps the old blind-write behaviour
+    // (backward compatible; also the explicit "keep mine" override).
+    if ('baseUpdatedAt' in parsed) {
+      const stored = await env.PRESETS.get(identity);
+      if (stored) {
+        let currentAt = null;
+        try {
+          currentAt = JSON.parse(stored).updatedAt || null;
+        } catch {
+          // Corrupt stored doc — allow the overwrite.
+        }
+        if (currentAt !== null && parsed.baseUpdatedAt !== currentAt) {
+          return json({ error: 'conflict', updatedAt: currentAt }, 409);
+        }
+      }
+    }
+
+    // Store the normalised document only (baseUpdatedAt is transport, not data).
+    await env.PRESETS.put(
+      identity,
+      JSON.stringify({ updatedAt: parsed.updatedAt, data: parsed.data ?? null }),
+    );
     return json({ ok: true, updatedAt: parsed.updatedAt });
   }
 

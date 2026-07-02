@@ -224,7 +224,13 @@
       "extErrNoKey": "Paste an API key generated in the web app.",
       "extErrInvalidKey": "That API key was rejected. Generate a fresh one in the web app.",
       "extErrUnreachable": "Couldn't reach that URL. Check the Worker URL and your connection.",
-      "extErrGeneric": "Couldn't connect. Check the URL and key, then try again."
+      "extErrGeneric": "Couldn't connect. Check the URL and key, then try again.",
+      "conflict": {
+        "title": "Sync conflict",
+        "message": "Another device updated this library at {time}.\nChoose which version to keep — the other one will be overwritten.",
+        "keepMine": "Keep this device's version",
+        "useCloud": "Use cloud version"
+      }
     },
     "presetManager": {
       "title": "Preset Manager",
@@ -545,7 +551,13 @@
       "extErrNoKey": "请粘贴在网页应用中生成的 API 密钥。",
       "extErrInvalidKey": "该 API 密钥被拒绝。请在网页应用中重新生成。",
       "extErrUnreachable": "无法访问该地址。请检查 Worker 地址和您的网络连接。",
-      "extErrGeneric": "无法连接。请检查地址和密钥后重试。"
+      "extErrGeneric": "无法连接。请检查地址和密钥后重试。",
+      "conflict": {
+        "title": "同步冲突",
+        "message": "另一台设备在 {time} 更新了此库。\n请选择要保留的版本 — 另一个版本将被覆盖。",
+        "keepMine": "保留此设备的版本",
+        "useCloud": "使用云端版本"
+      }
     },
     "presetManager": {
       "title": "预设管理器",

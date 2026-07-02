@@ -36,6 +36,8 @@ const syncDotClass = computed(() => {
       return 'bg-green-500';
     case 'syncing':
       return 'bg-amber-400 animate-pulse';
+    case 'conflict':
+      return 'bg-orange-500';
     case 'error':
       return 'bg-red-500';
     default:

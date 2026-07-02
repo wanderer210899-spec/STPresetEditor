@@ -12,6 +12,9 @@ import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros'
 let confirmCallback = null;
 /** @type {null | (() => void)} */
 let confirmCancelCallback = null;
+/** @type {null | (() => void)} Called on Esc/backdrop dismissal when the caller
+ *  distinguishes "dismiss" from the explicit cancel button (falls back to onCancel). */
+let confirmDismissCallback = null;
 
 /**
  * The state paths that make up a user's portable data and are synced to the
@@ -883,6 +886,9 @@ export const usePresetStore = defineStore('preset', {
     /** Link the active area to a (new) library entry so autosave has a home. */
     _adoptActivePreset() {
       if (isVsCodeHost()) return;
+      // Nothing loaded yet (fresh app before the example arrives) — don't
+      // create an empty library entry.
+      if (!this.rawJson && Object.keys(this.prompts || {}).length === 0) return;
       const baseName = this.originalFilename
         ? this.originalFilename.replace(/\.[^/.]+$/, '')
         : this.t('presetManager.defaultName');
@@ -1458,6 +1464,7 @@ export const usePresetStore = defineStore('preset', {
       skipLabel = '',
       onConfirm = null,
       onCancel = null,
+      onDismiss = null,
     }) {
       this.confirmState = {
         open: true,
@@ -1472,6 +1479,7 @@ export const usePresetStore = defineStore('preset', {
       };
       confirmCallback = typeof onConfirm === 'function' ? onConfirm : null;
       confirmCancelCallback = typeof onCancel === 'function' ? onCancel : null;
+      confirmDismissCallback = typeof onDismiss === 'function' ? onDismiss : null;
     },
     setConfirmSkip(value) {
       this.confirmState.skipChecked = !!value;
@@ -1481,7 +1489,23 @@ export const usePresetStore = defineStore('preset', {
       this.confirmState.open = false;
       confirmCallback = null;
       confirmCancelCallback = null;
+      confirmDismissCallback = null;
       if (cb) cb();
+    },
+    /** Esc/backdrop close. Distinct from the explicit cancel button when the
+     *  caller provided onDismiss (e.g. the sync-conflict dialog, where cancel
+     *  adopts the cloud copy but a dismissal must not discard anything). */
+    dismissConfirm() {
+      if (!confirmDismissCallback) {
+        this.cancelConfirm();
+        return;
+      }
+      const cb = confirmDismissCallback;
+      this.confirmState.open = false;
+      confirmCallback = null;
+      confirmCancelCallback = null;
+      confirmDismissCallback = null;
+      cb();
     },
     resolveConfirm() {
       const cb = confirmCallback;
@@ -1489,6 +1513,7 @@ export const usePresetStore = defineStore('preset', {
       this.confirmState.open = false;
       confirmCallback = null;
       confirmCancelCallback = null;
+      confirmDismissCallback = null;
       if (cb) cb({ skip });
     },
 

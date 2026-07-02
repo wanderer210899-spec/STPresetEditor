@@ -3,7 +3,7 @@
     :show="store.confirmState.open"
     :title="store.confirmState.title"
     size="sm"
-    @close="store.cancelConfirm()"
+    @close="store.dismissConfirm()"
   >
     <p class="text-sm whitespace-pre-line text-gray-600">{{ store.confirmState.message }}</p>
 
