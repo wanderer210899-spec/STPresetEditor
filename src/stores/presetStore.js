@@ -84,8 +84,10 @@ const PERSIST_PATHS_BASE = [
   'customWraps',
   'themeMode',
   // Device-specific layout — persisted but deliberately NOT in SYNC_DATA_PATHS
-  // (pane sizes should not follow you across devices).
+  // (layout should not follow you across devices).
   'paneSizes',
+  'desktopLeftOpen',
+  'desktopRightOpen',
 ];
 
 /**
@@ -290,9 +292,14 @@ export const usePresetStore = defineStore('preset', {
     isLeftSidebarOpen: false, // Whether left sidebar is open on mobile
     isRightSidebarOpen: false, // Whether right sidebar is open on mobile
 
-    // Desktop 3-pane layout (persisted locally, never synced — device-specific)
-    paneSizes: [20, 50, 30], // Splitpanes [left, main, right] percentages
-    isRightPaneMaximized: false, // Right pane expanded to 60% (F7)
+    // Desktop layout: collapsible left/right columns (persisted locally, never
+    // synced — device-specific). Default open so the 3-column view is intact.
+    desktopLeftOpen: true, // Library column visible on desktop
+    desktopRightOpen: true, // Details/Variables column visible on desktop
+    // Legacy splitpanes fields kept for the maximize toggle (unit-tested); the
+    // collapsible layout only reads isRightPaneMaximized (wider right column).
+    paneSizes: [20, 50, 30],
+    isRightPaneMaximized: false, // Right pane expanded (F7)
     _paneSizesBackup: null, // Sizes to restore when un-maximizing
 
     // Modal visibility state
@@ -463,14 +470,20 @@ export const usePresetStore = defineStore('preset', {
     },
 
     /**
-     * Get all prompts for library view with search filtering
+     * Get all prompts for the library view, in EDITOR ORDER: prompts currently
+     * in the editor first (following promptOrder), then any remaining prompts
+     * (hidden / not-in-order) sorted by name. This makes the library a useful
+     * ordered overview of the preset rather than a redundant alphabetical list.
      * @param {Object} state - The store state
-     * @returns {Object[]} Array of all prompts sorted by name, filtered by search term
+     * @returns {Object[]} Ordered, search-filtered prompts
      */
     libraryPrompts: (state) => {
-      const allPrompts = Object.values(state.prompts).sort((a, b) =>
-        (a.name || '').localeCompare(b.name || ''),
-      );
+      const inOrder = state.promptOrder.map((id) => state.prompts[id]).filter((p) => p != null);
+      const seen = new Set(state.promptOrder);
+      const rest = Object.values(state.prompts)
+        .filter((p) => !seen.has(p.id))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      const allPrompts = [...inOrder, ...rest];
       if (!state.librarySearchTerm) {
         return allPrompts;
       }
@@ -1752,9 +1765,9 @@ export const usePresetStore = defineStore('preset', {
       this.selectedPromptId = promptId;
       this.selectedMacro = null;
       this.activeRightSidebarTab = 'details';
-      if (this.isMobile) {
-        this.toggleRightSidebar(true);
-      }
+      // Surface the details: drawer on mobile, collapsible column on desktop.
+      if (this.isMobile) this.toggleRightSidebar(true);
+      else this.desktopRightOpen = true;
     },
     /**
      * Select a variable (highlights every occurrence in the editor).
@@ -1767,9 +1780,8 @@ export const usePresetStore = defineStore('preset', {
         this.selectedPromptId = null;
         if (!keepTab) {
           this.activeRightSidebarTab = 'details';
-          if (this.isMobile) {
-            this.toggleRightSidebar(true);
-          }
+          if (this.isMobile) this.toggleRightSidebar(true);
+          else this.desktopRightOpen = true;
         }
       }
     },
@@ -2057,6 +2069,14 @@ export const usePresetStore = defineStore('preset', {
     },
     toggleRightSidebar(isOpen) {
       this.isRightSidebarOpen = typeof isOpen === 'boolean' ? isOpen : !this.isRightSidebarOpen;
+    },
+    /** Desktop: show/hide the left library column. */
+    toggleDesktopLeft(isOpen) {
+      this.desktopLeftOpen = typeof isOpen === 'boolean' ? isOpen : !this.desktopLeftOpen;
+    },
+    /** Desktop: show/hide the right details/variables column. */
+    toggleDesktopRight(isOpen) {
+      this.desktopRightOpen = typeof isOpen === 'boolean' ? isOpen : !this.desktopRightOpen;
     },
 
     // Desktop 3-pane layout (F7) -------------------------------------------

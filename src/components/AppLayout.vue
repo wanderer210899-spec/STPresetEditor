@@ -1,9 +1,7 @@
 <script setup>
 import { Dialog, DialogPanel, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useBreakpoints } from '@vueuse/core';
-import { Pane, Splitpanes } from 'splitpanes';
-import 'splitpanes/dist/splitpanes.css';
-import { ref, watchEffect } from 'vue';
+import { watchEffect } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
 
 // Use VueUse to detect screen size based on Tailwind's breakpoints
@@ -18,41 +16,47 @@ const store = usePresetStore();
 watchEffect(() => {
   store.setIsMobile(!isDesktop.value);
 });
-
-// Persist drag-resized pane sizes (F7). The splitpanes v4 `resized` event only
-// carries the dragged splitter's panes, so read all three sizes from the
-// inline styles it just applied.
-const splitRoot = ref(null);
-const onPanesResized = () => {
-  const paneEls = splitRoot.value?.querySelectorAll(':scope > .splitpanes > .splitpanes__pane');
-  if (!paneEls || paneEls.length !== 3) return;
-  const sizes = Array.from(paneEls).map((el) => parseFloat(el.style.width));
-  if (sizes.every((n) => Number.isFinite(n))) store.setPaneSizes(sizes);
-};
 </script>
 
 <template>
-  <!-- DESKTOP LAYOUT: 3-pane view with draggable splitters -->
-  <div v-if="isDesktop" ref="splitRoot" class="flex-grow">
-    <!-- eslint-disable-next-line tailwindcss/no-custom-classname -->
-    <splitpanes class="default-theme" @resized="onPanesResized">
-      <pane :size="store.paneSizes[0]" :min-size="store.isRightPaneMaximized ? 0 : 12">
-        <div class="h-full overflow-auto bg-gray-50 p-4 dark:bg-gray-900">
-          <slot name="left" />
-        </div>
-      </pane>
-      <pane :size="store.paneSizes[1]" min-size="25">
-        <!-- The editor is the focus: a bright white canvas against muted sidebars -->
-        <div class="h-full overflow-auto bg-white p-4 dark:bg-gray-800">
-          <slot name="main" />
-        </div>
-      </pane>
-      <pane :size="store.paneSizes[2]" min-size="20">
-        <div class="relative h-full overflow-auto bg-gray-50 p-4 dark:bg-gray-900">
-          <slot name="right" />
-        </div>
-      </pane>
-    </splitpanes>
+  <!-- DESKTOP LAYOUT: main editor always visible, with collapsible left/right
+       columns (toggled from the toolbar) instead of draggable splitters. -->
+  <div v-if="isDesktop" class="flex min-h-0">
+    <!-- Left: prompt library (hidden while the right pane is maximized) -->
+    <transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="w-0 opacity-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-to-class="w-0 opacity-0"
+    >
+      <aside
+        v-if="store.desktopLeftOpen && !store.isRightPaneMaximized"
+        class="w-72 shrink-0 overflow-auto border-r border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900"
+      >
+        <slot name="left" />
+      </aside>
+    </transition>
+
+    <!-- Main editor: the focus — a bright white canvas that fills the space -->
+    <main class="min-w-0 flex-1 overflow-auto bg-white p-4 dark:bg-gray-800">
+      <slot name="main" />
+    </main>
+
+    <!-- Right: details / variables (widens when maximized) -->
+    <transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="w-0 opacity-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-to-class="w-0 opacity-0"
+    >
+      <aside
+        v-if="store.desktopRightOpen"
+        class="relative shrink-0 overflow-auto border-l border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900"
+        :class="store.isRightPaneMaximized ? 'w-[40rem] max-w-[55vw]' : 'w-96'"
+      >
+        <slot name="right" />
+      </aside>
+    </transition>
   </div>
 
   <!-- MOBILE LAYOUT: Main view with off-canvas drawers -->
@@ -127,45 +131,3 @@ const onPanesResized = () => {
     </TransitionRoot>
   </div>
 </template>
-
-<style>
-@reference "../style.css";
-.splitpanes.default-theme .splitpanes__splitter {
-  @apply bg-gray-200 dark:bg-gray-700 transition-colors duration-200 ease-in-out;
-  width: 6px;
-}
-
-/* On hover, the splitter subtly darkens */
-.splitpanes.default-theme .splitpanes__splitter:hover {
-  @apply bg-gray-300 dark:bg-gray-600;
-}
-
-/* When dragging, it becomes more prominent */
-.splitpanes.default-theme .splitpanes--dragging .splitpanes__splitter {
-  @apply bg-gray-400;
-}
-
-/* The handle is a darker gray bar */
-.splitpanes.default-theme .splitpanes__splitter::before {
-  @apply bg-gray-400 transition-colors duration-200 ease-in-out;
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  margin-left: auto;
-  margin-right: auto;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 28px;
-  border-radius: 2px;
-}
-
-.splitpanes.default-theme .splitpanes__splitter:hover::before {
-  @apply bg-gray-500;
-}
-
-.splitpanes.default-theme .splitpanes__splitter::after {
-  display: none;
-}
-</style>

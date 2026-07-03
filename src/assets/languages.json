@@ -16,7 +16,9 @@
       "snapshot": "Snapshot",
       "snapshotTaken": "Snapshot saved",
       "tokenTotal": "≈{count} tokens",
-      "tokenTotalTitle": "Approximate token count of enabled prompts (estimate)"
+      "tokenTotalTitle": "Approximate token count of enabled prompts (estimate)",
+      "toggleLibrary": "Toggle prompt library",
+      "toggleDetails": "Toggle details panel"
     },
     "importModal": {
       "title": "Import JSON File",
@@ -110,7 +112,7 @@
       "multiSelect": "Multi-select",
       "deleteSelected": "Delete Selected",
       "searchPlaceholder": "Search by name or ID...",
-      "sortedByName": "Sorted by name",
+      "sortedByName": "In editor order",
       "count": "{count} prompts",
       "noResults": "No prompts found"
     },
@@ -229,6 +231,7 @@
       "cancel": "Cancel",
       "delete": "Delete",
       "add": "Add",
+      "clearSearch": "Clear search",
       "confirmTitle": "Please confirm",
       "dontAskAgain": "Don't ask me again"
     },
@@ -448,7 +451,9 @@
       "snapshot": "快照",
       "snapshotTaken": "已创建快照",
       "tokenTotal": "≈{count} tokens",
-      "tokenTotalTitle": "已启用提示词的估算 token 数（近似值）"
+      "tokenTotalTitle": "已启用提示词的估算 token 数（近似值）",
+      "toggleLibrary": "切换提示词库",
+      "toggleDetails": "切换详情面板"
     },
     "importModal": {
       "title": "导入JSON文件",
@@ -542,7 +547,7 @@
       "multiSelect": "多选",
       "deleteSelected": "删除选中项",
       "searchPlaceholder": "按名称或ID搜索...",
-      "sortedByName": "按名称排序",
+      "sortedByName": "按编辑器顺序",
       "count": "{count} 个提示",
       "noResults": "未找到提示"
     },
@@ -661,6 +666,7 @@
       "cancel": "取消",
       "delete": "删除",
       "add": "添加",
+      "clearSearch": "清除搜索",
       "confirmTitle": "请确认",
       "dontAskAgain": "不再询问"
     },

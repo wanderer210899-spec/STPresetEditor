@@ -81,7 +81,9 @@ browser only — no account, no server. Press `Ctrl+C` in the terminal when done
 **Search**
 
 - The editor search box now matches prompt **content**, not just titles, and
-  Enter/arrows step through matches.
+  Enter/arrows step through matches. Typing stays responsive even on large
+  presets, and there's an **× clear button** (or press `Esc`) to drop the filter
+  and see every prompt again.
 - Press `Ctrl+K` anywhere for **global search** across your whole saved-preset
   library; picking a result jumps to that prompt (loading the other preset if
   needed).
@@ -91,8 +93,16 @@ browser only — no account, no server. Press `Ctrl+C` in the terminal when done
 
 - **Settings → Theme**: light / dark / system.
 - Prompt cards show a **token estimate**; the toolbar shows the total.
-- On desktop the editor uses borderless, Notion-style blocks. On a phone (or a
-  narrow window) the classic mobile layout must still work — worth checking.
+- On desktop the editor uses borderless, Notion-style blocks — **click any title
+  or body text to edit it in place**. The left **Prompt Library** and right
+  **Details** panels are **collapsible**: use the two panel-toggle buttons in the
+  toolbar (far left and far right) to hide either one and give the editor the
+  full width — no drag handles.
+- The Prompt Library lists prompts **in editor order** (matching the middle
+  column), so it works as an overview/jump list rather than an alphabetical
+  duplicate.
+- On a phone (or a narrow window) the classic mobile layout with slide-in
+  drawers still applies — worth checking.
 
 **Variables (hover cards, panel, timeline)**
 
@@ -163,12 +173,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.5.0.vsix`.
+`extension/stpreseteditor-local-0.5.1.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.5.0.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.5.1.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -177,7 +187,7 @@ Then in VS Code or Cursor:
 3. **Reload** when prompted.
 
 > If you had an earlier build installed, install over it and Reload so you're
-> testing 0.5.0.
+> testing 0.5.1.
 
 ### Try the editor (file mode)
 

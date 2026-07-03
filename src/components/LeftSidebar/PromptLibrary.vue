@@ -33,12 +33,23 @@
         <MagnifyingGlassIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
       </div>
       <input
+        v-model="searchDraft"
         type="text"
-        :value="store.librarySearchTerm"
         class="input pl-10"
+        :class="{ 'pr-10': searchDraft }"
         :placeholder="store.t('promptLibrary.searchPlaceholder')"
-        @input="onSearch"
+        @input="onSearchInput"
+        @keydown.esc.prevent="clearSearch"
       />
+      <button
+        v-if="searchDraft"
+        type="button"
+        class="btn-icon btn-icon-sm absolute inset-y-0 right-1.5 my-auto"
+        :title="store.t('common.clearSearch')"
+        @click="clearSearch"
+      >
+        <XMarkIcon class="h-4 w-4" />
+      </button>
     </div>
 
     <!-- Prompt List -->
@@ -68,6 +79,7 @@ import {
   ClipboardDocumentCheckIcon,
   MagnifyingGlassIcon,
   TrashIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline';
 import { debounce } from 'lodash-es';
 import { computed, ref, watch } from 'vue';
@@ -79,10 +91,22 @@ const store = usePresetStore();
 // Computed list of prompts in the library
 const libraryPrompts = computed(() => store.libraryPrompts);
 
-// Use lodash-es for a more robust and consistent debounce implementation
-const onSearch = debounce((event) => {
-  store.setLibrarySearch(event.target.value);
-}, 500); // 500ms debounce delay as requested
+// Local-ref input (instant, never reset by a re-render) with a debounced store
+// update; the filter is the only expensive part.
+const searchDraft = ref(store.librarySearchTerm);
+const pushSearch = debounce((value) => store.setLibrarySearch(value), 250);
+const onSearchInput = () => pushSearch(searchDraft.value);
+watch(
+  () => store.librarySearchTerm,
+  (value) => {
+    if (value !== searchDraft.value) searchDraft.value = value;
+  },
+);
+const clearSearch = () => {
+  searchDraft.value = '';
+  pushSearch.cancel();
+  store.setLibrarySearch('');
+};
 
 // Left-side library scroll container ref
 const scrollContainer = ref(null);

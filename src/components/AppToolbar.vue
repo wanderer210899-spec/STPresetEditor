@@ -11,6 +11,7 @@ import {
   Cog6ToothIcon,
   EllipsisVerticalIcon,
   InformationCircleIcon,
+  ViewColumnsIcon,
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
 import { getEditorMode } from '../utils/host';
@@ -100,6 +101,17 @@ const menuItemClass =
     <!-- Mobile: Left Sidebar Toggle Button -->
     <button class="btn-icon md:hidden" @click="store.toggleLeftSidebar()">
       <Bars3Icon class="h-6 w-6" />
+    </button>
+
+    <!-- Desktop: collapse / expand the prompt-library column -->
+    <button
+      class="btn-icon btn-icon-sm mr-1 hidden md:inline-flex"
+      :class="{ 'btn-icon-active': store.desktopLeftOpen }"
+      :title="store.t('toolbar.toggleLibrary')"
+      :aria-pressed="store.desktopLeftOpen"
+      @click="store.toggleDesktopLeft()"
+    >
+      <ViewColumnsIcon class="h-5 w-5" />
     </button>
 
     <!-- Desktop: Application Title (truncates so it never pushes buttons off) -->
@@ -203,6 +215,16 @@ const menuItemClass =
       >
         <Cog6ToothIcon class="h-4 w-4" />
         <span class="hidden lg:inline">{{ store.t('toolbar.settings') }}</span>
+      </button>
+      <!-- Collapse / expand the details/variables column -->
+      <button
+        class="btn-icon btn-icon-sm"
+        :class="{ 'btn-icon-active': store.desktopRightOpen }"
+        :title="store.t('toolbar.toggleDetails')"
+        :aria-pressed="store.desktopRightOpen"
+        @click="store.toggleDesktopRight()"
+      >
+        <InformationCircleIcon class="h-5 w-5" />
       </button>
     </div>
 

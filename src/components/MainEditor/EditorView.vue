@@ -17,21 +17,31 @@
           </div>
           <input
             id="editor-search-input"
+            v-model="searchDraft"
             type="text"
-            :value="store.editorSearchTerm"
             class="input pl-10"
-            :class="{ 'pr-16': store.editorSearchTerm }"
+            :class="{ 'pr-20': searchDraft }"
             :placeholder="store.t('editor.searchPlaceholder')"
-            @input="onSearch"
+            @input="onSearchInput"
             @keydown.enter.prevent="onSearchEnter"
+            @keydown.esc.prevent="clearSearch"
           />
-          <!-- "x / N" find-next counter inside the box -->
-          <div
-            v-if="store.editorSearchTerm"
-            class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-gray-400 tabular-nums dark:text-gray-500"
-            :title="matchStatsLabel"
-          >
-            {{ matchPositionLabel }}
+          <!-- "x / N" find-next counter + a clear button, inside the box -->
+          <div v-if="searchDraft" class="absolute inset-y-0 right-1.5 flex items-center gap-1">
+            <span
+              class="text-xs text-gray-400 tabular-nums dark:text-gray-500"
+              :title="matchStatsLabel"
+            >
+              {{ matchPositionLabel }}
+            </span>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              :title="store.t('common.clearSearch')"
+              @click="clearSearch"
+            >
+              <XMarkIcon class="h-4 w-4" />
+            </button>
           </div>
         </div>
 
@@ -236,6 +246,7 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   TrashIcon,
+  XMarkIcon,
 } from '@heroicons/vue/20/solid';
 import { debounce } from 'lodash-es';
 import { computed, onBeforeUpdate, ref, watch } from 'vue';
@@ -255,19 +266,35 @@ const isPreviewMode = computed(() => store.macroDisplayMode === 'preview');
 // Whether any prompt is currently selected for batch operations
 const hasSelection = computed(() => store.selectedEditorPrompts.length > 0);
 
-// Debounced search function to avoid excessive API calls
-// Use lodash-es for a more robust and consistent debounce implementation
-const onSearch = debounce((event) => {
-  store.setEditorSearch(event.target.value);
-}, 500); // 500ms debounce delay as requested
+// The input is controlled by a LOCAL ref so typing is always instant and can
+// never be reset by a re-render — critical with large presets, where filtering
+// hundreds of cards on each keystroke made the old `:value`+debounce input feel
+// stuck. Only the (expensive) filter is debounced into the store.
+const searchDraft = ref(store.editorSearchTerm);
+const pushSearch = debounce((value) => store.setEditorSearch(value), 250);
+const onSearchInput = () => pushSearch(searchDraft.value);
+// Keep the box in sync when the term changes elsewhere (Ctrl+F focus, nav, etc.)
+watch(
+  () => store.editorSearchTerm,
+  (value) => {
+    if (value !== searchDraft.value) searchDraft.value = value;
+  },
+);
 
 // Enter / Shift+Enter cycles through matches (F6b). Commit any pending
 // debounced input first so navigation uses what's visible in the box.
 const onSearchEnter = (event) => {
-  onSearch.cancel();
-  store.setEditorSearch(event.target.value); // no-op if unchanged
+  pushSearch.cancel();
+  store.setEditorSearch(searchDraft.value); // no-op if unchanged
   if (event.shiftKey) store.editorSearchPrev();
   else store.editorSearchNext();
+};
+
+// Clear the filter immediately (button / Esc) — always dismissable.
+const clearSearch = () => {
+  searchDraft.value = '';
+  pushSearch.cancel();
+  store.setEditorSearch('');
 };
 
 // "x / N" and "N matches in M prompts" labels
