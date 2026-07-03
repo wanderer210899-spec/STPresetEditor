@@ -1,7 +1,7 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
-import { isVsCodeHost } from '../utils/host';
+import { isFileHost, isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
 import { estimateTokens } from '../utils/tokens';
 
@@ -62,6 +62,42 @@ const EXTENSION_LOCAL_ONLY_PATHS = [
 export const EXTENSION_LIBRARY_PATHS = SYNC_DATA_PATHS.filter(
   (key) => !EXTENSION_LOCAL_ONLY_PATHS.includes(key),
 );
+
+/**
+ * Full set of localStorage-persisted paths (portable data + device-local prefs
+ * like pane sizes). `paneSizes` is intentionally persisted but NOT synced.
+ */
+const PERSIST_PATHS_BASE = [
+  'rawJson',
+  'originalFilename',
+  'prompts',
+  'promptOrder',
+  'macroDisplayMode',
+  'currentLanguage',
+  'promptCollapseStates',
+  'globalCollapseState',
+  'skipDeleteConfirmation',
+  'savedPresets',
+  'currentPresetId',
+  'defaultPresetId',
+  'customMacros',
+  'customWraps',
+  'themeMode',
+  // Device-specific layout — persisted but deliberately NOT in SYNC_DATA_PATHS
+  // (pane sizes should not follow you across devices).
+  'paneSizes',
+];
+
+/**
+ * The paths actually persisted in THIS runtime. In the VS Code extension the
+ * active editing area is never restored from localStorage (see the persist
+ * config note): a file webview reloads from the host on open, and the standalone
+ * editor reloads its library preset in main.js. Both panels share one webview
+ * localStorage, so persisting the active area would cross-contaminate them.
+ */
+export const PERSIST_PATHS = isVsCodeHost()
+  ? PERSIST_PATHS_BASE.filter((key) => !EXTENSION_LOCAL_ONLY_PATHS.includes(key))
+  : PERSIST_PATHS_BASE;
 
 /**
  * Seed set of wrapping/paired autocomplete snippets. Users can add their own and
@@ -998,7 +1034,10 @@ export const usePresetStore = defineStore('preset', {
      * linked to one yet (fresh example, factory reset, legacy state).
      */
     _touchActivePreset() {
-      if (isVsCodeHost()) return;
+      // Only a file-backed extension webview skips autosave (the open file IS the
+      // document, mirrored to disk). The standalone library editor autosaves into
+      // its library entry exactly like the web app.
+      if (isFileHost()) return;
       if (!this.currentPresetId || !this.savedPresets[this.currentPresetId]) {
         this._adoptActivePreset();
         return;
@@ -1016,7 +1055,7 @@ export const usePresetStore = defineStore('preset', {
 
     /** Link the active area to a (new) library entry so autosave has a home. */
     _adoptActivePreset() {
-      if (isVsCodeHost()) return;
+      if (isFileHost()) return;
       // Nothing loaded yet (fresh app before the example arrives) — don't
       // create an empty library entry.
       if (!this.rawJson && Object.keys(this.prompts || {}).length === 0) return;
@@ -1948,7 +1987,10 @@ export const usePresetStore = defineStore('preset', {
           hits: activeHits,
         });
       }
-      if (!isVsCodeHost()) {
+      // A file-backed webview only searches its open file (loading a library
+      // preset there would replace the file without the explicit confirm). The
+      // standalone library editor searches the whole library, like the web app.
+      if (!isFileHost()) {
         for (const [id, entry] of Object.entries(this.savedPresets || {})) {
           if (id === this.currentPresetId) continue; // mirrored by the active area
           const data = entry?.data || {};
@@ -1975,7 +2017,7 @@ export const usePresetStore = defineStore('preset', {
     openGlobalSearchResult(presetId, promptId) {
       this.isGlobalSearchOpen = false;
       if (presetId && presetId !== this.currentPresetId) {
-        if (isVsCodeHost() || !this.savedPresets[presetId]) return;
+        if (isFileHost() || !this.savedPresets[presetId]) return;
         this.loadPreset(presetId);
       }
       if (!promptId || !this.prompts[promptId]) return;
@@ -2558,6 +2600,23 @@ export const usePresetStore = defineStore('preset', {
       return true;
     },
 
+    /**
+     * File-backed webview only: replace the OPEN FILE's contents with a library
+     * preset (the "Load (replace file)" action). Unlike loadPreset, the active
+     * area stays the file — `originalFilename` and the host's file path are
+     * preserved — so the extension's file bridge mirrors the new content back to
+     * the SAME .json on disk instead of creating a new document. Returns false
+     * when the preset is missing.
+     */
+    loadPresetIntoFile(presetId) {
+      const json = this.buildPresetJsonById(presetId);
+      if (!json) return false;
+      // parseFromJson swaps rawJson/prompts/promptOrder and re-analyzes, but
+      // never touches originalFilename — the file keeps its name and disk path.
+      this.parseFromJson(json);
+      return true;
+    },
+
     // --- Snapshots (named per-preset versions, cap MAX_SNAPSHOTS_PER_PRESET) ---
 
     /**
@@ -2569,7 +2628,7 @@ export const usePresetStore = defineStore('preset', {
     createSnapshot(presetId = null, name = '') {
       let targetId = presetId;
       if (!targetId) {
-        if (isVsCodeHost()) return null; // no active library preset in host mode
+        if (isFileHost()) return null; // a file webview has no active library preset
         this._touchActivePreset(); // flush + adopt so the snapshot is current
         targetId = this.currentPresetId;
       } else if (targetId === this.currentPresetId) {
@@ -3079,27 +3138,18 @@ export const usePresetStore = defineStore('preset', {
     },
   },
   persist: {
-    // Only persist the essential user data, not derived/UI states
-    paths: [
-      'rawJson',
-      'originalFilename',
-      'prompts',
-      'promptOrder',
-      'macroDisplayMode',
-      'currentLanguage',
-      'promptCollapseStates',
-      'globalCollapseState',
-      'skipDeleteConfirmation',
-      'savedPresets',
-      'currentPresetId',
-      'defaultPresetId',
-      'customMacros',
-      'customWraps',
-      'themeMode',
-      // Device-specific layout — persisted but deliberately NOT in
-      // SYNC_DATA_PATHS (pane sizes should not follow you across devices).
-      'paneSizes',
-    ],
+    // Only persist the essential user data, not derived/UI states.
+    //
+    // In the VS Code extension the active editing area is NOT durable local
+    // state: for a file webview the open .json on disk is the source of truth
+    // (re-pushed by the host on every open), and both file and standalone
+    // panels share one webview localStorage. Persisting the active area there
+    // would let a stale (or another panel's) file flash in before the host's
+    // `load` arrives — the "Untitled preset / wrong file on open" bug. So we
+    // drop the per-file/active-area paths in the extension and let the host
+    // (file mode) or the library reload in main.js (standalone mode) supply the
+    // document. The library + preferences still persist and sync normally.
+    paths: PERSIST_PATHS,
     beforeRestore: () => {
       console.log('[Persistence] About to restore store from localStorage');
     },

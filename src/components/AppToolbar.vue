@@ -13,7 +13,7 @@ import {
   InformationCircleIcon,
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
-import { isVsCodeHost } from '../utils/host';
+import { getEditorMode } from '../utils/host';
 import { formatTokenCount } from '../utils/tokens';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -21,9 +21,10 @@ import { useSyncStore } from '../stores/syncStore';
 // Initialize the preset store
 const store = usePresetStore();
 
-// Snapshots act on the active library preset — hidden in host (VS Code) mode
-// where the open file is not a library entry.
-const isHost = isVsCodeHost();
+// A file-backed extension webview edits one local .json (not a library entry),
+// so snapshots — which version a library preset — are hidden there. The web app
+// and the standalone library editor both keep them.
+const isFileMode = getEditorMode() === 'file';
 const takeSnapshot = () => {
   if (store.createSnapshot()) {
     store.showToast(store.t('toolbar.snapshotTaken'), 'success');
@@ -43,6 +44,34 @@ const syncDotClass = computed(() => {
       return 'bg-orange-500';
     case 'error':
       return 'bg-red-500';
+    default:
+      return 'bg-gray-300 dark:bg-gray-600';
+  }
+});
+
+// File-link status (file webview only): how the OPEN FILE relates to the cloud
+// library, pushed by the host after each folder reconcile. Shown instead of the
+// generic library-sync label so "save/update" is legible at a glance.
+const fileLinkState = computed(() => sync.fileLink?.state || 'unlinked');
+const fileLinkLabel = computed(() => store.t(`fileLink.${fileLinkState.value}`));
+const fileLinkTitle = computed(() => {
+  const map = {
+    synced: 'titleSynced',
+    pending: 'titlePending',
+    conflict: 'titleConflict',
+    localOnly: 'titleLocalOnly',
+    unlinked: 'titleUnlinked',
+  };
+  return store.t(`fileLink.${map[fileLinkState.value] || 'titleUnlinked'}`);
+});
+const fileLinkDotClass = computed(() => {
+  switch (fileLinkState.value) {
+    case 'synced':
+      return 'bg-green-500';
+    case 'pending':
+      return 'bg-amber-400 animate-pulse';
+    case 'conflict':
+      return 'bg-orange-500';
     default:
       return 'bg-gray-300 dark:bg-gray-600';
   }
@@ -114,8 +143,18 @@ const menuItemClass =
       >
         {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
       </span>
-      <!-- Cloud sync status indicator -->
+      <!-- File-backed webview: the OPEN FILE's link/sync status. Everywhere else:
+           the generic cloud-library sync status. -->
       <div
+        v-if="isFileMode"
+        class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+        :title="fileLinkTitle"
+      >
+        <span class="inline-block h-2 w-2 rounded-full" :class="fileLinkDotClass"></span>
+        <span class="hidden lg:inline">{{ fileLinkLabel }}</span>
+      </div>
+      <div
+        v-else
         class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
         :title="sync.statusLabel"
       >
@@ -141,7 +180,7 @@ const menuItemClass =
         <span class="hidden lg:inline">{{ store.t('toolbar.export') }}</span>
       </button>
       <button
-        v-if="!isHost"
+        v-if="!isFileMode"
         class="btn btn-sm btn-secondary"
         :title="store.t('toolbar.snapshot')"
         @click="takeSnapshot"
@@ -169,11 +208,11 @@ const menuItemClass =
 
     <!-- Mobile: Action Group with Right Sidebar Toggle and Menu -->
     <div class="flex items-center md:hidden">
-      <!-- Cloud sync status dot -->
+      <!-- Cloud sync status dot (file webview shows the open file's link state) -->
       <span
         class="mr-1 inline-block h-2 w-2 rounded-full"
-        :class="syncDotClass"
-        :title="sync.statusLabel"
+        :class="isFileMode ? fileLinkDotClass : syncDotClass"
+        :title="isFileMode ? fileLinkTitle : sync.statusLabel"
       ></span>
       <!-- Right Sidebar Toggle Button -->
       <button class="btn-icon" @click="store.toggleRightSidebar()">
@@ -243,7 +282,7 @@ const menuItemClass =
             </div>
             <!-- Presets / Settings -->
             <div class="px-1 py-1">
-              <MenuItem v-if="!isHost" v-slot="{ active }">
+              <MenuItem v-if="!isFileMode" v-slot="{ active }">
                 <button
                   :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="takeSnapshot"

@@ -154,10 +154,10 @@
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <!-- Web: load into the editor. Host: never overwrite the open
-                   file — write the preset to a NEW .json and open that. -->
+              <!-- Web / standalone library editor: load the preset into the
+                   editor (autosaved). -->
               <button
-                v-if="!isHost"
+                v-if="!isFile"
                 class="btn btn-sm btn-primary"
                 :disabled="preset.id === store.currentPresetId"
                 @click="loadPreset(preset.id)"
@@ -165,10 +165,26 @@
                 <ArrowDownTrayIcon class="h-3.5 w-3.5" />
                 {{ store.t('presetManager.load') }}
               </button>
-              <button v-else class="btn btn-sm btn-primary" @click="openAsFile(preset)">
-                <ArrowDownTrayIcon class="h-3.5 w-3.5" />
-                {{ store.t('presetManager.openAsNewFile') }}
-              </button>
+              <!-- File-backed webview: replace the open file's contents (after a
+                   confirm), or spin the preset off into its own new file. -->
+              <template v-else>
+                <button
+                  class="btn btn-sm btn-primary"
+                  :title="store.t('presetManager.replaceFileHint')"
+                  @click="replaceFile(preset)"
+                >
+                  <ArrowDownTrayIcon class="h-3.5 w-3.5" />
+                  {{ store.t('presetManager.loadReplaceFile') }}
+                </button>
+                <button
+                  class="btn btn-sm btn-secondary"
+                  :title="store.t('presetManager.openAsNewFileHint')"
+                  @click="openAsFile(preset)"
+                >
+                  <DocumentPlusIcon class="h-3.5 w-3.5" />
+                  {{ store.t('presetManager.openAsNewFile') }}
+                </button>
+              </template>
               <button
                 class="btn btn-sm btn-secondary"
                 :title="store.t('presetManager.snapshots.title')"
@@ -289,11 +305,13 @@ import {
   CameraIcon,
   ClockIcon,
   DocumentDuplicateIcon,
+  DocumentPlusIcon,
   PencilIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline';
 import { nextTick, reactive, ref, watch } from 'vue';
-import { createPresetFile, isVsCodeHost } from '../stores/localBridge';
+import { createPresetFile } from '../stores/localBridge';
+import { isFileHost } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
 import BaseModal from './BaseModal.vue';
 
@@ -306,9 +324,10 @@ defineProps({
 
 const store = usePresetStore();
 
-// In host (VS Code) mode the open file must never be overwritten by a library
-// preset — "Load" becomes "Open as new file".
-const isHost = isVsCodeHost();
+// A file-backed webview edits ONE local .json: loading a library preset either
+// replaces that file's contents (with a confirm) or spins off a new file. The
+// web app and the standalone library editor just load into the editor.
+const isFile = isFileHost();
 
 const isRenameModalOpen = ref(false);
 const renameValue = ref('');
@@ -373,6 +392,23 @@ const deleteSnapshotConfirm = (presetId, snapshotId) => {
     confirmLabel: store.t('common.delete'),
     danger: true,
     onConfirm: () => store.deleteSnapshot(presetId, snapshotId),
+  });
+};
+
+// File mode: replace the OPEN FILE's contents with this library preset. A
+// confirm guards against clobbering the file by mistake; on confirm the change
+// is mirrored back to the same .json on disk by the host bridge.
+const replaceFile = (preset) => {
+  const fileName = store.originalFilename || store.t('presetManager.currentFile');
+  store.requestConfirm({
+    message: store.t('presetManager.replaceFileConfirm', { file: fileName, name: preset.name }),
+    confirmLabel: store.t('presetManager.loadReplaceFile'),
+    onConfirm: () => {
+      if (store.loadPresetIntoFile(preset.id)) {
+        store.showToast(store.t('presetManager.fileReplaced', { name: preset.name }), 'success');
+        closeModal();
+      }
+    },
   });
 };
 

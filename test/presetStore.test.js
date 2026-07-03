@@ -103,6 +103,37 @@ describe('F1 autosave', () => {
     store.prompts.a.content = 'direct-mutation';
     expect(store.savedPresets[firstId].data.prompts.a.content).toBe('hello');
   });
+
+  it('loadPresetIntoFile swaps the content but keeps the open file name', () => {
+    // A library preset whose content differs from the open file.
+    store.savedPresets.lib = {
+      name: 'Lib',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      data: {
+        rawJson: '{"prompts":[{"identifier":"x","name":"X","content":"XX","enabled":true}]}',
+        prompts: { x: { id: 'x', identifier: 'x', name: 'X', content: 'XX', enabled: true } },
+        promptOrder: ['x'],
+      },
+    };
+    store.originalFilename = 'myfile.json';
+
+    const ok = store.loadPresetIntoFile('lib');
+
+    expect(ok).toBe(true);
+    // Content is replaced by the preset…
+    expect(store.prompts.x).toBeTruthy();
+    expect(store.prompts.a).toBeUndefined();
+    expect(store.promptOrder).toEqual(['x']);
+    // …but the file keeps its on-disk name (so it saves back to the same file).
+    expect(store.originalFilename).toBe('myfile.json');
+    // currentPresetId is not repurposed — the file is not a library entry.
+    expect(store.currentPresetId).toBeNull();
+  });
+
+  it('loadPresetIntoFile returns false for an unknown preset', () => {
+    expect(store.loadPresetIntoFile('nope')).toBe(false);
+  });
 });
 
 describe('F1 snapshots', () => {

@@ -6,7 +6,9 @@ back to the same file automatically.
 
 > Phase M0 + M1 + M2c of `../EXTENSION_PLAN.md`, plus the **ST Presets**
 > folder-workspace view with optional folder↔cloud library sync (F5, see
-> section 8 of the plan). Not yet included: live SillyTavern reload (M3).
+> section 8 of the plan), a **standalone library editor** (open with no file),
+> and a **Load (replace file)** action in the Preset Manager. Not yet included:
+> live SillyTavern reload (M3).
 
 ## Cloud sync (optional, opt-in)
 
@@ -53,15 +55,33 @@ committed on your branch, or build it from source with `npm run package:ext`
 2. Click the **`…`** menu at the top of that panel → **Install from VSIX…**.
 3. Pick the `.vsix` file. When prompted, **Reload/Restart**.
 
-That's it — no building, no F5. To use it:
+That's it — no building, no F5. There are two ways to open the editor:
 
-- Open the folder with your presets (your SillyTavern
-  `…/data/<user>/OpenAI Settings/` folder, or any folder with preset `.json`s).
-- **Right-click a `.json` → "Open in STPresetEditor"**, or open the file and
-  click the **pencil icon** in the top-right of the editor.
+- **On a file:** right-click a `.json` → **"Open in STPresetEditor"** (or open the
+  file and click the **pencil icon** top-right). This edits _that file_ — the
+  panel always shows the file you clicked, and edits autosave (~1s after you
+  stop) back to it, with a **"✓ Preset saved …"** note in the status bar.
+- **Standalone:** click the **window icon** at the top of the **ST Presets**
+  panel (or run **"STPresetEditor: Open editor (no file)"**). This opens the
+  editor with **no file attached** — you edit your cloud library directly, just
+  like the web app: load a preset, edit it, and changes autosave into the library
+  and sync to your cloud. Use it when you want to manage the library rather than
+  one file.
 
-Edits autosave (~1s after you stop) back to that file; a **"✓ Preset saved …"**
-note appears in the status bar. Tip: try a _copy_ of a preset first.
+Tip: try a _copy_ of a preset first.
+
+### Loading a library preset while editing a file
+
+Open the **Preset Manager** (bookmark icon) from a file editor and each saved
+preset offers two actions:
+
+- **Load (replace file)** — replaces the open file's contents with that preset
+  (after a confirm) and writes it back to the _same_ file on disk.
+- **Open as new file** — writes the preset to a new `.json` next to the current
+  one and opens it, leaving the file you were editing untouched.
+
+The standalone editor (above) instead shows a plain **Load**, since it has no
+file to protect.
 
 ## The ST Presets view (folder workspace)
 
@@ -85,6 +105,19 @@ folder root and keeps the folder and your cloud library in sync both ways:
 
 Commit `.stpe-library.json` if the whole folder should stay linked for every
 clone, or add it to `.gitignore` to keep the link machine-local.
+
+### Save / update status at a glance
+
+While editing a file, the toolbar shows how that file relates to your cloud
+library so you always know what "save" is doing:
+
+- **Local file** — editing a plain file; edits autosave to disk only (the folder
+  isn't linked to a cloud library, or cloud sync isn't connected).
+- **Saved · in library** — autosaved to the file _and_ its linked cloud-library
+  preset is up to date.
+- **Saving…** — edits are being written to the file and pushed to the library.
+- **Sync conflict** — the file changed both locally and in the cloud; open the
+  **ST Presets** panel to choose which copy to keep.
 
 ## Build the .vsix (maintainers)
 

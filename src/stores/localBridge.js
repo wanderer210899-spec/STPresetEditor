@@ -24,6 +24,8 @@
 //                     | cloudPulled{connected,data,updatedAt}
 //                     | cloudAck{ok,conflict?,updatedAt}
 //                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
+//                     | fileState{standalone,linked,state,fileName}  (open file's
+//                                 link to the cloud library, for the status chip)
 import { debounce } from 'lodash-es';
 import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from './presetStore';
@@ -247,6 +249,18 @@ export async function initLocalBridge() {
         break;
       case 'cloudReconcile':
         if (reconcileHandler) reconcileHandler();
+        break;
+      case 'fileState':
+        // The host reports how the open file relates to the cloud library so the
+        // toolbar can show a clear "Linked · synced/pending" status.
+        sync.set({
+          fileLink: {
+            linked: Boolean(message.linked),
+            state: message.state || (message.standalone ? 'standalone' : 'unlinked'),
+            standalone: Boolean(message.standalone),
+            fileName: message.fileName || '',
+          },
+        });
         break;
     }
   });

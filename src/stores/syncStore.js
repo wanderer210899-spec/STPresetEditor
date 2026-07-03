@@ -14,6 +14,10 @@ export const useSyncStore = defineStore('sync', {
     status: 'idle', // 'idle' | 'syncing' | 'synced' | 'offline' | 'error' | 'conflict'
     lastSyncedAt: null, // ISO timestamp of the cloud document we last reconciled with
     pendingSync: false, // True when local has edits not yet pushed to the cloud
+    // How the currently-open extension FILE relates to the cloud library. Pushed
+    // by the host after each folder reconcile (file webview only). `state` is one
+    // of 'synced' | 'pending' | 'conflict' | 'localOnly' | 'unlinked'.
+    fileLink: { linked: false, state: 'unlinked', standalone: false, fileName: '' },
   }),
   getters: {
     /** Human-friendly label for a status indicator. */
@@ -42,6 +46,7 @@ export const useSyncStore = defineStore('sync', {
       if ('status' in meta) this.status = meta.status;
       if ('lastSyncedAt' in meta) this.lastSyncedAt = meta.lastSyncedAt;
       if ('pendingSync' in meta) this.pendingSync = meta.pendingSync;
+      if ('fileLink' in meta) this.fileLink = meta.fileLink;
     },
   },
   persist: {

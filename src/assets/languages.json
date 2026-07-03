@@ -312,6 +312,18 @@
         "useCloud": "Use cloud version"
       }
     },
+    "fileLink": {
+      "synced": "Saved · in library",
+      "pending": "Saving…",
+      "conflict": "Sync conflict",
+      "localOnly": "Local only",
+      "unlinked": "Local file",
+      "titleSynced": "Autosaved to this file, and its linked cloud-library preset is up to date.",
+      "titlePending": "Saving your edits to the file and its linked cloud-library preset…",
+      "titleConflict": "This file changed both locally and in the cloud. Open the ST Presets panel to choose which copy to keep.",
+      "titleLocalOnly": "The folder is linked to your cloud library, but this file isn't part of it yet — it will sync on the next reconcile.",
+      "titleUnlinked": "Editing a local file. Autosaves to disk. Use the ST Presets panel → “Link folder to cloud library” to also sync it to your cloud."
+    },
     "presetManager": {
       "title": "Preset Manager",
       "saveCurrent": "Save Current Preset",
@@ -356,8 +368,14 @@
       "autosaveNote": "Edits save automatically into the loaded preset. Use this to keep a separate copy.",
       "copySaved": "Saved a copy as \"{name}\"",
       "openAsNewFile": "Open as new file",
+      "openAsNewFileHint": "Save this preset as a separate new .json and open it",
       "openedAsFile": "Created and opened {name}",
       "openAsFileFailed": "Could not create the preset file",
+      "loadReplaceFile": "Load (replace file)",
+      "replaceFileHint": "Replace the open file's contents with this preset",
+      "replaceFileConfirm": "Replace the contents of \"{file}\" with \"{name}\"? The open file on disk will be overwritten.",
+      "fileReplaced": "Loaded \"{name}\" into the open file",
+      "currentFile": "the open file",
       "snapshots": {
         "title": "Snapshots",
         "take": "Take snapshot",
@@ -726,6 +744,18 @@
         "useCloud": "使用云端版本"
       }
     },
+    "fileLink": {
+      "synced": "已保存 · 已入库",
+      "pending": "保存中…",
+      "conflict": "同步冲突",
+      "localOnly": "仅本地",
+      "unlinked": "本地文件",
+      "titleSynced": "已自动保存到该文件，其关联的云预设库条目也已是最新。",
+      "titlePending": "正在将您的编辑保存到文件及其关联的云预设库条目…",
+      "titleConflict": "该文件在本地和云端都发生了更改。请打开 ST Presets 面板选择要保留的版本。",
+      "titleLocalOnly": "文件夹已关联到云预设库，但此文件尚未加入 — 将在下次同步时加入。",
+      "titleUnlinked": "正在编辑本地文件，会自动保存到磁盘。使用 ST Presets 面板 →“将文件夹关联到云预设库”即可同步到云端。"
+    },
     "presetManager": {
       "title": "预设管理器",
       "saveCurrent": "保存当前预设",
@@ -770,8 +800,14 @@
       "autosaveNote": "编辑会自动保存到当前载入的预设。使用此按钮可另外保留一份副本。",
       "copySaved": "已另存为副本“{name}”",
       "openAsNewFile": "另存为新文件并打开",
+      "openAsNewFileHint": "将此预设另存为单独的新 .json 文件并打开",
       "openedAsFile": "已创建并打开 {name}",
       "openAsFileFailed": "创建预设文件失败",
+      "loadReplaceFile": "载入（替换文件）",
+      "replaceFileHint": "用此预设替换当前文件的内容",
+      "replaceFileConfirm": "用“{name}”替换“{file}”的内容？磁盘上打开的文件将被覆盖。",
+      "fileReplaced": "已将“{name}”载入当前文件",
+      "currentFile": "当前文件",
       "snapshots": {
         "title": "快照",
         "take": "创建快照",

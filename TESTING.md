@@ -163,12 +163,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.4.0.vsix`.
+`extension/stpreseteditor-local-0.5.0.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.4.0.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.5.0.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -176,15 +176,37 @@ Then in VS Code or Cursor:
 2. Click the **`…`** menu at the top → **Install from VSIX…** → pick the file.
 3. **Reload** when prompted.
 
-### Try the editor
+> If you had an earlier build installed, install over it and Reload so you're
+> testing 0.5.0.
+
+### Try the editor (file mode)
 
 - Open any folder containing preset `.json` files (tip: **copy** a few presets
   into a scratch folder first, e.g. from SillyTavern's
   `data/<user>/OpenAI Settings/`).
-- Right-click a preset `.json` → **Open in STPresetEditor**. Everything from
-  step 1 (undo/redo, variables, shortcuts, dark mode following the editor
-  theme) works here too, and edits autosave back to the file (~1s after you
-  stop typing).
+- Right-click a preset `.json` → **Open in STPresetEditor**. The panel should
+  open **that exact file** every time (this release fixes a bug where a stale or
+  "Untitled" preset could appear instead). Open a second preset in the same
+  window too — each panel keeps its own file. Everything from step 1 (undo/redo,
+  variables, shortcuts, dark mode following the editor theme) works here, and
+  edits autosave back to the file (~1s after you stop typing).
+- The toolbar shows a **save/link status** for the open file: _Local file_ when
+  it's a plain file, or _Saved · in library_ / _Saving…_ / _Sync conflict_ once
+  the folder is linked to your cloud library (step 4 below).
+- Open the **Preset Manager** (bookmark icon) and pick a saved preset: you get
+  **Load (replace file)** — overwrites the open file's contents after a confirm,
+  writing back to the same file — and **Open as new file** — spins the preset off
+  into its own new `.json`. The file you're editing is never clobbered without
+  the confirm.
+
+### Try the standalone editor (no file)
+
+- At the top of the **ST Presets** panel, click the **window icon** (or run
+  **STPresetEditor: Open editor (no file)** from the Command Palette).
+- This opens the editor with **no file attached** — it behaves like the web app:
+  **Load** a preset from your library, edit it, and changes autosave into the
+  library (and sync to your cloud when connected). Snapshots and library-wide
+  global search work here, unlike in a single-file panel.
 
 ### Try the new ST Presets panel
 
@@ -192,9 +214,9 @@ In the Explorer sidebar you'll find an **ST Presets** section:
 
 - It lists only files that actually parse as presets — other `.json`s are
   skipped silently.
-- Toolbar icons: **new preset**, **refresh**, **sync**. Right-click a preset:
-  **Duplicate / Rename / Delete / Reveal in Explorer**. Delete asks first and
-  uses the trash, so it's recoverable.
+- Toolbar icons: **open editor (no file)**, **new preset**, **refresh**, **sync**.
+  Right-click a preset: **Duplicate / Rename / Delete / Reveal in Explorer**.
+  Delete asks first and uses the trash, so it's recoverable.
 
 ### Folder ↔ cloud sync (uses the sandbox from step 2)
 
