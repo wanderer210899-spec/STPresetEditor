@@ -54,14 +54,23 @@ const syncDotClass = computed(() => {
 // library, pushed by the host after each folder reconcile. Shown instead of the
 // generic library-sync label so "save/update" is legible at a glance.
 const fileLinkState = computed(() => sync.fileLink?.state || 'unlinked');
+// Whether the cloud (API key + Worker URL) is configured at all. Lets an
+// unlinked file read as "connected — just not linked yet" instead of "offline".
+const fileLinkConnected = computed(() => Boolean(sync.fileLink?.connected));
+const fileLinkNotInLibrary = computed(
+  () => fileLinkState.value === 'unlinked' || fileLinkState.value === 'localOnly',
+);
 const fileLinkLabel = computed(() => store.t(`fileLink.${fileLinkState.value}`));
 const fileLinkTitle = computed(() => {
+  // A local file that isn't in the library: the advice differs by whether the
+  // cloud is even connected (connect first vs. link the folder).
+  if (fileLinkNotInLibrary.value) {
+    return store.t(fileLinkConnected.value ? 'fileLink.titleUnlinked' : 'fileLink.titleOffline');
+  }
   const map = {
     synced: 'titleSynced',
     pending: 'titlePending',
     conflict: 'titleConflict',
-    localOnly: 'titleLocalOnly',
-    unlinked: 'titleUnlinked',
   };
   return store.t(`fileLink.${map[fileLinkState.value] || 'titleUnlinked'}`);
 });
@@ -73,6 +82,11 @@ const fileLinkDotClass = computed(() => {
       return 'bg-amber-400 animate-pulse';
     case 'conflict':
       return 'bg-orange-500';
+    case 'localOnly':
+    case 'unlinked':
+      // Connected but this local file isn't part of the library yet → blue
+      // (actionable), not the dead grey that reads as "sync is broken".
+      return fileLinkConnected.value ? 'bg-sky-500' : 'bg-gray-300 dark:bg-gray-600';
     default:
       return 'bg-gray-300 dark:bg-gray-600';
   }

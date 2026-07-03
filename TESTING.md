@@ -173,12 +173,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.5.1.vsix`.
+`extension/stpreseteditor-local-0.5.2.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.5.1.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.5.2.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -187,7 +187,7 @@ Then in VS Code or Cursor:
 3. **Reload** when prompted.
 
 > If you had an earlier build installed, install over it and Reload so you're
-> testing 0.5.1.
+> testing 0.5.2.
 
 ### Try the editor (file mode)
 

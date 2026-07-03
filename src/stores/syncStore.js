@@ -16,8 +16,16 @@ export const useSyncStore = defineStore('sync', {
     pendingSync: false, // True when local has edits not yet pushed to the cloud
     // How the currently-open extension FILE relates to the cloud library. Pushed
     // by the host after each folder reconcile (file webview only). `state` is one
-    // of 'synced' | 'pending' | 'conflict' | 'localOnly' | 'unlinked'.
-    fileLink: { linked: false, state: 'unlinked', standalone: false, fileName: '' },
+    // of 'synced' | 'pending' | 'conflict' | 'localOnly' | 'unlinked'. `connected`
+    // reflects whether the cloud (API key + URL) is configured at all, so the
+    // status dot can tell "offline" from "connected but this file isn't linked".
+    fileLink: {
+      linked: false,
+      state: 'unlinked',
+      standalone: false,
+      fileName: '',
+      connected: false,
+    },
   }),
   getters: {
     /** Human-friendly label for a status indicator. */

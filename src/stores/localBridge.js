@@ -259,6 +259,7 @@ export async function initLocalBridge() {
             state: message.state || (message.standalone ? 'standalone' : 'unlinked'),
             standalone: Boolean(message.standalone),
             fileName: message.fileName || '',
+            connected: Boolean(message.connected),
           },
         });
         break;
