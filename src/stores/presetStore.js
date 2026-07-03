@@ -1280,7 +1280,7 @@ export const usePresetStore = defineStore('preset', {
     updatePromptOrder(newOrder) {
       const before = [...this.promptOrder];
       const after = newOrder.map((p) => p.id);
-      if (before.join(' ') !== after.join(' ')) {
+      if (before.length !== after.length || before.some((id, i) => id !== after[i])) {
         this._recordHistory({ type: 'order', before, after });
       }
       this.promptOrder = after;
