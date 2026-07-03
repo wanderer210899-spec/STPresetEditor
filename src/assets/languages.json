@@ -190,6 +190,39 @@
       "skipped": "skipped",
       "empty": "No activity for this variable."
     },
+    "history": {
+      "undo": "Undo",
+      "redo": "Redo",
+      "step": {
+        "edit": "edit of '{name}'",
+        "toggle": "toggling '{name}'",
+        "role": "role change of '{name}'",
+        "add": "adding '{name}'",
+        "delete": "deleting '{name}'",
+        "deleteMany": "deleting {count} prompts",
+        "hide": "hiding '{name}'",
+        "show": "adding '{name}' to the editor",
+        "order": "reordering prompts",
+        "rename": "renaming '{oldName}' to '{newName}'",
+        "batch": "batch replace ({count} prompts)",
+        "restore": "snapshot restore"
+      }
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "settingsLink": "View all shortcuts",
+      "snapshotSaved": "Snapshot saved",
+      "undo": "Undo",
+      "redo": "Redo",
+      "redoAlt": "Redo (alternative)",
+      "findInEditor": "Find in editor",
+      "globalSearch": "Search all presets",
+      "snapshot": "Save a snapshot",
+      "toggleDisplayMode": "Toggle raw / preview macros",
+      "movePrompt": "Move selected prompt up / down",
+      "newPrompt": "New prompt",
+      "help": "Show this help"
+    },
     "common": {
       "close": "Close",
       "confirm": "Confirm",
@@ -570,6 +603,39 @@
       "title": "时间线",
       "skipped": "已跳过",
       "empty": "此变量没有任何活动。"
+    },
+    "history": {
+      "undo": "撤销",
+      "redo": "重做",
+      "step": {
+        "edit": "编辑“{name}”",
+        "toggle": "切换“{name}”",
+        "role": "修改“{name}”的角色",
+        "add": "添加“{name}”",
+        "delete": "删除“{name}”",
+        "deleteMany": "删除 {count} 个提示",
+        "hide": "隐藏“{name}”",
+        "show": "将“{name}”加入编辑器",
+        "order": "重新排序提示",
+        "rename": "将“{oldName}”重命名为“{newName}”",
+        "batch": "批量替换（{count} 个提示）",
+        "restore": "恢复快照"
+      }
+    },
+    "shortcuts": {
+      "title": "键盘快捷键",
+      "settingsLink": "查看所有快捷键",
+      "snapshotSaved": "快照已保存",
+      "undo": "撤销",
+      "redo": "重做",
+      "redoAlt": "重做（备用）",
+      "findInEditor": "在编辑器中查找",
+      "globalSearch": "搜索所有预设",
+      "snapshot": "保存快照",
+      "toggleDisplayMode": "切换宏原文/预览",
+      "movePrompt": "上移/下移选中的提示",
+      "newPrompt": "新建提示",
+      "help": "显示此帮助"
     },
     "common": {
       "close": "关闭",

@@ -49,6 +49,14 @@
         <SyncSetup />
       </div>
 
+      <!-- Keyboard shortcuts reference (F8c) -->
+      <div class="py-6">
+        <label class="field-label mb-2">{{ store.t('shortcuts.title') }}</label>
+        <button class="btn btn-sm btn-secondary" @click="store.openShortcutsHelp()">
+          {{ store.t('shortcuts.settingsLink') }}
+        </button>
+      </div>
+
       <!-- Delete Confirmation Setting -->
       <div class="py-6">
         <label class="flex items-center">

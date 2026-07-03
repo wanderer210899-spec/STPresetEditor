@@ -12,28 +12,21 @@ import EditorView from './components/MainEditor/EditorView.vue';
 import PresetManagerModal from './components/PresetManagerModal.vue';
 import RightSidebar from './components/RightSidebar/RightSidebar.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import ShortcutsHelpModal from './components/ShortcutsHelpModal.vue';
 import ToastHost from './components/ToastHost.vue';
 import { usePresetStore } from './stores/presetStore';
+import { registerShortcuts } from './utils/shortcuts';
 
 // Initialize the preset store. App startup (cloud reconcile + example fallback)
 // is handled in main.js so the cloud library loads before any default content.
 const store = usePresetStore();
 
-// Global shortcuts (F6): Ctrl/Cmd+F focuses the editor search, Ctrl/Cmd+K
-// opens the cross-preset search palette.
-const onGlobalKeydown = (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-  const key = event.key.toLowerCase();
-  if (key === 'k') {
-    event.preventDefault();
-    store.openGlobalSearch();
-  } else if (key === 'f' && !store.isGlobalSearchOpen) {
-    event.preventDefault();
-    document.getElementById('editor-search-input')?.focus();
-  }
-};
-onMounted(() => window.addEventListener('keydown', onGlobalKeydown));
-onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
+// Global keyboard shortcuts (F8c) — undo/redo, search, snapshot, etc.
+let unregisterShortcuts = null;
+onMounted(() => {
+  unregisterShortcuts = registerShortcuts(store);
+});
+onBeforeUnmount(() => unregisterShortcuts?.());
 </script>
 
 <template>
@@ -78,6 +71,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
 
     <!-- Cross-preset search palette (Ctrl/Cmd+K) -->
     <GlobalSearchModal />
+
+    <!-- Keyboard shortcuts reference (?) -->
+    <ShortcutsHelpModal />
 
     <!-- Global in-app confirmation dialog + toast notifications -->
     <ConfirmDialog />

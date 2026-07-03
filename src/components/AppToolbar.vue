@@ -3,6 +3,8 @@ import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/vue';
 import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
+  ArrowUturnLeftIcon,
+  ArrowUturnRightIcon,
   Bars3Icon,
   BookmarkIcon,
   CameraIcon,
@@ -46,6 +48,16 @@ const syncDotClass = computed(() => {
   }
 });
 
+// Undo/redo tooltips describe the step they would apply (F8a)
+const undoTooltip = computed(() => {
+  const label = store.undoLabel;
+  return label ? `${store.t('history.undo')}: ${label}` : store.t('history.undo');
+});
+const redoTooltip = computed(() => {
+  const label = store.redoLabel;
+  return label ? `${store.t('history.redo')}: ${label}` : store.t('history.redo');
+});
+
 // Shared class for mobile dropdown menu items (kept neutral for consistency)
 const menuItemClass =
   'group flex w-full items-center rounded-md px-2 py-2 text-sm text-gray-900 dark:text-gray-100';
@@ -76,6 +88,23 @@ const menuItemClass =
 
     <!-- Desktop: Action Buttons Group (one consistent secondary style) -->
     <div class="hidden items-center gap-2 md:flex">
+      <!-- Undo / redo (F8a) -->
+      <button
+        v-tooltip="undoTooltip"
+        class="btn-icon btn-icon-sm"
+        :disabled="!store.canUndo"
+        @click="store.undo()"
+      >
+        <ArrowUturnLeftIcon class="h-4 w-4" />
+      </button>
+      <button
+        v-tooltip="redoTooltip"
+        class="btn-icon btn-icon-sm"
+        :disabled="!store.canRedo"
+        @click="store.redo()"
+      >
+        <ArrowUturnRightIcon class="h-4 w-4" />
+      </button>
       <!-- Approximate token total of enabled, in-order prompts (F8d) -->
       <span
         class="text-xs text-gray-400 tabular-nums dark:text-gray-500"
@@ -143,6 +172,29 @@ const menuItemClass =
           <MenuItems
             class="absolute right-0 z-10 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none dark:divide-gray-700 dark:bg-gray-800 dark:ring-gray-700"
           >
+            <!-- Undo / Redo -->
+            <div class="px-1 py-1">
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  :disabled="!store.canUndo"
+                  @click="store.undo()"
+                >
+                  <ArrowUturnLeftIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('history.undo') }}
+                </button>
+              </MenuItem>
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  :disabled="!store.canRedo"
+                  @click="store.redo()"
+                >
+                  <ArrowUturnRightIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('history.redo') }}
+                </button>
+              </MenuItem>
+            </div>
             <!-- Import / Export -->
             <div class="px-1 py-1">
               <MenuItem v-slot="{ active }">

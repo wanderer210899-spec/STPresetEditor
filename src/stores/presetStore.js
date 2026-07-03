@@ -82,6 +82,13 @@ export const MAX_SNAPSHOTS_PER_PRESET = 20;
 /** Deep-clone store data to plain JSON (strips Vue reactive proxies). */
 const toPlainClone = (value) => JSON.parse(JSON.stringify(value));
 
+/** Unified undo/redo history (F8a): maximum stored steps. */
+export const HISTORY_LIMIT = 100;
+/** Text edits to the same prompt+field within this window coalesce into one step. */
+export const EDIT_COALESCE_MS = 1000;
+/** True while undo/redo re-applies state — suppresses history recording. */
+let applyingHistory = false;
+
 /**
  * Snapshot the active editing area in the shape stored inside a library entry.
  * The derived `macros` arrays are excluded (re-attached by analyzeAllMacros on
@@ -305,9 +312,13 @@ export const usePresetStore = defineStore('preset', {
     presetSortBy: 'updated', // Sort by: 'name', 'created', 'updated'
     presetMultiSelectActive: false, // Whether multi-select mode is active
     selectedPresets: new Set(), // Set of selected preset IDs
-    // Batch replace history for undo
-    batchReplaceHistory: [], // Array<{ timestamp, changes: Array<{ promptId, before: { name, content }, after: { name, content } }> }>
-    batchReplaceRedoStack: [], // Redo stack storing same shape as history entries
+    // Unified undo/redo history (F8a; derived, never persisted, cap HISTORY_LIMIT).
+    // Entries are plain data ({ type, ... }) applied by _applyHistoryEntry.
+    undoStack: [],
+    redoStack: [],
+
+    // Keyboard shortcuts help modal (F8c)
+    isShortcutsHelpOpen: false,
   }),
   getters: {
     /**
@@ -564,12 +575,39 @@ export const usePresetStore = defineStore('preset', {
         }
         return result;
       },
-    /** Whether there is a batch replace operation to undo */
+    // --- Unified undo/redo history (F8a) ---
+    canUndo: (state) => state.undoStack.length > 0,
+    canRedo: (state) => state.redoStack.length > 0,
+    /** Human description of the next undo step ('' when empty) — for tooltips. */
+    undoLabel() {
+      const entry = this.undoStack[this.undoStack.length - 1];
+      return entry ? this.describeHistoryEntry(entry) : '';
+    },
+    /** Human description of the next redo step ('' when empty). */
+    redoLabel() {
+      const entry = this.redoStack[this.redoStack.length - 1];
+      return entry ? this.describeHistoryEntry(entry) : '';
+    },
+    /** The batch-replace modal's undo/redo only acts when a batch op is on top. */
     canUndoBatchReplace: (state) => {
-      return (state.batchReplaceHistory?.length || 0) > 0;
+      return state.undoStack[state.undoStack.length - 1]?.type === 'batch';
     },
     canRedoBatchReplace: (state) => {
-      return (state.batchReplaceRedoStack?.length || 0) > 0;
+      return state.redoStack[state.redoStack.length - 1]?.type === 'batch';
+    },
+    /** Whether any modal/overlay is open — single-key shortcuts stay quiet then. */
+    isAnyModalOpen: (state) => {
+      return Boolean(
+        state.isImportModalOpen ||
+          state.isExportModalOpen ||
+          state.isSettingsModalOpen ||
+          state.isBatchReplaceModalOpen ||
+          state.isPresetManagerOpen ||
+          state.isGlobalSearchOpen ||
+          state.isShortcutsHelpOpen ||
+          state.focusEditorPromptId ||
+          state.confirmState.open,
+      );
     },
   },
   actions: {
@@ -603,6 +641,9 @@ export const usePresetStore = defineStore('preset', {
      */
     parseFromJson(jsonString) {
       try {
+        // A new document invalidates the undo history (cross-document undo
+        // is out of scope).
+        this.clearHistory();
         this.rawJson = jsonString;
         const parsed = JSON.parse(jsonString);
         const promptsArray = Array.isArray(parsed.prompts) ? parsed.prompts : [];
@@ -1009,16 +1050,250 @@ export const usePresetStore = defineStore('preset', {
     },
 
     // --- Actions that trigger re-analysis ---
+    // --- Unified undo/redo history (F8a) --------------------------------------
+    //
+    // Command pattern over plain-data entries. Mutating actions call
+    // _recordHistory with an entry describing before/after; undo()/redo() pop
+    // and re-apply via _applyHistoryEntry with recording suppressed. Loading /
+    // importing a preset and applying cloud data clear both stacks
+    // (cross-document undo is out of scope).
+
+    /** Push a history entry (no-op while undo/redo is re-applying state). */
+    _recordHistory(entry) {
+      if (applyingHistory) return;
+      entry.at = Date.now();
+      this.undoStack.push(entry);
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    },
+    clearHistory() {
+      this.undoStack = [];
+      this.redoStack = [];
+    },
+    /** Record one 'delete' step covering several prompts (batch deletes). */
+    _recordDeleteHistory(promptIds) {
+      const items = promptIds
+        .filter((promptId) => this.prompts[promptId])
+        .map((promptId) => ({
+          promptId,
+          prompt: toPlainClone(this.prompts[promptId]),
+          orderIndex: this.promptOrder.indexOf(promptId),
+          collapsed: this.promptCollapseStates[promptId],
+        }));
+      if (!items.length) return;
+      this._recordHistory({
+        type: 'delete',
+        items,
+        name: items.length === 1 ? items[0].prompt.name || items[0].promptId : '',
+      });
+    },
+    /** Insert into promptOrder at a remembered index (append when stale). */
+    _insertIntoOrder(promptId, index) {
+      if (this.promptOrder.includes(promptId)) return;
+      if (typeof index === 'number' && index >= 0 && index <= this.promptOrder.length) {
+        this.promptOrder.splice(index, 0, promptId);
+      } else {
+        this.promptOrder.push(promptId);
+      }
+    },
+    _applyHistoryEntry(entry, direction) {
+      const isUndo = direction === 'undo';
+      switch (entry.type) {
+        case 'edit': {
+          const prompt = this.prompts[entry.promptId];
+          if (prompt) prompt[entry.field] = isUndo ? entry.before : entry.after;
+          break;
+        }
+        case 'add': {
+          if (isUndo) {
+            delete this.prompts[entry.promptId];
+            this.promptOrder = this.promptOrder.filter((id) => id !== entry.promptId);
+            this.cleanupPromptCollapseState(entry.promptId);
+          } else {
+            this.prompts[entry.promptId] = toPlainClone(entry.prompt);
+            this._insertIntoOrder(entry.promptId, entry.orderIndex);
+          }
+          break;
+        }
+        case 'delete': {
+          if (isUndo) {
+            // Restore ascending so remembered order positions stay meaningful.
+            [...entry.items]
+              .sort((a, b) => (a.orderIndex ?? -1) - (b.orderIndex ?? -1))
+              .forEach((item) => {
+                this.prompts[item.promptId] = toPlainClone(item.prompt);
+                if (item.orderIndex != null && item.orderIndex >= 0) {
+                  this._insertIntoOrder(item.promptId, item.orderIndex);
+                }
+                if (item.collapsed !== undefined) {
+                  this.promptCollapseStates[item.promptId] = item.collapsed;
+                }
+              });
+          } else {
+            const ids = new Set(entry.items.map((item) => item.promptId));
+            entry.items.forEach((item) => {
+              delete this.prompts[item.promptId];
+              this.cleanupPromptCollapseState(item.promptId);
+            });
+            this.promptOrder = this.promptOrder.filter((id) => !ids.has(id));
+          }
+          break;
+        }
+        case 'hide': {
+          if (isUndo) this._insertIntoOrder(entry.promptId, entry.orderIndex);
+          else this.promptOrder = this.promptOrder.filter((id) => id !== entry.promptId);
+          break;
+        }
+        case 'show': {
+          if (isUndo) this.promptOrder = this.promptOrder.filter((id) => id !== entry.promptId);
+          else this._insertIntoOrder(entry.promptId, entry.orderIndex);
+          break;
+        }
+        case 'order': {
+          const target = isUndo ? entry.before : entry.after;
+          // Guard against prompts deleted since the step was recorded.
+          this.promptOrder = target.filter((id) => this.prompts[id]);
+          break;
+        }
+        case 'rename': {
+          this.renameVariable(
+            isUndo
+              ? { oldName: entry.newName, newName: entry.oldName }
+              : { oldName: entry.oldName, newName: entry.newName },
+          );
+          break;
+        }
+        case 'batch': {
+          entry.changes.forEach((change) => {
+            const prompt = this.prompts[change.promptId];
+            if (!prompt) return;
+            const target = isUndo ? change.before : change.after;
+            if (typeof target.name === 'string') prompt.name = target.name;
+            if (typeof target.content === 'string') prompt.content = target.content;
+          });
+          break;
+        }
+        case 'restore': {
+          const data = toPlainClone(isUndo ? entry.before : entry.after);
+          const libEntry = this.savedPresets[entry.presetId];
+          if (libEntry) {
+            libEntry.data = { ...toPlainClone(libEntry.data || {}), ...toPlainClone(data) };
+            libEntry.updatedAt = new Date().toISOString();
+          }
+          if (entry.presetId === this.currentPresetId) {
+            this.rawJson = data.rawJson || '';
+            this.originalFilename = data.originalFilename || '';
+            this.prompts = data.prompts || {};
+            this.promptOrder = data.promptOrder || [];
+          }
+          break;
+        }
+      }
+    },
+    undo() {
+      const entry = this.undoStack.pop();
+      if (!entry) return false;
+      applyingHistory = true;
+      try {
+        this._applyHistoryEntry(entry, 'undo');
+      } finally {
+        applyingHistory = false;
+      }
+      this.redoStack.push(entry);
+      if (this.redoStack.length > HISTORY_LIMIT) this.redoStack.shift();
+      this._afterHistoryChange();
+      return true;
+    },
+    redo() {
+      const entry = this.redoStack.pop();
+      if (!entry) return false;
+      applyingHistory = true;
+      try {
+        this._applyHistoryEntry(entry, 'redo');
+      } finally {
+        applyingHistory = false;
+      }
+      this.undoStack.push(entry);
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this._afterHistoryChange();
+      return true;
+    },
+    _afterHistoryChange() {
+      // Selections may point at prompts the step removed.
+      if (this.selectedPromptId && !this.prompts[this.selectedPromptId]) {
+        this.selectedPromptId = null;
+      }
+      this.selectedEditorPrompts = this.selectedEditorPrompts.filter((id) => this.prompts[id]);
+      this.selectedLibraryPrompts = this.selectedLibraryPrompts.filter((id) => this.prompts[id]);
+      this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
+    },
+    /** One-line description of a history entry for the undo/redo tooltips. */
+    describeHistoryEntry(entry) {
+      switch (entry.type) {
+        case 'edit':
+          if (entry.field === 'enabled') return this.t('history.step.toggle', { name: entry.name });
+          if (entry.field === 'role') return this.t('history.step.role', { name: entry.name });
+          return this.t('history.step.edit', { name: entry.name });
+        case 'add':
+          return this.t('history.step.add', { name: entry.name });
+        case 'delete':
+          return entry.items.length === 1
+            ? this.t('history.step.delete', { name: entry.name })
+            : this.t('history.step.deleteMany', { count: entry.items.length });
+        case 'hide':
+          return this.t('history.step.hide', { name: entry.name });
+        case 'show':
+          return this.t('history.step.show', { name: entry.name });
+        case 'order':
+          return this.t('history.step.order');
+        case 'rename':
+          return this.t('history.step.rename', {
+            oldName: entry.oldName,
+            newName: entry.newName,
+          });
+        case 'batch':
+          return this.t('history.step.batch', {
+            count: new Set(entry.changes.map((c) => c.promptId)).size,
+          });
+        case 'restore':
+          return this.t('history.step.restore');
+        default:
+          return '';
+      }
+    },
+    /** Alt+↑/↓ (F8c): move the selected prompt one step in the order. */
+    moveSelectedPrompt(delta) {
+      const promptId = this.selectedPromptId;
+      if (!promptId) return;
+      const index = this.promptOrder.indexOf(promptId);
+      const target = index + delta;
+      if (index === -1 || target < 0 || target >= this.promptOrder.length) return;
+      const before = [...this.promptOrder];
+      this.promptOrder.splice(index, 1);
+      this.promptOrder.splice(target, 0, promptId);
+      this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
+      this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
+    },
+
     updatePromptOrder(newOrder) {
-      this.promptOrder = newOrder.map((p) => p.id);
+      const before = [...this.promptOrder];
+      const after = newOrder.map((p) => p.id);
+      if (before.join(' ') !== after.join(' ')) {
+        this._recordHistory({ type: 'order', before, after });
+      }
+      this.promptOrder = after;
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
     movePromptTop(promptId) {
       const index = this.promptOrder.indexOf(promptId);
       if (index > 0) {
+        const before = [...this.promptOrder];
         this.promptOrder.splice(index, 1);
         this.promptOrder.unshift(promptId);
+        this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
         this.analyzeAllMacros();
         this.touchActivePresetDebounced();
       }
@@ -1026,8 +1301,10 @@ export const usePresetStore = defineStore('preset', {
     movePromptBottom(promptId) {
       const index = this.promptOrder.indexOf(promptId);
       if (index > -1 && index < this.promptOrder.length - 1) {
+        const before = [...this.promptOrder];
         this.promptOrder.splice(index, 1);
         this.promptOrder.push(promptId);
+        this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
         this.analyzeAllMacros();
         this.touchActivePresetDebounced();
       }
@@ -1044,12 +1321,15 @@ export const usePresetStore = defineStore('preset', {
       // If the dragged item is before the target, adjust insert index
       const insertIndex = draggedIndex < targetIndex ? targetIndex : targetIndex + 1;
 
+      const before = [...this.promptOrder];
+
       // Remove dragged item
       this.promptOrder.splice(draggedIndex, 1);
 
       // Insert at target position
       this.promptOrder.splice(insertIndex, 0, draggedPromptId);
 
+      this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
@@ -1078,6 +1358,12 @@ export const usePresetStore = defineStore('preset', {
       if (targetIndex === -1) {
         console.warn('[insertPromptAfter] Target not in order, append to end as fallback');
         this.promptOrder.push(draggedPromptId);
+        this._recordHistory({
+          type: 'show',
+          promptId: draggedPromptId,
+          orderIndex: this.promptOrder.length - 1,
+          name: this.prompts[draggedPromptId]?.name || draggedPromptId,
+        });
         this.analyzeAllMacros();
         this.touchActivePresetDebounced();
         return;
@@ -1085,6 +1371,12 @@ export const usePresetStore = defineStore('preset', {
 
       const insertIndex = targetIndex + 1;
       this.promptOrder.splice(insertIndex, 0, draggedPromptId);
+      this._recordHistory({
+        type: 'show',
+        promptId: draggedPromptId,
+        orderIndex: insertIndex,
+        name: this.prompts[draggedPromptId]?.name || draggedPromptId,
+      });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
@@ -1111,26 +1403,67 @@ export const usePresetStore = defineStore('preset', {
         this.promptOrder.push(newId);
       }
 
+      this._recordHistory({
+        type: 'add',
+        promptId: newId,
+        prompt: toPlainClone(newPrompt),
+        orderIndex: this.promptOrder.indexOf(newId),
+        name: newPrompt.name,
+      });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
       this.selectPrompt(newId);
       this.navigateToPrompt(newId);
     },
     hidePrompt(promptId) {
+      const orderIndex = this.promptOrder.indexOf(promptId);
+      if (orderIndex > -1) {
+        this._recordHistory({
+          type: 'hide',
+          promptId,
+          orderIndex,
+          name: this.prompts[promptId]?.name || promptId,
+        });
+      }
       this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
     removePrompt(promptId) {
+      const prompt = this.prompts[promptId];
+      if (!prompt) return;
+      this._recordHistory({
+        type: 'delete',
+        items: [
+          {
+            promptId,
+            prompt: toPlainClone(prompt),
+            orderIndex: this.promptOrder.indexOf(promptId),
+            collapsed: this.promptCollapseStates[promptId],
+          },
+        ],
+        name: prompt.name || promptId,
+      });
       delete this.prompts[promptId];
-      this.hidePrompt(promptId); // This will trigger analysis
+      this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
       // Cleanup collapse state for removed prompt
       this.cleanupPromptCollapseState(promptId);
+      this.analyzeAllMacros();
+      this.touchActivePresetDebounced();
     },
     togglePromptEnabled(promptId) {
       const prompt = this.prompts[promptId];
       if (prompt) {
-        prompt.enabled = !(prompt.enabled !== false);
+        const before = prompt.enabled !== false;
+        prompt.enabled = !before;
+        this._recordHistory({
+          type: 'edit',
+          promptId,
+          field: 'enabled',
+          before,
+          after: prompt.enabled,
+          name: prompt.name || promptId,
+        });
         this.analyzeAllMacros();
         this.touchActivePresetDebounced();
       }
@@ -1138,6 +1471,31 @@ export const usePresetStore = defineStore('preset', {
     updatePromptDetail({ promptId, field, value }) {
       const prompt = this.prompts[promptId];
       if (prompt && typeof field === 'string') {
+        const before = prompt[field];
+        if (before !== value && !applyingHistory) {
+          // Coalesce bursts of edits to the same prompt+field into one step.
+          const top = this.undoStack[this.undoStack.length - 1];
+          if (
+            top &&
+            top.type === 'edit' &&
+            top.promptId === promptId &&
+            top.field === field &&
+            this.redoStack.length === 0 &&
+            Date.now() - top.at < EDIT_COALESCE_MS
+          ) {
+            top.after = value;
+            top.at = Date.now();
+          } else {
+            this._recordHistory({
+              type: 'edit',
+              promptId,
+              field,
+              before,
+              after: value,
+              name: prompt.name || promptId,
+            });
+          }
+        }
         prompt[field] = value;
         if (field === 'content') {
           this.analyzeAllMacrosDebounced();
@@ -1206,6 +1564,7 @@ export const usePresetStore = defineStore('preset', {
         }
       }
 
+      this._recordHistory({ type: 'rename', oldName, newName: trimmedNewName });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
       if (this.selectedMacro && this.selectedMacro.variableName === oldName) {
@@ -1284,6 +1643,13 @@ export const usePresetStore = defineStore('preset', {
         this.promptOrder.unshift(newId);
       }
 
+      this._recordHistory({
+        type: 'add',
+        promptId: newId,
+        prompt: toPlainClone(newPrompt),
+        orderIndex: this.promptOrder.indexOf(newId),
+        name: newPrompt.name,
+      });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
       this.selectPrompt(newId);
@@ -1308,6 +1674,7 @@ export const usePresetStore = defineStore('preset', {
       });
     },
     _performDeleteSelectedPrompts(deletable, skipped = 0) {
+      this._recordDeleteHistory(deletable);
       deletable.forEach((promptId) => {
         delete this.prompts[promptId];
         this.promptOrder = this.promptOrder.filter((id) => id !== promptId);
@@ -1329,6 +1696,12 @@ export const usePresetStore = defineStore('preset', {
         } else {
           this.promptOrder.unshift(promptId);
         }
+        this._recordHistory({
+          type: 'show',
+          promptId,
+          orderIndex: this.promptOrder.indexOf(promptId),
+          name: this.prompts[promptId]?.name || promptId,
+        });
         this.analyzeAllMacros();
         this.touchActivePresetDebounced();
         this.navigateToPrompt(promptId);
@@ -1400,7 +1773,9 @@ export const usePresetStore = defineStore('preset', {
       );
 
       // Move selected prompts to the top
+      const before = [...this.promptOrder];
       this.promptOrder = [...selectedIds, ...remainingIds];
+      this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
@@ -1413,7 +1788,9 @@ export const usePresetStore = defineStore('preset', {
       );
 
       // Move selected prompts to the bottom
+      const before = [...this.promptOrder];
       this.promptOrder = [...remainingIds, ...selectedIds];
+      this._recordHistory({ type: 'order', before, after: [...this.promptOrder] });
       this.analyzeAllMacros();
       this.touchActivePresetDebounced();
     },
@@ -1439,6 +1816,7 @@ export const usePresetStore = defineStore('preset', {
       });
     },
     _performBatchDelete(deletablePrompts) {
+      this._recordDeleteHistory(deletablePrompts);
       // Delete only deletable prompts
       deletablePrompts.forEach((promptId) => {
         delete this.prompts[promptId];
@@ -1672,6 +2050,12 @@ export const usePresetStore = defineStore('preset', {
     },
     closeExportModal() {
       this.isExportModalOpen = false;
+    },
+    openShortcutsHelp() {
+      this.isShortcutsHelpOpen = true;
+    },
+    closeShortcutsHelp() {
+      this.isShortcutsHelpOpen = false;
     },
     openSettingsModal() {
       this.isSettingsModalOpen = true;
@@ -2169,6 +2553,7 @@ export const usePresetStore = defineStore('preset', {
       this.promptCollapseStates = data.promptCollapseStates || {};
 
       this.currentPresetId = presetId;
+      this.clearHistory(); // switching documents invalidates the undo history
       this.analyzeAllMacros();
       return true;
     },
@@ -2233,8 +2618,24 @@ export const usePresetStore = defineStore('preset', {
         this.t('presetManager.snapshots.beforeRestore', { name: snapshot.name }),
       );
 
+      // Durable fields only — same shape the snapshot itself stores (F8a undo).
+      const pickDurable = ({ rawJson, originalFilename, prompts, promptOrder }) => ({
+        rawJson,
+        originalFilename,
+        prompts,
+        promptOrder,
+      });
+      const beforeData = pickDurable(toPlainClone(entry.data || {}));
+
       entry.data = { ...toPlainClone(entry.data || {}), ...toPlainClone(snapshot.data) };
       entry.updatedAt = new Date().toISOString();
+
+      this._recordHistory({
+        type: 'restore',
+        presetId,
+        before: beforeData,
+        after: pickDurable(toPlainClone(entry.data)),
+      });
 
       if (presetId === this.currentPresetId) {
         const data = toPlainClone(entry.data);
@@ -2625,74 +3026,26 @@ export const usePresetStore = defineStore('preset', {
       }
 
       if (historyEntry.changes.length > 0) {
-        this.batchReplaceHistory.push(historyEntry);
-        // Any new forward change invalidates redo stack
-        this.batchReplaceRedoStack = [];
+        // Batch ops live in the unified undo history (F8a).
+        this._recordHistory({ type: 'batch', changes: historyEntry.changes });
         this.touchActivePresetDebounced();
       }
 
       return { matches: totalChanges, prompts: historyEntry.changes.length };
     },
-    /** Undo last batch replace/additions change */
+    /** Undo the last batch replace (modal button; only when a batch op is on top). */
     undoLastBatchChange() {
-      if (!this.batchReplaceHistory || this.batchReplaceHistory.length === 0) {
-        return { prompts: 0 };
-      }
-      const entry = this.batchReplaceHistory.pop();
-      if (!entry || !Array.isArray(entry.changes) || entry.changes.length === 0) {
-        return { prompts: 0 };
-      }
-      // Push to redo stack before applying revert
-      this.batchReplaceRedoStack.push(entry);
-      let contentChanged = false;
-      entry.changes.forEach((change) => {
-        const prompt = this.prompts[change.promptId];
-        if (!prompt) return;
-        if (typeof change.before.name === 'string' && prompt.name !== change.before.name) {
-          prompt.name = change.before.name;
-        }
-        if (typeof change.before.content === 'string' && prompt.content !== change.before.content) {
-          prompt.content = change.before.content;
-          contentChanged = true;
-        }
-      });
-      if (contentChanged) {
-        this.analyzeAllMacros();
-      }
-      // promptsAffected counts fields; for user-facing, count distinct prompts
-      this.touchActivePresetDebounced();
-      const distinctPrompts = new Set(entry.changes.map((c) => c.promptId)).size;
-      return { prompts: distinctPrompts };
+      const top = this.undoStack[this.undoStack.length - 1];
+      if (!top || top.type !== 'batch') return { prompts: 0 };
+      this.undo();
+      return { prompts: new Set(top.changes.map((c) => c.promptId)).size };
     },
-    /** Redo last undone batch change */
+    /** Redo the last undone batch replace (modal button). */
     redoLastBatchChange() {
-      if (!this.batchReplaceRedoStack || this.batchReplaceRedoStack.length === 0) {
-        return { prompts: 0 };
-      }
-      const entry = this.batchReplaceRedoStack.pop();
-      if (!entry || !Array.isArray(entry.changes) || entry.changes.length === 0) {
-        return { prompts: 0 };
-      }
-      let contentChanged = false;
-      entry.changes.forEach((change) => {
-        const prompt = this.prompts[change.promptId];
-        if (!prompt) return;
-        if (typeof change.after.name === 'string' && prompt.name !== change.after.name) {
-          prompt.name = change.after.name;
-        }
-        if (typeof change.after.content === 'string' && prompt.content !== change.after.content) {
-          prompt.content = change.after.content;
-          contentChanged = true;
-        }
-      });
-      if (contentChanged) {
-        this.analyzeAllMacros();
-      }
-      // Push back to history as a new step (so we can undo the redo)
-      this.batchReplaceHistory.push(entry);
-      this.touchActivePresetDebounced();
-      const distinctPrompts = new Set(entry.changes.map((c) => c.promptId)).size;
-      return { prompts: distinctPrompts };
+      const top = this.redoStack[this.redoStack.length - 1];
+      if (!top || top.type !== 'batch') return { prompts: 0 };
+      this.redo();
+      return { prompts: new Set(top.changes.map((c) => c.promptId)).size };
     },
 
     // --- Cloud sync helpers (used by stores/cloudSync.js) ---
@@ -2720,6 +3073,7 @@ export const usePresetStore = defineStore('preset', {
       paths.forEach((key) => {
         if (key in data) this[key] = data[key];
       });
+      this.clearHistory(); // cloud data replaces the document — undo would cross it
       this.analyzeAllMacros();
       this.applyTheme(); // the snapshot may carry a different themeMode
     },
