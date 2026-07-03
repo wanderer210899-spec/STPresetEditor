@@ -171,6 +171,50 @@ describe('A2 renameVariable reaches {{if}} conditions', () => {
   });
 });
 
+describe('F4 variable timelines + end values', () => {
+  it('records set → add → get with intermediate values in execution order', () => {
+    store.prompts.a.content = '{{setvar::x::5}}';
+    store.prompts.b.content = '{{addvar::x::3}} then {{getvar::x}}';
+    store.analyzeAllMacros();
+
+    const timeline = store.variableTimelines.x;
+    expect(timeline.map((e) => e.kind)).toEqual(['set', 'mutate', 'get']);
+    expect(timeline.map((e) => e.valueAfter)).toEqual(['5', '8', '8']);
+    expect(timeline[0].promptId).toBe('a');
+    expect(timeline[1].op).toBe('add');
+    expect(store.variableEndValues.x).toBe('8');
+  });
+
+  it('records disabled writes as skipped without mutating the simulation', () => {
+    store.prompts.a.content = '{{setvar::x::1}}';
+    store.prompts.b.content = '{{setvar::x::99}}';
+    store.prompts.b.enabled = false;
+    store.prompts.c = {
+      id: 'c',
+      identifier: 'c',
+      name: 'Gamma',
+      content: '{{getvar::x}}',
+      enabled: true,
+    };
+    store.promptOrder = ['a', 'b', 'c'];
+    store.analyzeAllMacros();
+
+    const timeline = store.variableTimelines.x;
+    expect(timeline).toHaveLength(3);
+    expect(timeline[1].enabled).toBe(false);
+    expect(timeline[1].valueAfter).toBe('1'); // the disabled write left the state untouched
+    expect(timeline[2].valueAfter).toBe('1'); // the read sees the enabled value
+    expect(store.variableEndValues.x).toBe('1');
+  });
+
+  it('lists a deleted variable with an undefined end value', () => {
+    store.prompts.a.content = '{{setvar::x::5}} {{deletevar::x}}';
+    store.analyzeAllMacros();
+    expect('x' in store.variableEndValues).toBe(true);
+    expect(store.variableEndValues.x).toBeUndefined();
+  });
+});
+
 describe('A4 system-prompt guards', () => {
   it('selectAllEditorPrompts skips system prompts', () => {
     store.selectAllEditorPrompts();

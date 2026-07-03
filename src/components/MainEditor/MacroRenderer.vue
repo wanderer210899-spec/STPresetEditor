@@ -1,29 +1,75 @@
 <template>
-  <!-- Render the variable value in preview mode (getvar / getglobalvar) -->
-  <span
-    v-if="isGet && displayMode === 'preview'"
-    v-tooltip="{ content: macro.full, placement: 'top' }"
-    class="mx-0.5 cursor-pointer rounded bg-yellow-100 px-1 py-0.5 font-mono text-yellow-800 ring-yellow-500 transition-all duration-150 hover:ring-2 dark:bg-yellow-900/50 dark:text-yellow-300"
-    :class="{ '!bg-red-100 !text-red-700 dark:!bg-red-900/50 dark:!text-red-300': isUnresolved }"
-    @click.stop="onClick"
+  <!-- Variable macros get a rich hover card (F4a): value at this exact point,
+       scope, operation, defined-in jump links, and use count. The VTooltip
+       wrapper is forced display:inline (.macro-tip) so long macros still wrap
+       inside the pre-wrap content. -->
+  <VTooltip
+    v-if="macro.varName"
+    class="macro-tip"
+    :delay="{ show: 150, hide: 150 }"
+    :popper-triggers="['hover']"
+    placement="top"
   >
-    {{ currentValueForPopover }}
-  </span>
+    <span
+      class="mx-0.5 cursor-pointer rounded px-1 py-0.5 font-mono transition-all duration-150"
+      :class="chipStyle"
+      @click.stop="onClick"
+    >
+      {{ chipText }}
+    </span>
 
-  <!-- Render the raw getvar/getglobalvar with its value in a tooltip -->
-  <span
-    v-else-if="isGet"
-    v-tooltip="{ content: currentValueForPopover, placement: 'top' }"
-    :class="macroStyle"
-    class="mx-0.5 cursor-pointer rounded px-1 py-0.5 font-mono transition-all duration-150"
-    @click.stop="onClick"
-  >
-    {{ macro.full }}
-  </span>
+    <template #popper>
+      <div class="w-64 max-w-full font-sans text-xs whitespace-normal">
+        <div class="flex items-center gap-2">
+          <span class="truncate font-mono font-semibold">{{ macro.varName }}</span>
+          <span
+            class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+            :class="
+              macro.scope === 'global'
+                ? 'bg-purple-200 text-purple-800'
+                : 'bg-emerald-200 text-emerald-800'
+            "
+          >
+            {{ store.t(macro.scope === 'global' ? 'macroCard.global' : 'macroCard.local') }}
+          </span>
+          <span class="ml-auto shrink-0 tracking-wide uppercase opacity-60">{{ opLabel }}</span>
+        </div>
 
-  <!-- Render the raw macro for all other cases -->
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span class="shrink-0 opacity-60">{{ store.t('macroCard.valueHere') }}</span>
+          <span
+            class="font-mono break-all"
+            :class="{ 'italic opacity-50': valueHereIsPlaceholder }"
+          >
+            {{ valueHereDisplay }}
+          </span>
+        </div>
+
+        <div v-if="definedIn.length" class="mt-2">
+          <div class="text-[10px] tracking-wide uppercase opacity-50">
+            {{ store.t('macroCard.definedIn') }}
+          </div>
+          <button
+            v-for="def in definedIn"
+            :key="def.promptId"
+            class="block max-w-full truncate text-left underline decoration-dotted underline-offset-2 hover:opacity-80"
+            @click.stop="store.navigateToPrompt(def.promptId)"
+          >
+            {{ promptNameOf(def.promptId) }}
+          </button>
+        </div>
+
+        <div class="mt-1.5 opacity-60">
+          {{ store.t('macroCard.useCount', { count: useCount }) }}
+        </div>
+      </div>
+    </template>
+  </VTooltip>
+
+  <!-- Non-variable macros keep the plain-string tooltip behaviour -->
   <span
     v-else
+    v-tooltip="{ content: macro.full, placement: 'top' }"
     :class="macroStyle"
     class="mx-0.5 cursor-pointer rounded px-1 py-0.5 font-mono transition-all duration-150"
     @click.stop="onClick"
@@ -35,7 +81,7 @@
 <script setup>
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
-import { categoryOf } from '../../utils/macros';
+import { categoryOf, opLabelKey } from '../../utils/macros';
 
 const props = defineProps({
   /** @type {import('vue').PropType<import('../../stores/presetStore').MacroData>} */
@@ -61,8 +107,8 @@ const currentValue = computed(() => {
 
 const currentValueForPopover = computed(() => {
   const value = currentValue.value;
-  if (value === undefined) return '<undefined>';
-  if (value === '') return '<empty string>';
+  if (value === undefined) return store.t('macroCard.undefined');
+  if (value === '') return store.t('macroCard.empty');
   return value;
 });
 
@@ -109,6 +155,51 @@ const macroStyle = computed(() => {
   styles.push(CATEGORY_STYLES[categoryOf(props.macro)] || CATEGORY_STYLES.unknown);
   return styles;
 });
+
+// --- Chip rendering for variable macros ---------------------------------------
+
+// In preview mode a getvar renders as its value (yellow); everywhere else the
+// raw macro text with its category colour.
+const isPreviewValue = computed(() => isGet.value && props.displayMode === 'preview');
+const chipText = computed(() =>
+  isPreviewValue.value ? currentValueForPopover.value : props.macro.full,
+);
+const chipStyle = computed(() => {
+  if (isPreviewValue.value) {
+    return [
+      'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 ring-yellow-500 hover:ring-2',
+      isUnresolved.value ? '!bg-red-100 !text-red-700 dark:!bg-red-900/50 dark:!text-red-300' : '',
+      isSelected.value ? 'ring-2 ring-offset-1' : '',
+    ];
+  }
+  return macroStyle.value;
+});
+
+// --- Hover-card data (F4a) -----------------------------------------------------
+
+const opLabel = computed(() => {
+  const key = opLabelKey(props.macro);
+  return key ? store.t(key) : props.macro.op || props.macro.kind;
+});
+
+// Simulated value at this exact execution point: reads/mutates have a
+// snapshot; a plain set shows the value it assigns.
+const valueHere = computed(() => {
+  if (props.macro.kind === 'set') return props.macro.value;
+  return store.macroStateSnapshots[props.macro.id];
+});
+const valueHereIsPlaceholder = computed(
+  () => valueHere.value === undefined || valueHere.value === '',
+);
+const valueHereDisplay = computed(() => {
+  if (valueHere.value === undefined) return store.t('macroCard.undefined');
+  if (valueHere.value === '') return store.t('macroCard.empty');
+  return valueHere.value;
+});
+
+const definedIn = computed(() => store.variables[props.macro.varName]?.definedIn || []);
+const useCount = computed(() => store.variables[props.macro.varName]?.referencedIn?.length || 0);
+const promptNameOf = (promptId) => store.prompts[promptId]?.name || promptId;
 
 const onClick = () => {
   if (props.macro.varName) {

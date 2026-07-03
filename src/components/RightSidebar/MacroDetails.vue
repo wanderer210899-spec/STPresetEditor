@@ -32,12 +32,16 @@
       :empty-text="store.t('macroDetails.notReferencedByAnyPrompt')"
       @navigate="navigateTo"
     />
+
+    <!-- Execution-order timeline (F4c) -->
+    <VariableTimeline :name="variableName" />
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import VariableTimeline from './VariableTimeline.vue';
 import VariableUsageList from './VariableUsageList.vue';
 
 const store = usePresetStore();

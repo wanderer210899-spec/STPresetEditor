@@ -137,7 +137,11 @@
       "nothingFound": "Nothing found.",
       "newName": "New Name",
       "enterNewName": "Enter new name...",
-      "rename": "Rename"
+      "rename": "Rename",
+      "endValue": "Final value",
+      "prevUse": "Previous use",
+      "nextUse": "Next use",
+      "openDetails": "Open in Details tab"
     },
     "promptDetails": {
       "title": "Prompt Details",
@@ -157,6 +161,34 @@
       "referencedIn": "Referenced In",
       "notReferencedByAnyPrompt": "Not referenced by any other prompt.",
       "unknownPrompt": "Unknown Prompt"
+    },
+    "macroCard": {
+      "global": "global",
+      "local": "local",
+      "valueHere": "Value here:",
+      "definedIn": "Defined in",
+      "useCount": "References: {count}",
+      "undefined": "<undefined>",
+      "empty": "<empty>",
+      "op": {
+        "read": "read",
+        "get": "read",
+        "set": "set",
+        "add": "add",
+        "sub": "subtract",
+        "inc": "increment",
+        "dec": "decrement",
+        "delete": "delete",
+        "has": "has?",
+        "setIfNull": "set if unset",
+        "setIfFalsy": "set if falsy",
+        "control": "condition"
+      }
+    },
+    "variableTimeline": {
+      "title": "Timeline",
+      "skipped": "skipped",
+      "empty": "No activity for this variable."
     },
     "common": {
       "close": "Close",
@@ -486,7 +518,11 @@
       "nothingFound": "未找到任何内容。",
       "newName": "新名称",
       "enterNewName": "输入新名称...",
-      "rename": "重命名"
+      "rename": "重命名",
+      "endValue": "最终值",
+      "prevUse": "上一个使用位置",
+      "nextUse": "下一个使用位置",
+      "openDetails": "在详情标签中打开"
     },
     "promptDetails": {
       "title": "提示详情",
@@ -506,6 +542,34 @@
       "referencedIn": "引用于",
       "notReferencedByAnyPrompt": "未被任何其他提示引用。",
       "unknownPrompt": "未知提示"
+    },
+    "macroCard": {
+      "global": "全局",
+      "local": "局部",
+      "valueHere": "此处的值：",
+      "definedIn": "定义于",
+      "useCount": "引用次数：{count}",
+      "undefined": "<未定义>",
+      "empty": "<空>",
+      "op": {
+        "read": "读取",
+        "get": "读取",
+        "set": "赋值",
+        "add": "加",
+        "sub": "减",
+        "inc": "自增",
+        "dec": "自减",
+        "delete": "删除",
+        "has": "存在?",
+        "setIfNull": "未设置时赋值",
+        "setIfFalsy": "为假时赋值",
+        "control": "条件"
+      }
+    },
+    "variableTimeline": {
+      "title": "时间线",
+      "skipped": "已跳过",
+      "empty": "此变量没有任何活动。"
     },
     "common": {
       "close": "关闭",

@@ -219,6 +219,8 @@ export const usePresetStore = defineStore('preset', {
     variables: {}, // Object containing variable definitions and references
     unresolvedVariables: [], // Array of variables that are referenced but not defined
     macroStateSnapshots: {}, // Stores the value of each getvar at its execution point
+    variableEndValues: {}, // Simulated value of each variable after the full pass (F4, derived)
+    variableTimelines: {}, // Ordered def/ref events per variable in execution order (F4, derived)
 
     // Multi-selection state
     isMultiSelectActive: false, // Whether multi-selection mode is active
@@ -785,6 +787,7 @@ export const usePresetStore = defineStore('preset', {
 
       // --- Pass 3: Simulation and Aggregation ---
       const newSnapshots = {};
+      const newTimelines = {}; // varName -> ordered events (F4)
       let currentVarState = {};
 
       // Build the full execution flow for value lookups first
@@ -878,6 +881,23 @@ export const usePresetStore = defineStore('preset', {
           // A disabled mutate still reports the value it would have read.
           newSnapshots[macro.id] = currentVarState[macro.varName];
         }
+
+        // Timeline event (F4): one entry per def/ref in execution order.
+        // valueAfter = the simulated state after this event (for pure reads,
+        // the value that was read). Disabled prompts don't mutate the state —
+        // their events are recorded so the UI can show them as "skipped".
+        if (!newTimelines[macro.varName]) newTimelines[macro.varName] = [];
+        newTimelines[macro.varName].push({
+          macroId: macro.id,
+          promptId: prompt.id,
+          promptName: prompt.name || prompt.id,
+          op: macro.op,
+          kind: macro.kind,
+          scope: macro.scope,
+          enabled,
+          valueAfter:
+            macro.kind === 'get' ? newSnapshots[macro.id] : currentVarState[macro.varName],
+        });
       });
 
       const newVariables = {};
@@ -901,6 +921,13 @@ export const usePresetStore = defineStore('preset', {
       this.variables = newVariables;
       this.unresolvedVariables = Array.from(newUnresolved).map((varName) => ({ varName }));
       this.macroStateSnapshots = newSnapshots;
+      this.variableTimelines = newTimelines;
+      // End values after the full pass (F4). Deleted variables report undefined.
+      const newEndValues = {};
+      allVarNames.forEach((varName) => {
+        newEndValues[varName] = currentVarState[varName];
+      });
+      this.variableEndValues = newEndValues;
 
       console.log('[analyzeAllMacros] Analysis complete.');
       console.log('[analyzeAllMacros] Variables:', this.variables);
@@ -1317,13 +1344,20 @@ export const usePresetStore = defineStore('preset', {
         this.toggleRightSidebar(true);
       }
     },
-    selectMacro(variableName) {
+    /**
+     * Select a variable (highlights every occurrence in the editor).
+     * With `keepTab: true` the right sidebar stays where it is — used by the
+     * Variables panel rows (F4b), which highlight without switching away.
+     */
+    selectMacro(variableName, { keepTab = false } = {}) {
       if (variableName) {
         this.selectedMacro = { variableName };
         this.selectedPromptId = null;
-        this.activeRightSidebarTab = 'details';
-        if (this.isMobile) {
-          this.toggleRightSidebar(true);
+        if (!keepTab) {
+          this.activeRightSidebarTab = 'details';
+          if (this.isMobile) {
+            this.toggleRightSidebar(true);
+          }
         }
       }
     },

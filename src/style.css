@@ -55,6 +55,12 @@
     border-radius: 2px;
   }
 
+  /* Variable hover-card wrapper (F4a): floating-vue renders a div around the
+     macro chip; force it inline so long macros still wrap in pre-wrap text. */
+  .macro-tip {
+    display: inline;
+  }
+
   /* Text buttons -------------------------------------------------------- */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
