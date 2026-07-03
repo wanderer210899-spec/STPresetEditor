@@ -20,10 +20,18 @@
 //     When the webview sends baseUpdatedAt, the push is CONDITIONAL: a cloud doc
 //     newer than that base returns {conflict:true} instead of overwriting.
 //
+//   • Folder workspace (F5): an Explorer "ST Presets" tree of the workspace's
+//     preset .json files (New/Duplicate/Rename/Delete/Reveal), and an opt-in
+//     folder↔cloud-library link driven by a `.stpe-library.json` mapping file
+//     ({ files: { "<relative path>": { presetId, lastSyncedHash } } }). Pure
+//     conversion/decision logic lives in ./presetFolder.js (unit-tested).
+//
 // Plain CommonJS so it runs with no compile step.
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
+const folderLib = require('./presetFolder');
 
 const SECRET_KEY = 'stpe.apiKey';
 
@@ -58,6 +66,546 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('stpe.pullFromCloud', pullFromCloud),
   );
+
+  // --- F5a: ST Presets tree + watcher ---
+  treeProvider = new PresetTreeProvider();
+  context.subscriptions.push(
+    vscode.window.createTreeView('stpePresets', { treeDataProvider: treeProvider }),
+    vscode.commands.registerCommand('stpe.refreshPresets', () => treeProvider.refresh()),
+    vscode.commands.registerCommand('stpe.newPreset', newPresetFile),
+    vscode.commands.registerCommand('stpe.duplicatePreset', duplicatePresetFile),
+    vscode.commands.registerCommand('stpe.renamePreset', renamePresetFile),
+    vscode.commands.registerCommand('stpe.deletePreset', deletePresetFile),
+    vscode.commands.registerCommand('stpe.revealInExplorer', (item) => {
+      if (item && item.fsPath) {
+        vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(item.fsPath));
+      }
+    }),
+    vscode.commands.registerCommand('stpe.linkFolder', linkFolder),
+    vscode.commands.registerCommand('stpe.syncFolder', () =>
+      reconcileFolder({ interactive: true }),
+    ),
+    vscode.commands.registerCommand('stpe.downloadMissing', downloadMissingPresets),
+    vscode.commands.registerCommand('stpe.downloadPreset', (item) =>
+      downloadMissingPresets(item && item.presetId ? item.presetId : undefined),
+    ),
+  );
+  setupWatcher(context);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('stpe.presetGlob')) setupWatcher(context);
+    }),
+  );
+
+  // F5b: reconcile on the F2 cadence while a panel is open (and once at start).
+  const interval = setInterval(() => {
+    if (panels.size > 0) reconcileFolder({ interactive: false });
+  }, 30000);
+  context.subscriptions.push({ dispose: () => clearInterval(interval) });
+  reconcileFolder({ interactive: false });
+}
+
+// --- F5a: Presets tree ---------------------------------------------------------
+
+let treeProvider = null;
+let watcher = null;
+let reconcileTimer = null;
+/** relPath -> { label, icon, tooltip } from the last reconcile. */
+let fileStates = new Map();
+/** Cloud entries with no mapped file, from the last reconcile. */
+let cloudOnlyEntries = [];
+
+const FILE_STATES = {
+  synced: { label: 'synced', icon: 'check' },
+  pending: { label: 'pending ↑', icon: 'arrow-up' },
+  conflict: { label: 'conflict ⚠', icon: 'warning' },
+  localOnly: { label: 'local-only', icon: 'file' },
+  cloudOnly: { label: 'cloud-only', icon: 'cloud' },
+};
+
+function workspaceRoot() {
+  const ws = vscode.workspace.workspaceFolders;
+  return ws && ws.length ? ws[0].uri.fsPath : null;
+}
+
+function presetGlob() {
+  const cfg = vscode.workspace.getConfiguration('stpe').get('presetGlob');
+  return typeof cfg === 'string' && cfg.trim() ? cfg.trim() : '**/*.json';
+}
+
+/** Workspace .json files that parse as ST presets (object with a prompts array). */
+async function findPresetFiles() {
+  const uris = await vscode.workspace.findFiles(presetGlob(), '**/node_modules/**', 500);
+  const files = [];
+  for (const uri of uris) {
+    if (path.basename(uri.fsPath) === folderLib.MAPPING_FILENAME) continue;
+    let text;
+    try {
+      if (fs.statSync(uri.fsPath).size > 5 * 1024 * 1024) continue;
+      text = fs.readFileSync(uri.fsPath, 'utf8');
+    } catch {
+      continue;
+    }
+    if (!folderLib.isPresetJson(text)) continue; // silently skip non-presets
+    files.push(uri.fsPath);
+  }
+  files.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+  return files;
+}
+
+class PresetTreeProvider {
+  constructor() {
+    this._emitter = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._emitter.event;
+  }
+  refresh() {
+    this._emitter.fire(undefined);
+  }
+  async getChildren(element) {
+    if (element) return [];
+    const root = workspaceRoot();
+    const files = await findPresetFiles();
+    const items = files.map((fsPath) => ({
+      kind: 'file',
+      fsPath,
+      rel: root ? path.relative(root, fsPath) : path.basename(fsPath),
+    }));
+    cloudOnlyEntries.forEach((entry) =>
+      items.push({ kind: 'cloud', presetId: entry.presetId, name: entry.name }),
+    );
+    return items;
+  }
+  getTreeItem(entry) {
+    if (entry.kind === 'cloud') {
+      const item = new vscode.TreeItem(entry.name || entry.presetId);
+      item.description = FILE_STATES.cloudOnly.label;
+      item.iconPath = new vscode.ThemeIcon(FILE_STATES.cloudOnly.icon);
+      item.contextValue = 'stpeCloudPreset';
+      item.tooltip = 'In the cloud library but not in this folder — download to create the file.';
+      return item;
+    }
+    const item = new vscode.TreeItem(path.basename(entry.fsPath));
+    item.resourceUri = vscode.Uri.file(entry.fsPath);
+    item.contextValue = 'stpePreset';
+    item.command = {
+      command: 'stpe.open',
+      title: 'Open in STPresetEditor',
+      arguments: [vscode.Uri.file(entry.fsPath)],
+    };
+    const state = fileStates.get(entry.rel);
+    if (state) {
+      item.description = state.label;
+      item.iconPath = new vscode.ThemeIcon(state.icon);
+    } else {
+      item.iconPath = new vscode.ThemeIcon('json');
+    }
+    return item;
+  }
+}
+
+function setupWatcher(context) {
+  if (watcher) watcher.dispose();
+  watcher = vscode.workspace.createFileSystemWatcher(presetGlob());
+  const onFsEvent = (uri) => {
+    if (uri && path.basename(uri.fsPath) === folderLib.MAPPING_FILENAME) return;
+    if (treeProvider) treeProvider.refresh();
+    scheduleReconcile();
+  };
+  watcher.onDidCreate(onFsEvent);
+  watcher.onDidChange(onFsEvent);
+  watcher.onDidDelete(onFsEvent);
+  context.subscriptions.push(watcher);
+  if (treeProvider) treeProvider.refresh();
+}
+
+/** Debounced follow-up reconcile after file events (save/create/delete). */
+function scheduleReconcile() {
+  if (!folderLinked() || !cloudConfigured()) return;
+  clearTimeout(reconcileTimer);
+  reconcileTimer = setTimeout(() => reconcileFolder({ interactive: false }), 2000);
+}
+
+// --- F5a: tree file operations --------------------------------------------------
+
+async function newPresetFile() {
+  const root = workspaceRoot();
+  if (!root) {
+    vscode.window.showErrorMessage('STPresetEditor: open a folder first.');
+    return;
+  }
+  const name = await vscode.window.showInputBox({
+    prompt: 'Name for the new preset',
+    value: 'New Preset',
+  });
+  if (!name) return;
+  const existing = fs.readdirSync(root).filter((f) => f.toLowerCase().endsWith('.json'));
+  const fileName = folderLib.fileNameForEntry(name, existing);
+  const target = path.join(root, fileName);
+  writeFileAtomic(target, folderLib.starterPresetJson());
+  if (treeProvider) treeProvider.refresh();
+  scheduleReconcile();
+  openEditor(extensionContext, target);
+}
+
+async function duplicatePresetFile(item) {
+  if (!item || !item.fsPath) return;
+  let text;
+  try {
+    text = fs.readFileSync(item.fsPath, 'utf8');
+  } catch (error) {
+    vscode.window.showErrorMessage(`STPresetEditor: cannot read file — ${error.message}`);
+    return;
+  }
+  const dir = path.dirname(item.fsPath);
+  const base = path.basename(item.fsPath, '.json');
+  const existing = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.json'));
+  const fileName = folderLib.fileNameForEntry(`${base} copy`, existing);
+  writeFileAtomic(path.join(dir, fileName), text);
+  if (treeProvider) treeProvider.refresh();
+  scheduleReconcile();
+}
+
+async function renamePresetFile(item) {
+  if (!item || !item.fsPath) return;
+  const oldBase = path.basename(item.fsPath);
+  const input = await vscode.window.showInputBox({ prompt: 'New file name', value: oldBase });
+  if (!input || input === oldBase) return;
+  const safe = input.replace(/[\\/:*?"<>|]/g, '_');
+  const newName = safe.toLowerCase().endsWith('.json') ? safe : `${safe}.json`;
+  const target = path.join(path.dirname(item.fsPath), newName);
+  if (fs.existsSync(target)) {
+    vscode.window.showErrorMessage(`STPresetEditor: "${newName}" already exists.`);
+    return;
+  }
+  try {
+    fs.renameSync(item.fsPath, target);
+  } catch (error) {
+    vscode.window.showErrorMessage(`STPresetEditor: rename failed — ${error.message}`);
+    return;
+  }
+  // Keep the cloud mapping attached to the renamed file.
+  const mapping = readMapping();
+  const root = workspaceRoot();
+  if (mapping && root) {
+    const oldRel = path.relative(root, item.fsPath);
+    const newRel = path.relative(root, target);
+    if (mapping.files[oldRel]) {
+      mapping.files[newRel] = mapping.files[oldRel];
+      delete mapping.files[oldRel];
+      writeMapping(mapping);
+    }
+  }
+  if (treeProvider) treeProvider.refresh();
+}
+
+async function deletePresetFile(item) {
+  if (!item || !item.fsPath) return;
+  const base = path.basename(item.fsPath);
+  const confirmed = await vscode.window.showWarningMessage(
+    `Delete "${base}"?`,
+    { modal: true },
+    'Delete',
+  );
+  if (confirmed !== 'Delete') return;
+  try {
+    await vscode.workspace.fs.delete(vscode.Uri.file(item.fsPath), { useTrash: true });
+  } catch (error) {
+    vscode.window.showErrorMessage(`STPresetEditor: delete failed — ${error.message}`);
+    return;
+  }
+  // Deleting a file never deletes the cloud entry without an explicit prompt.
+  const mapping = readMapping();
+  const root = workspaceRoot();
+  if (mapping && root) {
+    const rel = path.relative(root, item.fsPath);
+    const m = mapping.files[rel];
+    if (m) {
+      delete mapping.files[rel];
+      writeMapping(mapping);
+      if (cloudConfigured()) {
+        const choice = await vscode.window.showWarningMessage(
+          `Also delete "${base}" from the cloud library? (Keep = it stays available as cloud-only.)`,
+          'Keep in cloud',
+          'Delete from cloud',
+        );
+        if (choice === 'Delete from cloud') {
+          await removeCloudEntry(m.presetId);
+        }
+      }
+    }
+  }
+  if (treeProvider) treeProvider.refresh();
+  scheduleReconcile();
+}
+
+/** Read-merge-write removal of one library entry. */
+async function removeCloudEntry(presetId) {
+  try {
+    const doc = await cloudGet();
+    const base = doc && doc.data && typeof doc.data === 'object' ? doc.data : {};
+    const savedPresets = { ...(base.savedPresets || {}) };
+    if (!(presetId in savedPresets)) return;
+    delete savedPresets[presetId];
+    await cloudPush({ savedPresets }, (doc && doc.updatedAt) || null);
+  } catch {
+    vscode.window.showWarningMessage(
+      'STPresetEditor: could not update the cloud library (it will re-appear as cloud-only).',
+    );
+  }
+}
+
+// --- F5b: folder <-> cloud library sync ------------------------------------------
+
+function mappingFilePath() {
+  const root = workspaceRoot();
+  return root ? path.join(root, folderLib.MAPPING_FILENAME) : null;
+}
+
+function folderLinked() {
+  const p = mappingFilePath();
+  return Boolean(p && fs.existsSync(p));
+}
+
+function readMapping() {
+  const p = mappingFilePath();
+  if (!p || !fs.existsSync(p)) return null;
+  try {
+    return folderLib.normalizeMapping(JSON.parse(fs.readFileSync(p, 'utf8')));
+  } catch {
+    return folderLib.normalizeMapping(null);
+  }
+}
+
+function writeMapping(mapping) {
+  const p = mappingFilePath();
+  if (p) writeFileAtomic(p, JSON.stringify(mapping, null, 2) + '\n');
+}
+
+/** Command: create the mapping file and run a first interactive reconcile. */
+async function linkFolder() {
+  const root = workspaceRoot();
+  if (!root) {
+    vscode.window.showErrorMessage('STPresetEditor: open a folder first.');
+    return;
+  }
+  if (!cloudConfigured()) {
+    if (!apiBase()) nudgeForCloudUrl();
+    else {
+      vscode.window.showWarningMessage(
+        'STPresetEditor: connect cloud sync first (paste an API key in the editor’s Settings → Cloud sync).',
+      );
+    }
+    return;
+  }
+  if (!folderLinked()) writeMapping({ files: {} });
+  await reconcileFolder({ interactive: true });
+  vscode.window.showInformationMessage(
+    'STPresetEditor: folder linked to your cloud library. ".stpe-library.json" records the mapping — commit it to share the link across machines, or gitignore it to keep it per-machine.',
+  );
+}
+
+let reconciling = false;
+
+/**
+ * Folder <-> cloud library reconcile (F5b): one GET, per-file decisions via
+ * content hashes (see presetFolder.decideSyncAction), pulls applied
+ * immediately, pushes batched into one conditional PUT, mapping hashes
+ * committed only after the PUT lands. Interactive mode prompts per conflicted
+ * file (keep local / keep cloud); the background cadence just badges ⚠.
+ */
+async function reconcileFolder({ interactive = false } = {}) {
+  if (reconciling || !folderLinked() || !cloudConfigured()) return;
+  const root = workspaceRoot();
+  if (!root) return;
+  reconciling = true;
+  try {
+    const doc = await cloudGet();
+    const cloudAt = (doc && doc.updatedAt) || null;
+    const base = doc && doc.data && typeof doc.data === 'object' ? doc.data : {};
+    const savedPresets = { ...(base.savedPresets || {}) };
+    const mapping = readMapping() || folderLib.normalizeMapping(null);
+    const newStates = new Map();
+    const pendingHashUpdates = []; // [rel, hash] — applied only if the PUT lands
+    let cloudDirty = false;
+    let mappingDirty = false;
+
+    // Auto-map local preset files that are not linked yet (first sync = push).
+    const files = await findPresetFiles();
+    for (const fsPath of files) {
+      const rel = path.relative(root, fsPath);
+      if (!mapping.files[rel]) {
+        mapping.files[rel] = { presetId: crypto.randomUUID(), lastSyncedHash: '' };
+        mappingDirty = true;
+      }
+    }
+
+    for (const [rel, m] of Object.entries(mapping.files)) {
+      const abs = path.join(root, rel);
+      let localText = null;
+      try {
+        localText = fs.readFileSync(abs, 'utf8');
+      } catch {
+        // file missing — decideSyncAction handles it
+      }
+      const entry = savedPresets[m.presetId];
+      let cloudText = null;
+      if (entry && entry.data) {
+        try {
+          cloudText = folderLib.buildPresetJson(entry.data);
+        } catch {
+          cloudText = null;
+        }
+      }
+      // Canonical hashes on both sides: the cloud round-trip re-serializes
+      // files, so raw-text hashing would flag every synced file as changed.
+      const localHash = localText == null ? null : folderLib.canonicalHash(localText);
+      const cloudHash = cloudText == null ? null : folderLib.canonicalHash(cloudText);
+      let action = folderLib.decideSyncAction({
+        localHash,
+        cloudHash,
+        lastSyncedHash: m.lastSyncedHash,
+      });
+
+      if (action === 'conflict' && interactive) {
+        const choice = await vscode.window.showWarningMessage(
+          `STPresetEditor: "${rel}" changed both locally and in the cloud.`,
+          'Keep local',
+          'Keep cloud',
+        );
+        if (choice === 'Keep local') action = 'push';
+        else if (choice === 'Keep cloud') action = 'pull';
+      }
+
+      if (action === 'push') {
+        let parsedData = null;
+        try {
+          parsedData = folderLib.parsePresetFile(localText);
+        } catch {
+          // unparseable file — leave it pending, try again next cycle
+        }
+        if (parsedData) {
+          const now = new Date().toISOString();
+          const name = (entry && entry.name) || path.basename(rel, '.json');
+          savedPresets[m.presetId] = {
+            ...(entry || { id: m.presetId, createdAt: now, snapshots: [] }),
+            id: m.presetId,
+            name,
+            updatedAt: now,
+            data: {
+              ...((entry && entry.data) || {}),
+              rawJson: localText,
+              originalFilename: path.basename(rel),
+              prompts: parsedData.prompts,
+              promptOrder: parsedData.promptOrder,
+            },
+          };
+          pendingHashUpdates.push([rel, localHash]);
+          cloudDirty = true;
+          newStates.set(rel, FILE_STATES.synced);
+        } else {
+          newStates.set(rel, FILE_STATES.pending);
+        }
+      } else if (action === 'pull') {
+        writeFileAtomic(abs, cloudText);
+        m.lastSyncedHash = cloudHash;
+        mappingDirty = true;
+        newStates.set(rel, FILE_STATES.synced);
+      } else if (action === 'conflict') {
+        newStates.set(rel, FILE_STATES.conflict);
+      } else if (action === 'local-only') {
+        newStates.set(rel, FILE_STATES.localOnly);
+      } else if (action === 'cloud-only') {
+        newStates.set(rel, FILE_STATES.cloudOnly);
+      } else {
+        // 'none': both sides may have converged — keep hashes current.
+        if (localHash && m.lastSyncedHash !== localHash) {
+          m.lastSyncedHash = localHash;
+          mappingDirty = true;
+        }
+        newStates.set(rel, FILE_STATES.synced);
+      }
+    }
+
+    if (cloudDirty) {
+      const res = await cloudPush({ savedPresets }, cloudAt);
+      if (res && res.ok) {
+        pendingHashUpdates.forEach(([rel, hash]) => {
+          if (mapping.files[rel]) mapping.files[rel].lastSyncedHash = hash;
+        });
+        mappingDirty = mappingDirty || pendingHashUpdates.length > 0;
+      } else {
+        // PUT lost a race or failed — the pushed files stay "pending" and the
+        // next cycle retries against the fresh cloud document.
+        pendingHashUpdates.forEach(([rel]) => newStates.set(rel, FILE_STATES.pending));
+      }
+    }
+
+    if (mappingDirty) writeMapping(mapping);
+
+    // Cloud entries with no mapped file → listed as cloud-only tree items.
+    const mappedIds = new Set(Object.values(mapping.files).map((m) => m.presetId));
+    cloudOnlyEntries = Object.entries(savedPresets)
+      .filter(([presetId]) => !mappedIds.has(presetId))
+      .map(([presetId, entry]) => ({ presetId, name: (entry && entry.name) || presetId }));
+
+    fileStates = newStates;
+    if (treeProvider) treeProvider.refresh();
+  } catch (error) {
+    if (interactive) {
+      vscode.window.showErrorMessage(`STPresetEditor: folder sync failed — ${error.message}`);
+    }
+  } finally {
+    reconciling = false;
+  }
+}
+
+/**
+ * Command: write cloud-only library entries into the folder as `<name>.json`
+ * and map them. With a presetId argument, downloads just that entry.
+ */
+async function downloadMissingPresets(onlyPresetId) {
+  const root = workspaceRoot();
+  if (!root || !cloudConfigured()) {
+    vscode.window.showWarningMessage(
+      'STPresetEditor: link the folder and connect cloud sync first.',
+    );
+    return;
+  }
+  if (!folderLinked()) writeMapping({ files: {} });
+  try {
+    const doc = await cloudGet();
+    const base = doc && doc.data && typeof doc.data === 'object' ? doc.data : {};
+    const savedPresets = base.savedPresets || {};
+    const mapping = readMapping() || folderLib.normalizeMapping(null);
+    const mappedIds = new Set(Object.values(mapping.files).map((m) => m.presetId));
+    const existingNames = fs.readdirSync(root).filter((f) => f.toLowerCase().endsWith('.json'));
+    let count = 0;
+    for (const [presetId, entry] of Object.entries(savedPresets)) {
+      if (mappedIds.has(presetId)) continue;
+      if (onlyPresetId && presetId !== onlyPresetId) continue;
+      let text;
+      try {
+        text = folderLib.buildPresetJson((entry && entry.data) || {});
+      } catch {
+        continue;
+      }
+      const fileName = folderLib.fileNameForEntry((entry && entry.name) || presetId, existingNames);
+      existingNames.push(fileName);
+      writeFileAtomic(path.join(root, fileName), text);
+      mapping.files[fileName] = { presetId, lastSyncedHash: folderLib.canonicalHash(text) };
+      count += 1;
+    }
+    writeMapping(mapping);
+    if (treeProvider) treeProvider.refresh();
+    vscode.window.showInformationMessage(
+      count > 0
+        ? `STPresetEditor: downloaded ${count} preset${count === 1 ? '' : 's'}.`
+        : 'STPresetEditor: nothing to download — every cloud preset is already mapped.',
+    );
+    reconcileFolder({ interactive: false });
+  } catch (error) {
+    vscode.window.showErrorMessage(`STPresetEditor: download failed — ${error.message}`);
+  }
 }
 
 /** Resolve the .json path from a context-menu uri or the active editor. */
@@ -128,7 +676,7 @@ function setActivePanel(panel) {
 }
 
 function refreshPullStatusBar() {
-  if (activePanel && cloudConfigured()) statusBarPull.show();
+  if ((activePanel || folderLinked()) && cloudConfigured()) statusBarPull.show();
   else statusBarPull.hide();
 }
 
@@ -498,10 +1046,11 @@ async function cloudPush(data, baseUpdatedAt) {
 }
 
 /** Command (status-bar "Sync library"): ask the active editor to re-reconcile its
- *  library with the cloud. The reconcile engine lives in the webview; the host is
- *  just the transport, so we nudge the webview rather than pull directly. */
+ *  library with the cloud, and reconcile the linked folder (F5b). The library
+ *  reconcile engine lives in the webview; the host is just the transport, so we
+ *  nudge the webview rather than pull directly. */
 function pullFromCloud() {
-  if (!activePanel) {
+  if (!activePanel && !folderLinked()) {
     vscode.window.showInformationMessage('STPresetEditor: open a preset first.');
     return;
   }
@@ -515,7 +1064,8 @@ function pullFromCloud() {
     );
     return;
   }
-  activePanel.webview.postMessage({ type: 'cloudReconcile' });
+  if (activePanel) activePanel.webview.postMessage({ type: 'cloudReconcile' });
+  reconcileFolder({ interactive: true });
 }
 
 // --- Webview HTML -------------------------------------------------------------

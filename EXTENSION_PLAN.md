@@ -377,3 +377,52 @@ reload. Each milestone is independently demoable.
 ```
 
 ```
+
+---
+
+## 8. Implemented: folder workspace (F5, 2026-07)
+
+SPEC.md F5 is now built. What shipped, for anyone extending it:
+
+- **5a — "ST Presets" Explorer view** (`extension/extension.js`
+  `PresetTreeProvider` + `extension/package.json` contributions): lists
+  workspace `.json` files matching **`stpe.presetGlob`** (default `**/*.json`,
+  `node_modules` always excluded, 5 MB cap) that parse as ST presets
+  (object with a `prompts` array — `presetFolder.isPresetJson`); non-presets
+  are skipped silently. Item click opens the existing webview-per-file.
+  Actions: **New preset** (starter template, name prompt, opens it),
+  **Duplicate**, **Rename…** (keeps the cloud mapping attached), **Delete**
+  (modal confirm, trash via `workspace.fs`), **Reveal in Explorer**. A
+  `FileSystemWatcher` over the glob refreshes the tree and debounces a
+  reconcile.
+
+- **5b — folder ↔ cloud library link** (opt-in, command **"STPE: Link folder
+  to cloud library"**): mapping file **`.stpe-library.json`** at the first
+  workspace folder's root — `{ files: { "<relative path>": { presetId,
+lastSyncedHash } } }`. Commit it to share the link across machines, or
+  gitignore it to keep it per-machine (both are fine; the reconcile
+  re-creates entries as needed). The reconcile
+  (`extension.js reconcileFolder`) runs one cloud GET, decides per file via
+  content hashes (`presetFolder.decideSyncAction`): local change → batched
+  into one conditional PUT (mapping hashes commit only after the PUT lands;
+  a lost race retries next cycle); cloud change with an untouched local file
+  → file rewritten in place; both changed → **per-file conflict prompt**
+  (keep local / keep cloud) in interactive runs, a ⚠ badge otherwise.
+  Cadence: on file events (debounced 2 s), every 30 s while a panel is open,
+  and from the status-bar button / **"STPE: Sync folder with cloud
+  library"**. **"STPE: Download missing presets"** writes cloud-only entries
+  as `<name>.json` and maps them; deleting a mapped file only removes the
+  cloud entry after an explicit second prompt (default keeps it, shown as
+  cloud-only). Tree badges: synced ✓ / pending ↑ / conflict ⚠ / local-only /
+  cloud-only.
+
+- **Pure logic is unit-tested**: `extension/presetFolder.js` has no `vscode`
+  import — file↔entry conversion mirrors the web store
+  (`parsePresetFile` ⇔ `parseFromJson`, `buildPresetJson` ⇔
+  `composePresetJson`, character 100001 only), plus hashing, the sync
+  decision table, name sanitising, and mapping normalisation
+  (`test/presetFolder.test.js`).
+
+- **5c** was already in place: the webview asks the host to create files
+  (`createFile` → `fileCreated`), so Preset Manager "Load" opens a new tab
+  and never overwrites the open file.
