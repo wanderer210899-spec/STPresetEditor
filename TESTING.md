@@ -10,6 +10,9 @@ what you should see. Three test setups, from simplest to most complete:
 3. **The VS Code / Cursor extension** — installed from the prebuilt `.vsix`
    committed on this branch, optionally synced against the sandbox from step 2.
 
+Plus an optional step 4: **deploy a real test Worker to Cloudflare straight
+from this folder** — no "Deploy" button, no new GitHub repo.
+
 ---
 
 ## 0. One-time setup
@@ -213,6 +216,51 @@ With `npm run cf-preview` still running:
    linked.
 6. Delete a linked file from the panel — after the file confirm you're asked
    separately whether to also remove it **from the cloud** or keep it there.
+
+---
+
+## 4. Deploy a real test Worker from this branch (no new repo)
+
+The one-click **Deploy to Cloudflare** button always copies the repo's
+_default_ branch into a new GitHub repo — that's why it can't test this branch.
+Deploying with the `wrangler` command instead uses **exactly the code in your
+local folder** and creates no repos.
+
+From the project folder (on this branch):
+
+```bash
+npx wrangler login       # opens a browser — sign in to Cloudflare and click Allow
+npm run deploy           # builds, then uploads the Worker
+```
+
+During the first deploy wrangler notices the storage bindings have no ids yet
+and **asks whether to create them** (a KV namespace for presets and a D1
+database called `stpreseteditor-auth`) — answer **yes** to both. Then create
+the login tables once:
+
+```bash
+npx wrangler d1 migrations apply stpreseteditor-auth --remote
+```
+
+The deploy prints your URL, e.g. `https://stpreseteditor.<your-name>.workers.dev`
+— a **separate** Worker from anything the Deploy button made (that one has its
+own name), so you can test freely without touching it. Open the URL, create
+your account (first visitor claims the instance — do it right away, and
+consider setting the `OWNER_EMAIL` Worker variable as described in README.md),
+generate an API key, and point the VS Code extension at this URL.
+
+- **Update after new commits:** `git pull`, then `npm run deploy` again.
+- **Remove the test Worker:** `npx wrangler delete` (or dashboard → Workers →
+  delete). The KV/D1 data stays until you delete those too.
+
+> **About "restricted — Visitors must sign in and match an Access policy":**
+> that's **Cloudflare Access**, an optional gate _in front of_ the whole site,
+> separate from the app's own login. The app does not need it — it has its own
+> accounts and refuses all data requests without a valid sign-in or API key.
+> If Access is enabled on your Worker's URL, browsers must pass a Cloudflare
+> login first (fine for you), but the **VS Code extension cannot pass it** and
+> folder sync will fail. For testing, either leave Access off for the test
+> Worker, or keep it web-only and skip the extension against that URL.
 
 ---
 
