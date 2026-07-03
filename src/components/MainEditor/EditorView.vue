@@ -3,11 +3,12 @@
   <div class="flex h-full flex-col">
     <!-- Editor header with title and controls -->
     <div class="mb-3 flex flex-shrink-0 flex-col gap-2">
-      <!-- Row 1: title, search, and view/action controls -->
-      <div class="flex items-center gap-3">
+      <!-- Row 1: title, search, and view/action controls. Wraps on narrow
+           screens (320px phones) instead of pushing buttons off-screen. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 class="section-title shrink-0">{{ store.t('editor.title') }}</h2>
         <!-- Inline search box -->
-        <div class="relative min-w-0 flex-1">
+        <div class="relative min-w-0 flex-1 basis-40">
           <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
             <MagnifyingGlassIcon
               class="h-5 w-5 text-gray-400 dark:text-gray-500"
@@ -103,10 +104,14 @@
 
           <span class="mx-0.5 h-6 w-px bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
 
-          <!-- Primary action: new prompt -->
-          <button class="btn btn-sm btn-primary" @click="store.createNewPrompt()">
+          <!-- Primary action: new prompt (icon-only on narrow phones) -->
+          <button
+            class="btn btn-sm btn-primary"
+            :title="store.t('promptLibrary.newPrompt')"
+            @click="store.createNewPrompt()"
+          >
             <PlusIcon class="h-4 w-4" />
-            {{ store.t('promptLibrary.newPrompt') }}
+            <span class="hidden sm:inline">{{ store.t('promptLibrary.newPrompt') }}</span>
           </button>
           <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
           <button

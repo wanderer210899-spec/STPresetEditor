@@ -99,7 +99,7 @@
                 </span>
                 <button
                   v-tooltip="store.t('variableManager.openDetails')"
-                  class="btn-icon btn-icon-sm md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                  class="btn-icon btn-icon-sm pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
                   @click.stop="goToVariableDetails(variable)"
                 >
                   <ArrowTopRightOnSquareIcon class="h-4 w-4" />

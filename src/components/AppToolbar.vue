@@ -73,8 +73,10 @@ const menuItemClass =
       <Bars3Icon class="h-6 w-6" />
     </button>
 
-    <!-- Desktop: Application Title -->
-    <h1 class="hidden text-base font-bold text-gray-800 md:block dark:text-gray-200">
+    <!-- Desktop: Application Title (truncates so it never pushes buttons off) -->
+    <h1
+      class="mr-2 hidden min-w-0 flex-1 truncate text-base font-bold text-gray-800 md:block dark:text-gray-200"
+    >
       {{ store.t('app.title') }}
     </h1>
 
@@ -107,7 +109,7 @@ const menuItemClass =
       </button>
       <!-- Approximate token total of enabled, in-order prompts (F8d) -->
       <span
-        class="text-xs text-gray-400 tabular-nums dark:text-gray-500"
+        class="hidden text-xs text-gray-400 tabular-nums lg:inline dark:text-gray-500"
         :title="store.t('toolbar.tokenTotalTitle')"
       >
         {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
@@ -120,25 +122,48 @@ const menuItemClass =
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
       </div>
-      <button class="btn btn-sm btn-secondary" @click="store.openImportModal()">
+      <!-- Icon-only between md and lg (landscape phones / small tablets) so
+           the row always fits; full labels return at lg. -->
+      <button
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.import')"
+        @click="store.openImportModal()"
+      >
         <ArrowDownTrayIcon class="h-4 w-4" />
-        {{ store.t('toolbar.import') }}
+        <span class="hidden lg:inline">{{ store.t('toolbar.import') }}</span>
       </button>
-      <button class="btn btn-sm btn-secondary" @click="store.openExportModal()">
+      <button
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.export')"
+        @click="store.openExportModal()"
+      >
         <ArrowUpTrayIcon class="h-4 w-4" />
-        {{ store.t('toolbar.export') }}
+        <span class="hidden lg:inline">{{ store.t('toolbar.export') }}</span>
       </button>
-      <button v-if="!isHost" class="btn btn-sm btn-secondary" @click="takeSnapshot">
+      <button
+        v-if="!isHost"
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.snapshot')"
+        @click="takeSnapshot"
+      >
         <CameraIcon class="h-4 w-4" />
-        {{ store.t('toolbar.snapshot') }}
+        <span class="hidden lg:inline">{{ store.t('toolbar.snapshot') }}</span>
       </button>
-      <button class="btn btn-sm btn-secondary" @click="store.openPresetManager()">
+      <button
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.presets')"
+        @click="store.openPresetManager()"
+      >
         <BookmarkIcon class="h-4 w-4" />
-        {{ store.t('toolbar.presets') }}
+        <span class="hidden lg:inline">{{ store.t('toolbar.presets') }}</span>
       </button>
-      <button class="btn btn-sm btn-secondary" @click="store.isSettingsModalOpen = true">
+      <button
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.settings')"
+        @click="store.isSettingsModalOpen = true"
+      >
         <Cog6ToothIcon class="h-4 w-4" />
-        {{ store.t('toolbar.settings') }}
+        <span class="hidden lg:inline">{{ store.t('toolbar.settings') }}</span>
       </button>
     </div>
 

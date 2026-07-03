@@ -3,10 +3,15 @@
        scope, operation, defined-in jump links, and use count. The VTooltip
        wrapper is forced display:inline (.macro-tip) so long macros still wrap
        inside the pre-wrap content. -->
+  <!-- Hover/focus only (no touch trigger): on touch devices a tap runs
+       onClick -> selectMacro, which opens the full variable details (with the
+       timeline) in the right pane/drawer — that is the mobile path to
+       everything this card shows. -->
   <VTooltip
     v-if="macro.varName"
     class="macro-tip"
     :delay="{ show: 150, hide: 150 }"
+    :triggers="['hover', 'focus']"
     :popper-triggers="['hover']"
     placement="top"
   >
