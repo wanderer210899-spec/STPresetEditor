@@ -4,8 +4,9 @@ Edit SillyTavern presets straight from local files using the full STPresetEditor
 UI, inside Cursor/VSCode. Open a `.json` preset → edit in the rich UI → it saves
 back to the same file automatically.
 
-> Phase M0 + M1 + M2c of `../EXTENSION_PLAN.md`. Not yet included: the
-> preset-library sidebar (M2) and live SillyTavern reload (M3).
+> Phase M0 + M1 + M2c of `../EXTENSION_PLAN.md`, plus the **ST Presets**
+> folder-workspace view with optional folder↔cloud library sync (F5, see
+> section 8 of the plan). Not yet included: live SillyTavern reload (M3).
 
 ## Cloud sync (optional, opt-in)
 
@@ -42,9 +43,10 @@ front of `/api/auth` and `/api/presets` for extra protection.
 
 ## Install (plug and play)
 
-The `.vsix` is **not committed to the repo** — build it from source first with
-`npm run package:ext` (see [Build the .vsix](#build-the-vsix-maintainers) below).
-That produces `extension/stpreseteditor-local-<version>.vsix`. Install it once:
+Grab a prebuilt `stpreseteditor-local-<version>.vsix` from this folder if one is
+committed on your branch, or build it from source with `npm run package:ext`
+(see [Build the .vsix](#build-the-vsix-maintainers) below), which produces
+`extension/stpreseteditor-local-<version>.vsix`. Install it once:
 
 1. In Cursor/VSCode, open the **Extensions** panel (square icon in the left bar,
    or `Ctrl/Cmd+Shift+X`).
@@ -60,6 +62,29 @@ That's it — no building, no F5. To use it:
 
 Edits autosave (~1s after you stop) back to that file; a **"✓ Preset saved …"**
 note appears in the status bar. Tip: try a _copy_ of a preset first.
+
+## The ST Presets view (folder workspace)
+
+The Explorer sidebar gains an **ST Presets** panel listing every `.json` in the
+open folder that parses as a SillyTavern preset (an object with a `prompts`
+array; `node_modules` is always skipped, glob configurable via
+`stpe.presetGlob`). From the panel you can **open, create, duplicate, rename,
+and delete** presets — delete moves the file to the trash after a confirm.
+
+With cloud sync configured you can additionally run **"Link folder to cloud
+library"** (panel `…` menu). That writes a `.stpe-library.json` mapping at the
+folder root and keeps the folder and your cloud library in sync both ways:
+
+- local edits **push**, cloud edits **pull**, and if both sides changed you get
+  a per-file **Keep local / Keep cloud** choice — nothing is overwritten
+  silently, and nothing is ever deleted by sync;
+- each file shows its state in the panel: ✓ synced, ↑ pending, ⚠ conflict,
+  ☁ cloud-only (use **"Download missing presets"** to materialise those);
+- sync runs when an editor panel is open (every ~30s and on file changes), or
+  on demand via **"Sync folder with cloud library"**.
+
+Commit `.stpe-library.json` if the whole folder should stay linked for every
+clone, or add it to `.gitignore` to keep the link machine-local.
 
 ## Build the .vsix (maintainers)
 
