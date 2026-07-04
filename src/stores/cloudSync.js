@@ -37,6 +37,10 @@ let syncRef = null;
 let getDoc = fetchCloudDocument;
 let putDoc = pushCloudDocument;
 let activePaths; // undefined ⇒ buildSyncSnapshot/applyCloudData defaults (full set)
+// In the VS Code extension the library is a keyed collection (savedPresets), so a
+// concurrent edit from another device (web/mobile) should MERGE, not block on a
+// dialog. hostMode routes conflicts through autoRebaseAndPush instead.
+let hostMode = false;
 
 /**
  * GET the cloud document (web transport).
@@ -94,10 +98,101 @@ async function pushCloudDocument(payload) {
   }
 }
 
+/** Deep-equality by serialization (snapshots are plain JSON data). */
+function eq(a, b) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/**
+ * 3-way merge of a keyed collection (savedPresets). Start from the latest
+ * REMOTE, then replay every LOCAL change since BASE: entries the user added or
+ * edited win; entries the user deleted are removed. Entries only the remote
+ * touched are preserved. This makes "add/edit a preset on one device" survive a
+ * concurrent change on another instead of clobbering it.
+ */
+function mergeCollection(base = {}, local = {}, remote = {}) {
+  const result = { ...remote };
+  const ids = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
+  for (const id of ids) {
+    const inLocal = Object.prototype.hasOwnProperty.call(local, id);
+    if (eq(local[id], base[id])) continue; // local didn't touch it → keep remote's
+    if (inLocal)
+      result[id] = local[id]; // local added/edited → local wins
+    else delete result[id]; // local deleted → drop it
+  }
+  return result;
+}
+
+/**
+ * Rebase the local library snapshot onto the latest remote one. savedPresets is
+ * merged per entry; every other library key (prefs, custom dictionaries, current
+ * preset id) takes the local value when the user changed it, otherwise the
+ * remote value. No data loss for non-overlapping edits.
+ */
+function rebaseSnapshot(base, local, remote, paths) {
+  const merged = {};
+  const keys = paths || Object.keys(local || {});
+  for (const key of keys) {
+    if (key === 'savedPresets') {
+      merged[key] = mergeCollection(base?.[key], local?.[key], remote?.[key]);
+    } else if (!eq(local?.[key], base?.[key])) {
+      merged[key] = local?.[key]; // user changed this pref locally → keep it
+    } else if (remote && key in remote) {
+      merged[key] = remote[key]; // untouched locally → adopt remote's
+    } else {
+      merged[key] = local?.[key];
+    }
+  }
+  return merged;
+}
+
+/**
+ * Extension conflict resolution (no dialog): pull the latest cloud, rebase the
+ * local library on top, adopt the merge, and push it back. Retries if the cloud
+ * moves again mid-merge. The library is a keyed collection, so concurrent edits
+ * from another device merge cleanly — which is why the web app's keep-mine /
+ * keep-theirs prompt is wrong here.
+ */
+async function autoRebaseAndPush(preset, sync) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const doc = await getDoc();
+    if (!doc || !doc.data) {
+      sync.set({ status: 'error', pendingSync: true });
+      return;
+    }
+    const base = syncedSerialized ? JSON.parse(syncedSerialized) : {};
+    const local = preset.buildSyncSnapshot(activePaths);
+    const merged = rebaseSnapshot(base, local, doc.data, activePaths);
+
+    // Adopt the merged library locally (without echoing a push).
+    suppressPush = true;
+    preset.applyCloudData(merged, activePaths);
+    suppressPush = false;
+    const serialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
+
+    sync.set({ status: 'syncing' });
+    const updatedAt = new Date().toISOString();
+    const res = await putDoc({ updatedAt, data: merged, baseUpdatedAt: doc.updatedAt });
+    if (res && res.conflict) continue; // cloud moved again → rebase onto the newer copy
+
+    const ok = typeof res === 'boolean' ? res : Boolean(res && res.ok);
+    const storedAt = (res && res.updatedAt) || updatedAt;
+    if (ok) {
+      syncedSerialized = serialized;
+      sync.set({ status: 'synced', lastSyncedAt: storedAt, pendingSync: false });
+    } else {
+      sync.set({ status: 'error', pendingSync: true });
+    }
+    return;
+  }
+  sync.set({ status: 'error', pendingSync: true }); // gave up after repeated races
+}
+
 /**
  * Upload the current local snapshot (no-op if it already matches the cloud).
  * Sends `baseUpdatedAt` so the Worker can 409 instead of clobbering another
- * device's newer copy; a 409 opens the conflict dialog.
+ * device's newer copy. A 409 auto-merges in the extension (keyed library) and
+ * opens the keep-mine/keep-theirs dialog on the web.
  *
  * Works for both transports: each resolves to `{ ok, conflict?, updatedAt? }`
  * (the host PUT stamps its own updatedAt during read-merge-write).
@@ -122,6 +217,10 @@ async function pushNow(preset, sync) {
   const res = await putDoc({ updatedAt, data: snapshot, baseUpdatedAt: sync.lastSyncedAt });
 
   if (res && res.conflict) {
+    if (hostMode) {
+      await autoRebaseAndPush(preset, sync); // extension: merge, never block
+      return;
+    }
     conflictDeferred = false; // an actual push attempt always re-prompts
     await openConflictDialog();
     return;
@@ -232,8 +331,10 @@ export async function pollCloudNow() {
     if (!doc || !doc.updatedAt || !doc.data) return;
     if (doc.updatedAt === sync.lastSyncedAt) return;
     if (sync.pendingSync) {
-      // Both sides changed. Don't nag every 30s after an explicit "not now".
-      if (!conflictDeferred) await openConflictDialog();
+      // Both sides changed. The extension merges the keyed library automatically;
+      // the web asks (but not every 30s after an explicit "not now").
+      if (hostMode) await autoRebaseAndPush(preset, sync);
+      else if (!conflictDeferred) await openConflictDialog();
       return;
     }
     adoptCloud(preset, sync, doc);
@@ -263,6 +364,7 @@ function startAutoPull() {
  */
 export async function initCloudSync() {
   const host = isVsCodeHost();
+  hostMode = host;
   getDoc = host ? hostCloudGet : fetchCloudDocument;
   putDoc = host ? hostCloudPut : pushCloudDocument;
   activePaths = host ? EXTENSION_LIBRARY_PATHS : undefined;
