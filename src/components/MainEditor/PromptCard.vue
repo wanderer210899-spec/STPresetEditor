@@ -271,9 +271,8 @@
       </div>
       <div
         v-else
-        class="text-sm whitespace-pre-wrap"
-        :class="{ 'text-gray-600 dark:text-gray-400': !isEnabled, 'md:cursor-text': true }"
-        :title="store.isMobile ? store.t('promptCard.expandEditor') : ''"
+        class="cursor-text text-sm whitespace-pre-wrap"
+        :class="{ 'text-gray-600 dark:text-gray-400': !isEnabled }"
         @click="onContentClick"
         @dblclick.stop="onContentDblclick"
       >
@@ -288,9 +287,9 @@
           </mark>
           <span v-else :data-off="part.start">{{ part.content }}</span>
         </template>
-        <!-- Empty prompt affordance so there is something to click -->
+        <!-- Empty prompt affordance so there is something to click/tap -->
         <span v-if="!(prompt.content || '').length" class="text-gray-400 italic dark:text-gray-500">
-          {{ store.isMobile ? '' : store.t('promptCard.emptyClickToEdit') }}
+          {{ store.t('promptCard.emptyClickToEdit') }}
         </span>
       </div>
     </div>
@@ -552,13 +551,9 @@ const toggleCollapse = () => {
 
 // --- Click-to-edit in place (F3, desktop only) -------------------------------
 
-// Title: tap = collapse toggle on mobile (previous behaviour); click = edit
-// inline on desktop.
+// Title: click/tap edits the name in place on every view (collapse still lives
+// on the dedicated chevron button, so nothing is lost on mobile).
 const onTitleClick = () => {
-  if (store.isMobile) {
-    toggleCollapse();
-    return;
-  }
   titleDraft.value = props.prompt.name || '';
   isEditingTitle.value = true;
   nextTick(() => titleInput.value?.focus());
@@ -604,12 +599,14 @@ const startContentEdit = (caret = null) => {
 };
 
 const onContentClick = (event) => {
-  if (store.isMobile) return; // mobile keeps the read-only card (dblclick → focus editor)
+  // Type right where you tap/click — same on phone, web and the extension.
   startContentEdit(clickTextOffset(event));
 };
 
 const onContentDblclick = () => {
-  if (store.isMobile) store.openFocusEditor(props.prompt.id);
+  // Rarely reached now that a single click swaps in the inline editor; harmless
+  // as a fallback path to the full-screen editor.
+  store.openFocusEditor(props.prompt.id);
 };
 
 // Text changes flow through the normal store path (debounced analysis +

@@ -21,7 +21,8 @@
       "tokenTotal": "≈{count} tokens",
       "tokenTotalTitle": "Approximate token count of enabled prompts (estimate)",
       "toggleLibrary": "Toggle prompt library",
-      "toggleDetails": "Toggle details panel"
+      "toggleDetails": "Toggle details panel",
+      "more": "More"
     },
     "importModal": {
       "title": "Import JSON File",
@@ -81,7 +82,8 @@
       "selectedCount": "{selected}/{total} selected",
       "matchStats": "{matches} matches in {prompts} prompts",
       "nextMatch": "Next match (Enter)",
-      "prevMatch": "Previous match (Shift+Enter)"
+      "prevMatch": "Previous match (Shift+Enter)",
+      "viewOptions": "View options"
     },
     "promptCard": {
       "expandEditor": "Open focus editor",
@@ -462,7 +464,8 @@
       "tokenTotal": "≈{count} tokens",
       "tokenTotalTitle": "已启用提示词的估算 token 数（近似值）",
       "toggleLibrary": "切换提示词库",
-      "toggleDetails": "切换详情面板"
+      "toggleDetails": "切换详情面板",
+      "more": "更多"
     },
     "importModal": {
       "title": "导入JSON文件",
@@ -522,7 +525,8 @@
       "selectedCount": "已选 {selected}/{total}",
       "matchStats": "{prompts} 个提示词中共 {matches} 处匹配",
       "nextMatch": "下一个匹配（Enter）",
-      "prevMatch": "上一个匹配（Shift+Enter）"
+      "prevMatch": "上一个匹配（Shift+Enter）",
+      "viewOptions": "视图选项"
     },
     "promptCard": {
       "expandEditor": "打开专注编辑器",

@@ -297,9 +297,13 @@ export const usePresetStore = defineStore('preset', {
     isRightSidebarOpen: false, // Whether right sidebar is open on mobile
 
     // Desktop layout: collapsible left/right columns (persisted locally, never
-    // synced — device-specific). Default open so the 3-column view is intact.
-    desktopLeftOpen: true, // Library column visible on desktop
-    desktopRightOpen: true, // Details/Variables column visible on desktop
+    // synced — device-specific). Both start CLOSED in the VS Code extension so
+    // its narrow docked panel opens as a full-width editor (the columns would
+    // otherwise crush it to a sliver); on the web the library stays open. The
+    // details/variables column always starts closed — it opens only when asked
+    // (the ⓘ toggle), never by merely selecting a prompt.
+    desktopLeftOpen: !isVsCodeHost(), // Library column: open on web, closed in the extension
+    desktopRightOpen: false, // Details/Variables column visible on desktop
     // Legacy splitpanes fields kept for the maximize toggle (unit-tested); the
     // collapsible layout only reads isRightPaneMaximized (wider right column).
     paneSizes: [20, 50, 30],
@@ -1769,9 +1773,11 @@ export const usePresetStore = defineStore('preset', {
       this.selectedPromptId = promptId;
       this.selectedMacro = null;
       this.activeRightSidebarTab = 'details';
-      // Surface the details: drawer on mobile, collapsible column on desktop.
-      if (this.isMobile) this.toggleRightSidebar(true);
-      else this.desktopRightOpen = true;
+      // Selecting a prompt no longer forces the details panel open — clicking a
+      // prompt is for editing it in place, and auto-opening the panel squished
+      // the editor (worst in the narrow VS Code panel). The panel now opens only
+      // when the user asks for it (the ⓘ toggle) or when they click a variable
+      // (selectMacro, which still opens it because that's the point of the click).
     },
     /**
      * Select a variable (highlights every occurrence in the editor).

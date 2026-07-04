@@ -10,6 +10,7 @@ import {
   CameraIcon,
   Cog6ToothIcon,
   DocumentCheckIcon,
+  EllipsisHorizontalIcon,
   EllipsisVerticalIcon,
   InformationCircleIcon,
   ViewColumnsIcon,
@@ -141,26 +142,9 @@ const menuItemClass =
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
       </div>
-      <!-- Icon-only between md and lg (landscape phones / small tablets) so
-           the row always fits; full labels return at lg. -->
-      <button
-        class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.import')"
-        @click="store.openImportModal()"
-      >
-        <ArrowDownTrayIcon class="h-4 w-4" />
-        <span class="hidden lg:inline">{{ store.t('toolbar.import') }}</span>
-      </button>
-      <button
-        class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.export')"
-        @click="store.openExportModal()"
-      >
-        <ArrowUpTrayIcon class="h-4 w-4" />
-        <span class="hidden lg:inline">{{ store.t('toolbar.export') }}</span>
-      </button>
       <!-- Save the current preset now (autosave already runs; this is the
-           explicit "commit + confirm" the file workflow expects). -->
+           explicit "commit + confirm" the file workflow expects). Kept out front
+           as an everyday essential. -->
       <button
         class="btn btn-sm btn-secondary"
         :title="store.t('toolbar.saveTitle')"
@@ -169,30 +153,76 @@ const menuItemClass =
         <DocumentCheckIcon class="h-4 w-4" />
         <span class="hidden lg:inline">{{ store.t('toolbar.save') }}</span>
       </button>
-      <button
-        class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.snapshot')"
-        @click="takeSnapshot"
-      >
-        <CameraIcon class="h-4 w-4" />
-        <span class="hidden lg:inline">{{ store.t('toolbar.snapshot') }}</span>
-      </button>
-      <button
-        class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.presets')"
-        @click="store.openPresetManager()"
-      >
-        <BookmarkIcon class="h-4 w-4" />
-        <span class="hidden lg:inline">{{ store.t('toolbar.presets') }}</span>
-      </button>
-      <button
-        class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.settings')"
-        @click="store.isSettingsModalOpen = true"
-      >
-        <Cog6ToothIcon class="h-4 w-4" />
-        <span class="hidden lg:inline">{{ store.t('toolbar.settings') }}</span>
-      </button>
+      <!-- Everything else lives under one "More" menu so the bar stays calm:
+           Import, Export, Snapshot, Presets, Settings. -->
+      <Menu as="div" class="relative">
+        <MenuButton class="btn btn-sm btn-secondary" :title="store.t('toolbar.more')">
+          <EllipsisHorizontalIcon class="h-4 w-4" />
+          <span class="hidden lg:inline">{{ store.t('toolbar.more') }}</span>
+        </MenuButton>
+        <transition
+          enter-active-class="transition duration-100 ease-out"
+          enter-from-class="transform scale-95 opacity-0"
+          enter-to-class="transform scale-100 opacity-100"
+          leave-active-class="transition duration-75 ease-in"
+          leave-from-class="transform scale-100 opacity-100"
+          leave-to-class="transform scale-95 opacity-0"
+        >
+          <MenuItems
+            class="absolute right-0 z-20 mt-2 w-56 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none dark:divide-gray-700 dark:bg-gray-800 dark:ring-gray-700"
+          >
+            <div class="px-1 py-1">
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="store.openImportModal()"
+                >
+                  <ArrowDownTrayIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.importFromJson') }}
+                </button>
+              </MenuItem>
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="store.openExportModal()"
+                >
+                  <ArrowUpTrayIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.exportToJson') }}
+                </button>
+              </MenuItem>
+            </div>
+            <div class="px-1 py-1">
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="takeSnapshot"
+                >
+                  <CameraIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.snapshot') }}
+                </button>
+              </MenuItem>
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="store.openPresetManager()"
+                >
+                  <BookmarkIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.presets') }}
+                </button>
+              </MenuItem>
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="store.isSettingsModalOpen = true"
+                >
+                  <Cog6ToothIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.settings') }}
+                </button>
+              </MenuItem>
+            </div>
+          </MenuItems>
+        </transition>
+      </Menu>
       <!-- Collapse / expand the details/variables column -->
       <button
         class="btn-icon btn-icon-sm"

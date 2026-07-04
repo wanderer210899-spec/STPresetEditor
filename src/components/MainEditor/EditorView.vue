@@ -67,53 +67,6 @@
 
         <!-- View + action controls -->
         <div class="flex shrink-0 items-center gap-2">
-          <!-- Macro display mode toggle -->
-          <SwitchGroup as="div" class="flex items-center">
-            <SwitchLabel
-              as="span"
-              class="mr-2 hidden text-sm font-medium text-gray-700 lg:inline dark:text-gray-300"
-            >
-              {{ isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode') }}
-            </SwitchLabel>
-            <Switch
-              :model-value="isPreviewMode"
-              :class="isPreviewMode ? 'bg-green-500' : 'bg-gray-400'"
-              class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out"
-              @update:model-value="store.toggleMacroDisplayMode()"
-            >
-              <span
-                aria-hidden="true"
-                :class="isPreviewMode ? 'translate-x-5' : 'translate-x-0'"
-                class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out dark:bg-gray-200"
-              >
-                <span
-                  :class="
-                    isPreviewMode
-                      ? 'opacity-0 duration-100 ease-out'
-                      : 'opacity-100 duration-200 ease-in'
-                  "
-                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
-                  aria-hidden="true"
-                >
-                  <CodeBracketIcon class="h-3 w-3 text-gray-400 dark:text-gray-500" />
-                </span>
-                <span
-                  :class="
-                    isPreviewMode
-                      ? 'opacity-100 duration-200 ease-in'
-                      : 'opacity-0 duration-100 ease-out'
-                  "
-                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
-                  aria-hidden="true"
-                >
-                  <EyeIcon class="h-3 w-3 text-green-600 dark:text-green-400" />
-                </span>
-              </span>
-            </Switch>
-          </SwitchGroup>
-
-          <span class="mx-0.5 h-6 w-px bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
-
           <!-- Primary action: new prompt (icon-only on narrow phones) -->
           <button
             class="btn btn-sm btn-primary"
@@ -123,31 +76,86 @@
             <PlusIcon class="h-4 w-4" />
             <span class="hidden sm:inline">{{ store.t('promptLibrary.newPrompt') }}</span>
           </button>
-          <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
-          <button
-            class="btn-icon btn-icon-sm"
-            :class="{ 'btn-icon-active': store.isEditorMultiSelectActive }"
-            :title="store.t('editor.multiSelect')"
-            :aria-pressed="store.isEditorMultiSelectActive"
-            @click="store.toggleEditorMultiSelect()"
-          >
-            <ClipboardDocumentCheckIcon class="h-5 w-5" />
-          </button>
-          <!-- Collapse / expand all -->
-          <button
-            class="btn-icon btn-icon-sm"
-            :title="store.t('editor.collapseAll')"
-            @click="store.collapseAllPrompts()"
-          >
-            <ChevronUpIcon class="h-4 w-4" />
-          </button>
-          <button
-            class="btn-icon btn-icon-sm"
-            :title="store.t('editor.expandAll')"
-            @click="store.expandAllPrompts()"
-          >
-            <ChevronDownIcon class="h-4 w-4" />
-          </button>
+
+          <!-- View options: display mode, multi-select, collapse/expand — tucked
+               into one menu so the header stays uncluttered. -->
+          <Menu as="div" class="relative">
+            <MenuButton class="btn-icon btn-icon-sm" :title="store.t('editor.viewOptions')">
+              <AdjustmentsHorizontalIcon class="h-5 w-5" />
+            </MenuButton>
+            <transition
+              enter-active-class="transition duration-100 ease-out"
+              enter-from-class="transform scale-95 opacity-0"
+              enter-to-class="transform scale-100 opacity-100"
+              leave-active-class="transition duration-75 ease-in"
+              leave-from-class="transform scale-100 opacity-100"
+              leave-to-class="transform scale-95 opacity-0"
+            >
+              <MenuItems
+                class="absolute right-0 z-20 mt-2 w-60 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none dark:divide-gray-700 dark:bg-gray-800 dark:ring-gray-700"
+              >
+                <div class="px-1 py-1">
+                  <!-- Show raw macros vs preview their values -->
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.toggleMacroDisplayMode()"
+                    >
+                      <component
+                        :is="isPreviewMode ? EyeIcon : CodeBracketIcon"
+                        class="h-5 w-5 text-gray-500 dark:text-gray-400"
+                      />
+                      <span class="flex-1 text-left">
+                        {{
+                          isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode')
+                        }}
+                      </span>
+                      <CheckIcon
+                        v-if="isPreviewMode"
+                        class="h-4 w-4 text-green-600 dark:text-green-400"
+                      />
+                    </button>
+                  </MenuItem>
+                  <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.toggleEditorMultiSelect()"
+                    >
+                      <ClipboardDocumentCheckIcon
+                        class="h-5 w-5 text-gray-500 dark:text-gray-400"
+                      />
+                      <span class="flex-1 text-left">{{ store.t('editor.multiSelect') }}</span>
+                      <CheckIcon
+                        v-if="store.isEditorMultiSelectActive"
+                        class="h-4 w-4 text-green-600 dark:text-green-400"
+                      />
+                    </button>
+                  </MenuItem>
+                </div>
+                <div class="px-1 py-1">
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.collapseAllPrompts()"
+                    >
+                      <ChevronUpIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <span class="flex-1 text-left">{{ store.t('editor.collapseAll') }}</span>
+                    </button>
+                  </MenuItem>
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.expandAllPrompts()"
+                    >
+                      <ChevronDownIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <span class="flex-1 text-left">{{ store.t('editor.expandAll') }}</span>
+                    </button>
+                  </MenuItem>
+                </div>
+              </MenuItems>
+            </transition>
+          </Menu>
         </div>
       </div>
 
@@ -234,10 +242,12 @@
 </template>
 
 <script setup>
-import { Switch, SwitchGroup, SwitchLabel } from '@headlessui/vue';
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/vue';
 import {
+  AdjustmentsHorizontalIcon,
   ArrowDownIcon,
   ArrowUpIcon,
+  CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ClipboardDocumentCheckIcon,
@@ -255,6 +265,10 @@ import PromptCard from './PromptCard.vue';
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// Shared row style for the View-options dropdown items
+const menuItemClass =
+  'group flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-900 dark:text-gray-100';
 
 // Refs for prompt card components (used for scrolling and animations)
 const promptCardRefs = ref({});

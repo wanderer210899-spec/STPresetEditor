@@ -72,7 +72,9 @@ browser only — no account, no server. Press `Ctrl+C` in the terminal when done
 **Autosave + snapshots**
 
 - Edit any prompt, then just close the tab and reopen — your edit is still
-  there. There is no Save button to forget.
+  there; autosave means you never lose work. A **Save** button in the toolbar is
+  there when you want an explicit "saved ✓" (and, in the extension, to flush the
+  file to disk now).
 - Click **Snapshot** in the top toolbar (or press `Ctrl+S`) to freeze the
   current state. Open **Presets** (toolbar) — each saved preset shows its
   snapshots with a **Restore** button. Restore one, then press `Ctrl+Z`:
@@ -173,12 +175,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.6.0.vsix`.
+`extension/stpreseteditor-local-0.7.0.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.6.0.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.7.0.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -187,7 +189,7 @@ Then in VS Code or Cursor:
 3. **Reload** when prompted.
 
 > If you had an earlier build installed, install over it and Reload so you're
-> testing 0.6.0.
+> testing 0.7.0.
 
 ### Try the editor (file mode)
 
@@ -197,10 +199,19 @@ Then in VS Code or Cursor:
 - Right-click a preset `.json` → **Open in STPresetEditor**. The panel should
   open **that exact file** every time. Open a second preset in the same window
   too — each panel keeps its own file.
-- **Full desktop UI even in a narrow docked panel** — this release stops the
-  webview from falling into the phone layout, so **click any title or body to
-  edit in place**, the collapsible library/details columns, and the token totals
-  all work regardless of panel width.
+- **Uninterrupted, full-width editor (new in 0.7.0)** — the panel opens as a
+  single wide editor, even when docked narrow. **Click any title or body to edit
+  in place** (this now works on the phone web build too). Clicking a prompt no
+  longer makes the Details panel pop open and squish the editor — the editor
+  keeps its full width. Open **Details / Variables** only when you want it, with
+  the **ⓘ** button (top-right); open the **prompt library** with the **columns**
+  button (top-left).
+- **Calmer toolbar (new in 0.7.0)** — the top bar shows only the everyday
+  controls (Save, undo/redo, the sync dot). Everything else — **Import, Export,
+  Snapshot, Presets, Settings** — lives under one **⋯ More** button. In the
+  editor header, **New** and **Search** stay out front; the display toggle,
+  multi-select, and collapse/expand-all tuck into the **sliders** (View options)
+  menu next to New.
 - **The open preset now syncs like the web app.** Edits autosave to the file on
   disk **and** to your cloud library (when connected), and changes you make on
   the web / mobile flow back into the open editor (and the `.json` on disk). The
@@ -235,6 +246,12 @@ In the Explorer sidebar you'll find an **ST Presets** section:
 - Toolbar icons: **open editor (no file)**, **new preset**, **refresh**, **sync**.
   Right-click a preset: **Duplicate / Rename / Delete / Reveal in Explorer**.
   Delete asks first and uses the trash, so it's recoverable.
+- **Rename / delete now behave when the preset is open (fixed in 0.7.0):**
+  renaming a preset that's open moves the editor to the new name (no ghost copy
+  of the old name reappears); deleting one that's open closes its editor so it
+  can't be silently recreated. If a preset's file is deleted **outside** the app
+  while its cloud copy still exists, it now shows in the list as a **cloud-only**
+  entry you can **Download to folder**, instead of vanishing.
 
 ### Folder ↔ cloud sync (uses the sandbox from step 2)
 
