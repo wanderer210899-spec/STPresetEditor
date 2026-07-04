@@ -22,7 +22,14 @@
         >
           {{ store.getCurrentPresetName }}
         </div>
-        <button class="btn btn-primary" @click="saveCurrentPreset">
+        <!-- Update the preset you're on (autosave already does this; explicit
+             button = commit + confirm). -->
+        <button class="btn btn-primary" @click="saveCurrent">
+          <DocumentCheckIcon class="h-4 w-4" />
+          {{ store.t('presetManager.save') }}
+        </button>
+        <!-- Branch off a separate copy. -->
+        <button class="btn btn-secondary" @click="saveCurrentPreset">
           <BookmarkIcon class="h-4 w-4" />
           {{ store.t('presetManager.saveAsCopy') }}
         </button>
@@ -304,6 +311,7 @@ import {
   BookmarkIcon,
   CameraIcon,
   ClockIcon,
+  DocumentCheckIcon,
   DocumentDuplicateIcon,
   DocumentPlusIcon,
   PencilIcon,
@@ -355,6 +363,12 @@ const openImportModal = () => {
 
 const openExportModal = () => {
   store.openExportModal();
+};
+
+// Update the preset you're on, in place (autosave already keeps it current;
+// this is the explicit commit + confirmation the file workflow expects).
+const saveCurrent = () => {
+  if (store.saveActivePreset()) store.showToast(store.t('presetManager.saved'), 'success');
 };
 
 const saveCurrentPreset = () => {

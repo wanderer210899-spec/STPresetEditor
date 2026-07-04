@@ -173,12 +173,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.5.3.vsix`.
+`extension/stpreseteditor-local-0.6.0.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.5.3.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.6.0.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -187,7 +187,7 @@ Then in VS Code or Cursor:
 3. **Reload** when prompted.
 
 > If you had an earlier build installed, install over it and Reload so you're
-> testing 0.5.3.
+> testing 0.6.0.
 
 ### Try the editor (file mode)
 
@@ -195,14 +195,22 @@ Then in VS Code or Cursor:
   into a scratch folder first, e.g. from SillyTavern's
   `data/<user>/OpenAI Settings/`).
 - Right-click a preset `.json` → **Open in STPresetEditor**. The panel should
-  open **that exact file** every time (this release fixes a bug where a stale or
-  "Untitled" preset could appear instead). Open a second preset in the same
-  window too — each panel keeps its own file. Everything from step 1 (undo/redo,
-  variables, shortcuts, dark mode following the editor theme) works here, and
-  edits autosave back to the file (~1s after you stop typing).
-- The toolbar shows a **save/link status** for the open file: _Local file_ when
-  it's a plain file, or _Saved · in library_ / _Saving…_ / _Sync conflict_ once
-  the folder is linked to your cloud library (step 4 below).
+  open **that exact file** every time. Open a second preset in the same window
+  too — each panel keeps its own file.
+- **Full desktop UI even in a narrow docked panel** — this release stops the
+  webview from falling into the phone layout, so **click any title or body to
+  edit in place**, the collapsible library/details columns, and the token totals
+  all work regardless of panel width.
+- **The open preset now syncs like the web app.** Edits autosave to the file on
+  disk **and** to your cloud library (when connected), and changes you make on
+  the web / mobile flow back into the open editor (and the `.json` on disk). The
+  toolbar's green **sync dot** shows the cloud status, same as the web app.
+- **Save** (toolbar or Preset Manager) commits the current preset now (autosave
+  already runs; this is the explicit "saved ✓"). **Save as copy** still branches
+  off a separate version. **Snapshots** work here too.
+- Shortcuts: `Ctrl+F` (find), `Ctrl+K` (global search) and `Ctrl+S` (save) are
+  forwarded into the webview; `?`, `n`, `Alt+↑/↓` work as on the web. (Undo/redo
+  stay on VS Code so text fields keep native undo — use the ↩/↪ toolbar buttons.)
 - Open the **Preset Manager** (bookmark icon) and pick a saved preset: you get
   **Load (replace file)** — overwrites the open file's contents after a confirm,
   writing back to the same file — and **Open as new file** — spins the preset off

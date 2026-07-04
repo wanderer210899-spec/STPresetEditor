@@ -9,12 +9,12 @@ import {
   BookmarkIcon,
   CameraIcon,
   Cog6ToothIcon,
+  DocumentCheckIcon,
   EllipsisVerticalIcon,
   InformationCircleIcon,
   ViewColumnsIcon,
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
-import { getEditorMode } from '../utils/host';
 import { formatTokenCount } from '../utils/tokens';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -22,14 +22,17 @@ import { useSyncStore } from '../stores/syncStore';
 // Initialize the preset store
 const store = usePresetStore();
 
-// A file-backed extension webview edits one local .json (not a library entry),
-// so snapshots — which version a library preset — are hidden there. The web app
-// and the standalone library editor both keep them.
-const isFileMode = getEditorMode() === 'file';
 const takeSnapshot = () => {
   if (store.createSnapshot()) {
     store.showToast(store.t('toolbar.snapshotTaken'), 'success');
   }
+};
+
+// Explicit "Save now" for the current preset. Autosave already runs, so this
+// just flushes the latest edit into the library entry (and to disk in the
+// extension) and confirms it — the reassurance the file workflow expects.
+const saveCurrent = () => {
+  if (store.saveActivePreset()) store.showToast(store.t('toolbar.saved'), 'success');
 };
 
 // Cloud sync status (Cloudflare KV) for the indicator
@@ -45,48 +48,6 @@ const syncDotClass = computed(() => {
       return 'bg-orange-500';
     case 'error':
       return 'bg-red-500';
-    default:
-      return 'bg-gray-300 dark:bg-gray-600';
-  }
-});
-
-// File-link status (file webview only): how the OPEN FILE relates to the cloud
-// library, pushed by the host after each folder reconcile. Shown instead of the
-// generic library-sync label so "save/update" is legible at a glance.
-const fileLinkState = computed(() => sync.fileLink?.state || 'unlinked');
-// Whether the cloud (API key + Worker URL) is configured at all. Lets an
-// unlinked file read as "connected — just not linked yet" instead of "offline".
-const fileLinkConnected = computed(() => Boolean(sync.fileLink?.connected));
-const fileLinkNotInLibrary = computed(
-  () => fileLinkState.value === 'unlinked' || fileLinkState.value === 'localOnly',
-);
-const fileLinkLabel = computed(() => store.t(`fileLink.${fileLinkState.value}`));
-const fileLinkTitle = computed(() => {
-  // A local file that isn't in the library: the advice differs by whether the
-  // cloud is even connected (connect first vs. link the folder).
-  if (fileLinkNotInLibrary.value) {
-    return store.t(fileLinkConnected.value ? 'fileLink.titleUnlinked' : 'fileLink.titleOffline');
-  }
-  const map = {
-    synced: 'titleSynced',
-    pending: 'titlePending',
-    conflict: 'titleConflict',
-  };
-  return store.t(`fileLink.${map[fileLinkState.value] || 'titleUnlinked'}`);
-});
-const fileLinkDotClass = computed(() => {
-  switch (fileLinkState.value) {
-    case 'synced':
-      return 'bg-green-500';
-    case 'pending':
-      return 'bg-amber-400 animate-pulse';
-    case 'conflict':
-      return 'bg-orange-500';
-    case 'localOnly':
-    case 'unlinked':
-      // Connected but this local file isn't part of the library yet → blue
-      // (actionable), not the dead grey that reads as "sync is broken".
-      return fileLinkConnected.value ? 'bg-sky-500' : 'bg-gray-300 dark:bg-gray-600';
     default:
       return 'bg-gray-300 dark:bg-gray-600';
   }
@@ -113,13 +74,14 @@ const menuItemClass =
   <!-- Main toolbar container with responsive layout -->
   <div class="flex w-full items-center justify-between bg-white dark:bg-gray-800">
     <!-- Mobile: Left Sidebar Toggle Button -->
-    <button class="btn-icon md:hidden" @click="store.toggleLeftSidebar()">
+    <button v-if="store.isMobile" class="btn-icon" @click="store.toggleLeftSidebar()">
       <Bars3Icon class="h-6 w-6" />
     </button>
 
     <!-- Desktop: collapse / expand the prompt-library column -->
     <button
-      class="btn-icon btn-icon-sm mr-1 hidden md:inline-flex"
+      v-if="!store.isMobile"
+      class="btn-icon btn-icon-sm mr-1 inline-flex"
       :class="{ 'btn-icon-active': store.desktopLeftOpen }"
       :title="store.t('toolbar.toggleLibrary')"
       :aria-pressed="store.desktopLeftOpen"
@@ -130,21 +92,22 @@ const menuItemClass =
 
     <!-- Desktop: Application Title (truncates so it never pushes buttons off) -->
     <h1
-      class="mr-2 hidden min-w-0 flex-1 truncate text-base font-bold text-gray-800 md:block dark:text-gray-200"
+      v-if="!store.isMobile"
+      class="mr-2 min-w-0 flex-1 truncate text-base font-bold text-gray-800 dark:text-gray-200"
     >
       {{ store.t('app.title') }}
     </h1>
 
     <!-- Mobile: Spacer to center the title -->
-    <div class="flex-1 md:hidden"></div>
+    <div v-if="store.isMobile" class="flex-1"></div>
 
     <!-- Mobile: Centered Application Title -->
-    <h1 class="absolute left-1/2 -translate-x-1/2 text-lg font-bold md:hidden">
+    <h1 v-if="store.isMobile" class="absolute left-1/2 -translate-x-1/2 text-lg font-bold">
       {{ store.t('app.titleMobile') }}
     </h1>
 
     <!-- Desktop: Action Buttons Group (one consistent secondary style) -->
-    <div class="hidden items-center gap-2 md:flex">
+    <div v-if="!store.isMobile" class="flex items-center gap-2">
       <!-- Undo / redo (F8a) -->
       <button
         v-tooltip="undoTooltip"
@@ -169,18 +132,9 @@ const menuItemClass =
       >
         {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
       </span>
-      <!-- File-backed webview: the OPEN FILE's link/sync status. Everywhere else:
-           the generic cloud-library sync status. -->
+      <!-- Cloud-library sync status (same everywhere now that the extension's
+           open file syncs like the web app's active preset). -->
       <div
-        v-if="isFileMode"
-        class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
-        :title="fileLinkTitle"
-      >
-        <span class="inline-block h-2 w-2 rounded-full" :class="fileLinkDotClass"></span>
-        <span class="hidden lg:inline">{{ fileLinkLabel }}</span>
-      </div>
-      <div
-        v-else
         class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
         :title="sync.statusLabel"
       >
@@ -205,8 +159,17 @@ const menuItemClass =
         <ArrowUpTrayIcon class="h-4 w-4" />
         <span class="hidden lg:inline">{{ store.t('toolbar.export') }}</span>
       </button>
+      <!-- Save the current preset now (autosave already runs; this is the
+           explicit "commit + confirm" the file workflow expects). -->
       <button
-        v-if="!isFileMode"
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.saveTitle')"
+        @click="saveCurrent"
+      >
+        <DocumentCheckIcon class="h-4 w-4" />
+        <span class="hidden lg:inline">{{ store.t('toolbar.save') }}</span>
+      </button>
+      <button
         class="btn btn-sm btn-secondary"
         :title="store.t('toolbar.snapshot')"
         @click="takeSnapshot"
@@ -243,12 +206,12 @@ const menuItemClass =
     </div>
 
     <!-- Mobile: Action Group with Right Sidebar Toggle and Menu -->
-    <div class="flex items-center md:hidden">
-      <!-- Cloud sync status dot (file webview shows the open file's link state) -->
+    <div v-if="store.isMobile" class="flex items-center">
+      <!-- Cloud sync status dot -->
       <span
         class="mr-1 inline-block h-2 w-2 rounded-full"
-        :class="isFileMode ? fileLinkDotClass : syncDotClass"
-        :title="isFileMode ? fileLinkTitle : sync.statusLabel"
+        :class="syncDotClass"
+        :title="sync.statusLabel"
       ></span>
       <!-- Right Sidebar Toggle Button -->
       <button class="btn-icon" @click="store.toggleRightSidebar()">
@@ -318,7 +281,16 @@ const menuItemClass =
             </div>
             <!-- Presets / Settings -->
             <div class="px-1 py-1">
-              <MenuItem v-if="!isFileMode" v-slot="{ active }">
+              <MenuItem v-slot="{ active }">
+                <button
+                  :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                  @click="saveCurrent"
+                >
+                  <DocumentCheckIcon class="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" />
+                  {{ store.t('toolbar.save') }}
+                </button>
+              </MenuItem>
+              <MenuItem v-slot="{ active }">
                 <button
                   :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
                   @click="takeSnapshot"

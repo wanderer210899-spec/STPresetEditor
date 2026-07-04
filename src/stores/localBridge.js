@@ -100,15 +100,51 @@ function applyConnection({ connected, email, url }) {
   sync.set({ cloudEnabled: cloudConnected });
 }
 
+/** Run a host-forwarded shortcut (Ctrl+F/K/S) against the store. Undo/redo are
+ *  intentionally NOT forwarded so native text editing keeps its own undo. */
+function handleShortcut(action) {
+  if (!store) return;
+  switch (action) {
+    case 'find': {
+      const el = typeof document !== 'undefined' && document.getElementById('editor-search-input');
+      if (el) {
+        el.focus();
+        el.select?.();
+      }
+      break;
+    }
+    case 'globalSearch':
+      store.openGlobalSearch();
+      break;
+    case 'save':
+      if (store.saveActivePreset()) store.showToast(store.t('toolbar.saved'), 'success');
+      break;
+    default:
+      break;
+  }
+}
+
 // --- File seam ---------------------------------------------------------------
 
-/** Apply a preset file pushed from the host. Opening does not rewrite the file
- *  (the baseline is set to the just-loaded state). */
+/** Stable library id for a local file, derived from its path so reopening the
+ *  same file maps to the same synced preset (no duplicates). */
+function filePresetId(path) {
+  return path ? `file:${path}` : '';
+}
+
+/** Apply a preset file pushed from the host. The open file is linked to a stable
+ *  library entry so it autosaves + syncs like the web app's active preset;
+ *  opening does not rewrite the file (the baseline is the just-loaded state). */
 function applyLoad(message) {
   if (typeof message.json !== 'string') return;
   if (message.path) activePath = message.path;
-  store.parseFromJson(message.json); // also runs analyzeAllMacros()
-  if (message.name) store.originalFilename = message.name;
+  const presetId = filePresetId(activePath);
+  if (presetId) {
+    store.openFileAsPreset(message.json, message.name, presetId); // parse + link + analyze
+  } else {
+    store.parseFromJson(message.json); // no path (shouldn't happen) — stay unlinked
+    if (message.name) store.originalFilename = message.name;
+  }
   fileSyncedJson = store.finalJson;
 }
 
@@ -249,6 +285,11 @@ export async function initLocalBridge() {
         break;
       case 'cloudReconcile':
         if (reconcileHandler) reconcileHandler();
+        break;
+      case 'shortcut':
+        // A keybinding VS Code would otherwise swallow (Ctrl+F/K/S), forwarded by
+        // the host so shortcuts work like the web app.
+        handleShortcut(message.action);
         break;
       case 'fileState':
         // The host reports how the open file relates to the cloud library so the

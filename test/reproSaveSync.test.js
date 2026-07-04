@@ -1,6 +1,7 @@
-// REPRO: extension file-mode — saving/editing a preset must reach the cloud
-// across realistic multi-device sequences. Faithful host: conditional PUT
-// (409 on baseUpdatedAt mismatch) + read-merge-write, exactly like extension.js.
+// Extension file webview: the OPEN preset must sync BOTH ways, like the web app.
+// Faithful host: conditional PUT (409 on baseUpdatedAt mismatch) + read-merge-
+// write. Opening a file links it to a stable library entry (openFileAsPreset),
+// so edits push automatically and cloud changes flow back into the open editor.
 
 import { setActivePinia, createPinia } from 'pinia';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -14,7 +15,6 @@ function makeHost() {
     cloud: { updatedAt: '2026-01-01T00:00:00.000Z', data: { savedPresets: {} } },
     connected: true,
     pushCount: 0,
-    conflictCount: 0,
     api: {
       postMessage(msg) {
         const m = structuredClone(msg);
@@ -36,11 +36,8 @@ function makeHost() {
           });
           break;
         case 'cloudPush': {
-          // Faithful conditional write: reject if the base the client edited from
-          // no longer matches the current cloud version.
           const conditional = 'baseUpdatedAt' in m;
           if (conditional && m.baseUpdatedAt != null && m.baseUpdatedAt !== this.cloud.updatedAt) {
-            this.conflictCount += 1;
             dispatch({
               type: 'cloudAck',
               ok: false,
@@ -65,13 +62,13 @@ function makeHost() {
 }
 
 // Another device (the web) writes to the same cloud out-of-band.
-function webPushes(entry) {
+function webWrites(entries) {
   host.pushCount += 1;
   host.cloud = {
     updatedAt: new Date(Date.now() + 1000 + host.pushCount).toISOString(),
     data: {
       ...(host.cloud.data || {}),
-      savedPresets: { ...(host.cloud.data.savedPresets || {}), ...entry },
+      savedPresets: { ...(host.cloud.data.savedPresets || {}), ...entries },
     },
   };
 }
@@ -84,7 +81,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
   host = makeHost();
-  window.acquireVsCodeApi = () => host.api;
+  window.acquireVsCodeApi = () => host.api; // isVsCodeHost() true; __STPE_MODE__ undefined => file mode
   setActivePinia(createPinia());
   bridge = await import('../src/stores/localBridge.js');
   cloud = await import('../src/stores/cloudSync.js');
@@ -97,7 +94,6 @@ beforeAll(async () => {
 
 beforeEach(() => {
   host.pushCount = 0;
-  host.conflictCount = 0;
   host.connected = true;
   host.cloud = { updatedAt: '2026-01-01T00:00:00.000Z', data: { savedPresets: {} } };
   preset.savedPresets = {};
@@ -105,60 +101,70 @@ beforeEach(() => {
   sync.set({ lastSyncedAt: null, pendingSync: false, status: 'idle', cloudEnabled: false });
 });
 
-function openFile(content) {
-  preset.parseFromJson(
+// Open a local file exactly like the host bridge does: parse + link to a stable
+// library entry keyed by the path.
+function openFile(path, content) {
+  preset.openFileAsPreset(
     JSON.stringify({
       prompts: [{ identifier: 'p', name: 'P', content, enabled: true }],
       prompt_order: [{ character_id: 100001, order: [{ identifier: 'p', enabled: true }] }],
     }),
+    path.split('/').pop(),
+    `file:${path}`,
   );
 }
 
-describe('REPRO: file-mode save reaches the cloud', () => {
-  it('A. fresh extension + empty cloud: save pushes content', async () => {
+describe('extension open file — two-way sync like web', () => {
+  it('A. opening a file auto-pushes its content to the cloud (no explicit save)', async () => {
     await cloud.reconnectCloudSync();
-    openFile('HELLO');
-    const id = preset.saveActivePresetAsCopy('One');
+    openFile('/a.json', 'HELLO');
     await wait(2000);
-    expect(host.cloud.data.savedPresets[id]?.data?.prompts?.p?.content).toBe('HELLO');
+    expect(host.cloud.data.savedPresets['file:/a.json']?.data?.prompts?.p?.content).toBe('HELLO');
   }, 8000);
 
-  it('B. cloud moved out-of-band (mobile web): the extension save still syncs, and nothing is lost', async () => {
-    // Web already has a preset in the cloud; extension adopts it on connect.
-    webPushes({ webp: { id: 'webp', name: 'Web', data: { prompts: {} } } });
+  it('B. editing the open file syncs the edit up', async () => {
     await cloud.reconnectCloudSync();
-    expect(sync.status).toBe('synced');
-
-    // Web edits again (cloud moves) while the extension sits idle.
-    webPushes({ webp: { id: 'webp', name: 'Web v2', data: { prompts: {} } } });
-
-    // Now the user saves a preset in the extension.
-    openFile('WORLD');
-    const id = preset.saveActivePresetAsCopy('Two');
-    await wait(2500);
-
-    // The new preset's content reached the cloud (no conflict stall)…
-    expect(host.cloud.data.savedPresets[id]?.data?.prompts?.p?.content).toBe('WORLD');
-    // …and the other device's newer preset was preserved (merge, not clobber).
-    expect(host.cloud.data.savedPresets.webp?.name).toBe('Web v2');
-    expect(sync.status).toBe('synced');
+    openFile('/a.json', 'HELLO');
+    await wait(2000);
+    preset.updatePromptDetail({ promptId: 'p', field: 'content', value: 'EDITED' });
+    expect(preset.prompts.p.content).toBe('EDITED'); // applied locally at once
+    // Edit → 1s autosave debounce → library entry → 1.5s push debounce.
+    await wait(3500);
+    expect(host.cloud.data.savedPresets['file:/a.json']?.data?.prompts?.p?.content).toBe('EDITED');
   }, 12000);
 
-  it('C. repeated saves keep syncing while the cloud keeps moving', async () => {
-    webPushes({ webp: { id: 'webp', name: 'Web', data: { prompts: {} } } });
+  it('C. cloud changes to the open preset flow back into the editor (pull)', async () => {
+    await cloud.reconnectCloudSync();
+    openFile('/a.json', 'HELLO');
+    await wait(2000);
+    expect(sync.status).toBe('synced');
+
+    // The web edits the SAME preset and stores it in the cloud.
+    const cloudEntry = structuredClone(host.cloud.data.savedPresets['file:/a.json']);
+    cloudEntry.data.prompts.p.content = 'FROM_WEB';
+    cloudEntry.updatedAt = new Date().toISOString();
+    webWrites({ 'file:/a.json': cloudEntry });
+
+    await cloud.pollCloudNow(); // tab-focus / 30s poll
+    await wait(200);
+
+    // The open editor's active area now reflects the web's change.
+    expect(preset.prompts.p.content).toBe('FROM_WEB');
+  }, 10000);
+
+  it('D. concurrent web writes never clobber; both presets survive', async () => {
+    webWrites({ webp: { id: 'webp', name: 'Web', data: { prompts: {} } } });
     await cloud.reconnectCloudSync();
 
-    openFile('ONE');
-    const id1 = preset.saveActivePresetAsCopy('First');
+    openFile('/a.json', 'ONE');
     await wait(2200);
-    webPushes({ webp: { id: 'webp', name: 'Web v2', data: { prompts: {} } } }); // web moves again
-    openFile('TWO');
-    const id2 = preset.saveActivePresetAsCopy('Second');
+    webWrites({ webp: { id: 'webp', name: 'Web v2', data: { prompts: {} } } }); // cloud moves again
+    openFile('/b.json', 'TWO');
     await wait(2500);
 
     const cp = host.cloud.data.savedPresets;
-    expect(cp[id1]?.data?.prompts?.p?.content).toBe('ONE'); // first save survived
-    expect(cp[id2]?.data?.prompts?.p?.content).toBe('TWO'); // second save synced
-    expect(cp.webp?.name).toBe('Web v2'); // web's edits never lost
+    expect(cp['file:/a.json']?.data?.prompts?.p?.content).toBe('ONE');
+    expect(cp['file:/b.json']?.data?.prompts?.p?.content).toBe('TWO');
+    expect(cp.webp?.name).toBe('Web v2'); // the other device's edits are preserved
   }, 14000);
 });

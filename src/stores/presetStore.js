@@ -41,10 +41,13 @@ export const SYNC_DATA_PATHS = [
 ];
 
 /**
- * Paths that are NOT synced by the VS Code extension. The extension edits a
- * local .json file directly — that file IS the active editing area — so these
- * active-area / per-file paths stay local and only the portable library (saved
- * presets) + preferences sync to the cloud. See stores/localBridge.js.
+ * Paths that are NOT synced (or persisted) by the VS Code extension. The
+ * extension's open file IS the active editing area, and its content is synced
+ * INSIDE its savedPresets entry (see openFileAsPreset) — never as these
+ * top-level keys, so multiple file panels can't clobber one shared active area.
+ * `currentPresetId` is a per-panel/per-device selection (driven by which file
+ * you opened), so it stays local too: syncing it would flash the cloud's active
+ * preset over the open file before it loads and hijack the web's active editor.
  */
 const EXTENSION_LOCAL_ONLY_PATHS = [
   'rawJson',
@@ -53,6 +56,7 @@ const EXTENSION_LOCAL_ONLY_PATHS = [
   'promptOrder',
   'promptCollapseStates',
   'globalCollapseState',
+  'currentPresetId',
 ];
 
 /**
@@ -1047,10 +1051,11 @@ export const usePresetStore = defineStore('preset', {
      * linked to one yet (fresh example, factory reset, legacy state).
      */
     _touchActivePreset() {
-      // Only a file-backed extension webview skips autosave (the open file IS the
-      // document, mirrored to disk). The standalone library editor autosaves into
-      // its library entry exactly like the web app.
-      if (isFileHost()) return;
+      // The active area is always a view onto one library entry — in the web app,
+      // the standalone library editor, AND (now) the extension's file webview,
+      // where the open file is linked to a stable entry by openFileAsPreset so it
+      // autosaves + syncs like the web. The open file is still mirrored to disk
+      // separately by the host bridge.
       if (!this.currentPresetId || !this.savedPresets[this.currentPresetId]) {
         this._adoptActivePreset();
         return;
@@ -1068,7 +1073,6 @@ export const usePresetStore = defineStore('preset', {
 
     /** Link the active area to a (new) library entry so autosave has a home. */
     _adoptActivePreset() {
-      if (isFileHost()) return;
       // Nothing loaded yet (fresh app before the example arrives) — don't
       // create an empty library entry.
       if (!this.rawJson && Object.keys(this.prompts || {}).length === 0) return;
@@ -2637,6 +2641,72 @@ export const usePresetStore = defineStore('preset', {
       return true;
     },
 
+    /**
+     * Extension file webview: open a local preset file AND link it to a stable
+     * library entry (keyed by `presetId`, derived from the file path), so the
+     * open file autosaves + syncs like the web app's active preset. The disk file
+     * is authoritative on open — its content becomes the current library state
+     * (and pushes up); ongoing edits and cloud changes then sync two-way. The
+     * host bridge keeps mirroring the active area to the .json on disk.
+     * @param {string} json - the file's JSON text
+     * @param {string} name - the file's basename (for the entry's display name)
+     * @param {string} presetId - stable id for this file
+     */
+    openFileAsPreset(json, name, presetId) {
+      this.parseFromJson(json); // sets rawJson/prompts/promptOrder + analyzes
+      if (name) this.originalFilename = name;
+      if (!presetId) return; // no stable id (shouldn't happen in file mode) — stay unlinked
+      const now = new Date().toISOString();
+      const existing = this.savedPresets[presetId];
+      const nextData = activeAreaData(this);
+      const changed = !existing || JSON.stringify(existing.data) !== JSON.stringify(nextData);
+      const displayName =
+        existing?.name ||
+        (name ? name.replace(/\.[^/.]+$/, '') : '') ||
+        this.t('presetManager.defaultName');
+      this.savedPresets[presetId] = {
+        name: displayName, // keep a name the user set in the library
+        data: nextData,
+        createdAt: existing?.createdAt || now,
+        updatedAt: changed ? now : existing?.updatedAt || now,
+        snapshots: existing?.snapshots || [],
+      };
+      this.currentPresetId = presetId;
+    },
+
+    /**
+     * Reload the active editing area from its library entry (the extension calls
+     * this after a cloud pull/merge so the open editor — and the mirrored .json on
+     * disk — reflect the just-adopted cloud changes). `originalFilename` and
+     * `currentPresetId` are preserved. No-op when the active area already matches.
+     * @returns {boolean} whether the active area changed
+     */
+    reloadActiveFromLibrary() {
+      const entry = this.currentPresetId && this.savedPresets[this.currentPresetId];
+      if (!entry || !entry.data) return false;
+      if (JSON.stringify(activeAreaData(this)) === JSON.stringify(entry.data)) return false;
+      const data = toPlainClone(entry.data);
+      this.rawJson = data.rawJson || '';
+      this.prompts = data.prompts || {};
+      this.promptOrder = data.promptOrder || [];
+      this.promptCollapseStates = data.promptCollapseStates || {};
+      this.clearHistory();
+      this.analyzeAllMacros();
+      return true;
+    },
+
+    /**
+     * Explicit "Save now" for the current preset. Autosave already keeps the
+     * library entry current, so this just flushes the latest edit into it (and,
+     * in the extension, triggers the disk mirror + a cloud push). Returns the
+     * saved preset id, or null when there is no active preset yet.
+     * @returns {string|null}
+     */
+    saveActivePreset() {
+      this._touchActivePreset(); // flush active area → library entry (adopts if new)
+      return this.currentPresetId || null;
+    },
+
     // --- Snapshots (named per-preset versions, cap MAX_SNAPSHOTS_PER_PRESET) ---
 
     /**
@@ -2648,9 +2718,9 @@ export const usePresetStore = defineStore('preset', {
     createSnapshot(presetId = null, name = '') {
       let targetId = presetId;
       if (!targetId) {
-        if (isFileHost()) return null; // a file webview has no active library preset
         this._touchActivePreset(); // flush + adopt so the snapshot is current
         targetId = this.currentPresetId;
+        if (!targetId) return null; // nothing loaded to snapshot yet
       } else if (targetId === this.currentPresetId) {
         this._touchActivePreset();
       }

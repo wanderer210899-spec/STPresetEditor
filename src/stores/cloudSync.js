@@ -167,6 +167,7 @@ async function autoRebaseAndPush(preset, sync) {
     // Adopt the merged library locally (without echoing a push).
     suppressPush = true;
     preset.applyCloudData(merged, activePaths);
+    preset.reloadActiveFromLibrary(); // reflect the merge in the open editor + disk
     suppressPush = false;
     const serialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
 
@@ -259,6 +260,10 @@ async function forcePush(preset, sync) {
 function adoptCloud(preset, sync, doc) {
   suppressPush = true;
   preset.applyCloudData(doc.data, activePaths);
+  // The extension syncs the library only, so applyCloudData updates the entries
+  // but not the open editor's active area — reload it so the open preset (and its
+  // mirrored .json on disk) reflect the adopted cloud changes, like the web app.
+  if (hostMode) preset.reloadActiveFromLibrary();
   suppressPush = false;
   syncedSerialized = JSON.stringify(preset.buildSyncSnapshot(activePaths));
   sync.set({ status: 'synced', lastSyncedAt: doc.updatedAt, pendingSync: false });

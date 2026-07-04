@@ -1,14 +1,21 @@
 <script setup>
 import { Dialog, DialogPanel, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useBreakpoints } from '@vueuse/core';
-import { watchEffect } from 'vue';
+import { computed, watchEffect } from 'vue';
+import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
 
 // Use VueUse to detect screen size based on Tailwind's breakpoints
 const breakpoints = useBreakpoints({
   desktop: 768, // Tailwind's 'md' breakpoint
 });
-const isDesktop = breakpoints.greaterOrEqual('desktop');
+// The VS Code / Cursor extension always runs on a desktop, but its panel is
+// often docked narrow (< 768px). Width-based mobile detection would then drop it
+// into the phone layout — no click-to-edit, drawer nav — which is the "extension
+// is missing desktop features" bug. Force the desktop UI in the extension; the
+// collapsible columns already handle a narrow panel.
+const gteDesktop = breakpoints.greaterOrEqual('desktop');
+const isDesktop = computed(() => isVsCodeHost() || gteDesktop.value);
 
 const store = usePresetStore();
 

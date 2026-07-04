@@ -2,7 +2,7 @@
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
   "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional account-based cloud sync.",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -131,6 +131,33 @@
         "title": "Download to folder",
         "category": "STPE",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stpe.shortcut",
+        "title": "STPresetEditor: forward a shortcut to the editor"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "stpe.shortcut",
+        "args": "find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
+      },
+      {
+        "command": "stpe.shortcut",
+        "args": "globalSearch",
+        "key": "ctrl+k",
+        "mac": "cmd+k",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
+      },
+      {
+        "command": "stpe.shortcut",
+        "args": "save",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
       }
     ],
     "menus": {
