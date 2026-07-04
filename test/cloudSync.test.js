@@ -181,3 +181,39 @@ describe('F2 conflict flow', () => {
     expect(sync.status).toBe('conflict');
   });
 });
+
+describe('sign-in reconcile: local edits are not silently discarded', () => {
+  it('asks which to keep when the device has un-synced edits that differ from the cloud', async () => {
+    // Simulate editing while signed OUT: local data + undo history, but nothing
+    // flagged pendingSync (sync was off). Then "sign in" to a non-empty cloud.
+    preset.prompts = {
+      a: { id: 'a', identifier: 'a', name: 'Alpha', content: 'mine', enabled: true },
+    };
+    preset.promptOrder = ['a'];
+    preset.clearHistory();
+    preset.updatePromptDetail({ promptId: 'a', field: 'content', value: 'local-unsynced' });
+    expect(preset.canUndo).toBe(true);
+    expect(sync.pendingSync).toBe(false);
+
+    cloudDoc = { updatedAt: 'T1', data: cloudData('cloud-v1') };
+    await cloudSync.initCloudSync();
+
+    // The user is asked; nothing was silently overwritten or blindly pushed.
+    expect(preset.confirmState.open).toBe(true);
+    expect(sync.status).toBe('conflict');
+    expect(preset.prompts.a.content).toBe('local-unsynced');
+    expect(puts).toHaveLength(0);
+  });
+
+  it('adopts the cloud silently on a fresh, unedited device (no nag)', async () => {
+    // No local edits (canUndo === false) → normal sign-in must not prompt.
+    expect(preset.canUndo).toBe(false);
+    cloudDoc = { updatedAt: 'T1', data: cloudData('cloud-v1') };
+    await cloudSync.initCloudSync();
+
+    expect(preset.confirmState.open).toBe(false);
+    expect(preset.prompts.a.content).toBe('cloud-v1');
+    expect(sync.status).toBe('synced');
+    expect(sync.lastSyncedAt).toBe('T1');
+  });
+});

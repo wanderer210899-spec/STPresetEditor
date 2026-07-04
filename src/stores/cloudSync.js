@@ -405,8 +405,23 @@ export async function initCloudSync() {
       sync.set({ status: 'synced' });
     }
   } else if (cloudIsNewer && !sync.pendingSync) {
-    // Adopt the newer cloud copy (no un-pushed local edits to protect).
-    adoptCloud(preset, sync, doc);
+    // The cloud moved and nothing is flagged pending — normally we adopt it. But
+    // edits made while signed OUT never set pendingSync (sync was off), so a user
+    // who tinkered before signing in would have that work silently discarded.
+    // Guard the web path: if the user has made real edits this session
+    // (canUndo) and the local library actually differs from the cloud, ask which
+    // to keep instead of overwriting. A fresh/unedited device still adopts
+    // silently, so normal sign-in isn't nagged. (The extension merges its keyed
+    // library elsewhere, so this only applies to the web transport.)
+    const localSnap = preset.buildSyncSnapshot(activePaths);
+    const paths = activePaths || Object.keys(localSnap);
+    const localHasUnsyncedEdits =
+      !hostMode && preset.canUndo && paths.some((key) => !eq(localSnap[key], doc.data?.[key]));
+    if (localHasUnsyncedEdits) {
+      await openConflictDialog();
+    } else {
+      adoptCloud(preset, sync, doc);
+    }
   } else if (sync.pendingSync || cloudIsNewer) {
     // Local has un-pushed edits: try a conditional push. If the cloud moved
     // too, the 409 path opens the conflict dialog instead of clobbering.

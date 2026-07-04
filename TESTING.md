@@ -158,7 +158,12 @@ Open the URL it prints (usually <http://localhost:8787>) and:
 4. Edit the _same preset differently_ on both sides while one is offline-ish
    (e.g. pause before switching tabs) — you should get a **conflict prompt**
    asking which copy to keep, rather than silent data loss.
-5. **Settings → Cloud sync → Generate key** — copy the `stpe_…` key somewhere;
+5. **Edit before signing in (fixed in 0.7.1):** with the app open but signed
+   out, change a prompt, _then_ sign in to an account that already has a cloud
+   library. You should get the same **keep-mine / use-cloud** prompt instead of
+   your edit being silently replaced. (A fresh, unedited device still adopts the
+   cloud library silently — no prompt.)
+6. **Settings → Cloud sync → Generate key** — copy the `stpe_…` key somewhere;
    you'll use it in step 3 to connect the extension. (It's shown only once.)
 
 Keep this terminal running if you're continuing to step 3; the extension can
@@ -175,12 +180,12 @@ sync against this same sandbox.
 ### Install the prebuilt `.vsix`
 
 The built extension is committed on this branch at
-`extension/stpreseteditor-local-0.7.0.vsix`.
+`extension/stpreseteditor-local-0.7.1.vsix`.
 
 - Easiest: you already cloned the repo in step 0, so the file is on your disk.
 - Or download it from GitHub: open the repository page → switch the branch
   dropdown to `claude/preset-editor-improvements-l6p4ug` → `extension` folder →
-  click `stpreseteditor-local-0.7.0.vsix` → **Download raw file** (⬇ icon).
+  click `stpreseteditor-local-0.7.1.vsix` → **Download raw file** (⬇ icon).
 
 Then in VS Code or Cursor:
 
@@ -189,7 +194,7 @@ Then in VS Code or Cursor:
 3. **Reload** when prompted.
 
 > If you had an earlier build installed, install over it and Reload so you're
-> testing 0.7.0.
+> testing 0.7.1.
 
 ### Try the editor (file mode)
 
