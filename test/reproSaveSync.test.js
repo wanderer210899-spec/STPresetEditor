@@ -4,7 +4,7 @@
 // so edits push automatically and cloud changes flow back into the open editor.
 
 import { setActivePinia, createPinia } from 'pinia';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let host;
 function dispatch(data) {
@@ -167,4 +167,42 @@ describe('extension open file — two-way sync like web', () => {
     expect(cp['file:/b.json']?.data?.prompts?.p?.content).toBe('TWO');
     expect(cp.webp?.name).toBe('Web v2'); // the other device's edits are preserved
   }, 14000);
+
+  it('E. RC1: restart with a changed disk file AND a moved cloud — both survive', async () => {
+    // Session 1: open + sync a file, establishing the persisted merge base.
+    await cloud.reconnectCloudSync();
+    openFile('/a.json', 'ONE');
+    await wait(2000);
+    expect(host.cloud.data.savedPresets['file:/a.json']?.data?.prompts?.p?.content).toBe('ONE');
+    const priorSyncedAt = sync.lastSyncedAt;
+
+    // While "closed": the web adds an entry (the cloud moves)…
+    webWrites({
+      webp: { id: 'webp', name: 'Web', updatedAt: new Date().toISOString(), data: { prompts: {} } },
+    });
+
+    // Session 2 (simulated restart): fresh modules + stores; the host pushes
+    // the CHANGED disk file BEFORE the sync engine reconciles (real 'load'
+    // ordering), so nothing sets pendingSync for it.
+    vi.resetModules();
+    setActivePinia(createPinia());
+    bridge = await import('../src/stores/localBridge.js');
+    cloud = await import('../src/stores/cloudSync.js');
+    const presetMod = await import('../src/stores/presetStore.js');
+    const syncMod = await import('../src/stores/syncStore.js');
+    preset = presetMod.usePresetStore();
+    sync = syncMod.useSyncStore();
+    await bridge.initLocalBridge();
+    sync.set({ lastSyncedAt: priorSyncedAt, pendingSync: false, cloudEnabled: false, status: 'idle' });
+    openFile('/a.json', 'ONE-EDITED-ON-DISK');
+    await cloud.initCloudSync();
+    await wait(500);
+
+    // Pre-fix behavior: cloud-moved + no-pending ⇒ blind adopt wiped the disk
+    // edit from the open editor AND the file on disk. Now it merges.
+    expect(preset.prompts.p.content).toBe('ONE-EDITED-ON-DISK'); // editor not steamrolled
+    const cp = host.cloud.data.savedPresets;
+    expect(cp['file:/a.json']?.data?.prompts?.p?.content).toBe('ONE-EDITED-ON-DISK'); // pushed up
+    expect(cp.webp?.name).toBe('Web'); // the web's addition is preserved
+  }, 15000);
 });

@@ -23,7 +23,7 @@ const PBKDF2_ITERS = 100000;
 const encoder = new TextEncoder();
 
 /** Constant-time comparison of two strings (timing-safe). */
-export function safeEqual(a, b) {
+function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   let mismatch = 0;
   for (let i = 0; i < a.length; i += 1) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);

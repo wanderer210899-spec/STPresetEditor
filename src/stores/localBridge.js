@@ -1,8 +1,9 @@
 // Local-file bridge + cloud transport for the Cursor/VSCode extension (the "host").
 //
 // File seam: mirrors the OPEN preset to a local file via the webview <-> host
-// postMessage bridge (parseFromJson in, finalJson out). The open file is LOCAL —
-// it is never synced to the cloud.
+// postMessage bridge (parseFromJson in, finalJson out). The open file is ALSO
+// linked to a stable library entry (openFileAsPreset), so it cloud-syncs
+// two-way INSIDE savedPresets — never as top-level active-area keys.
 //
 // Cloud transport (A4 — account auth): the webview can't ride the web app's
 // session cookie (different origin), so the extension authenticates with a
@@ -27,6 +28,7 @@
 //                     | fileState{standalone,linked,state,fileName}  (open file's
 //                                 link to the cloud library, for the status chip)
 import { debounce } from 'lodash-es';
+import { toPlainClone } from '../utils/clone';
 import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
@@ -134,11 +136,15 @@ function filePresetId(path) {
 
 /** Apply a preset file pushed from the host. The open file is linked to a stable
  *  library entry so it autosaves + syncs like the web app's active preset;
- *  opening does not rewrite the file (the baseline is the just-loaded state). */
+ *  opening does not rewrite the file (the baseline is the just-loaded state).
+ *  The host supplies the folder mapping's presetId when the workspace is
+ *  linked, so the file syncs under ONE identity; otherwise fall back to the
+ *  path-derived `file:` id. */
 function applyLoad(message) {
   if (typeof message.json !== 'string') return;
   if (message.path) activePath = message.path;
-  const presetId = filePresetId(activePath);
+  const presetId =
+    (typeof message.presetId === 'string' && message.presetId) || filePresetId(activePath);
   if (presetId) {
     store.openFileAsPreset(message.json, message.name, presetId); // parse + link + analyze
   } else {
@@ -229,7 +235,7 @@ export function hostCloudPut(payload) {
   // reactive PROXIES — and `postMessage` (structured clone) throws DataCloneError
   // on those. Serialise to a plain, JSON-safe object before crossing the bridge
   // (the same normalisation the web transport gets for free via JSON.stringify).
-  const data = toPlain(payload && payload.data);
+  const data = toPlainClone(payload && payload.data);
   const message = { type: 'cloudPush', data };
   if (payload && 'baseUpdatedAt' in payload) message.baseUpdatedAt = payload.baseUpdatedAt ?? null;
   post(message);
@@ -238,11 +244,6 @@ export function hostCloudPut(payload) {
     conflict: Boolean(msg && msg.conflict),
     updatedAt: msg && msg.updatedAt,
   }));
-}
-
-/** Deep-clone to a plain, structured-clone-safe object (strips Vue proxies). */
-function toPlain(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
 /**

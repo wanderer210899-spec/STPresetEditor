@@ -1,6 +1,7 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import languageData from '../assets/languages.json';
+import { toPlainClone } from '../utils/clone';
 import { isFileHost, isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
 import { estimateTokens } from '../utils/tokens';
@@ -68,8 +69,8 @@ export const EXTENSION_LIBRARY_PATHS = SYNC_DATA_PATHS.filter(
 );
 
 /**
- * Full set of localStorage-persisted paths (portable data + device-local prefs
- * like pane sizes). `paneSizes` is intentionally persisted but NOT synced.
+ * Full set of localStorage-persisted paths (portable data + device-local
+ * layout prefs, which are intentionally persisted but NOT synced).
  */
 const PERSIST_PATHS_BASE = [
   'rawJson',
@@ -89,7 +90,6 @@ const PERSIST_PATHS_BASE = [
   'themeMode',
   // Device-specific layout — persisted but deliberately NOT in SYNC_DATA_PATHS
   // (layout should not follow you across devices).
-  'paneSizes',
   'desktopLeftOpen',
   'desktopRightOpen',
 ];
@@ -122,7 +122,6 @@ export const defaultCustomWraps = () => [
 export const MAX_SNAPSHOTS_PER_PRESET = 20;
 
 /** Deep-clone store data to plain JSON (strips Vue reactive proxies). */
-const toPlainClone = (value) => JSON.parse(JSON.stringify(value));
 
 /** Unified undo/redo history (F8a): maximum stored steps. */
 export const HISTORY_LIMIT = 100;
@@ -304,11 +303,7 @@ export const usePresetStore = defineStore('preset', {
     // (the ⓘ toggle), never by merely selecting a prompt.
     desktopLeftOpen: !isVsCodeHost(), // Library column: open on web, closed in the extension
     desktopRightOpen: false, // Details/Variables column visible on desktop
-    // Legacy splitpanes fields kept for the maximize toggle (unit-tested); the
-    // collapsible layout only reads isRightPaneMaximized (wider right column).
-    paneSizes: [20, 50, 30],
     isRightPaneMaximized: false, // Right pane expanded (F7)
-    _paneSizesBackup: null, // Sizes to restore when un-maximizing
 
     // Modal visibility state
     isImportModalOpen: false, // Whether import modal is visible
@@ -1048,11 +1043,12 @@ export const usePresetStore = defineStore('preset', {
     // --- Autosave (F1): the active area is always a view onto one library entry ---
 
     /**
-     * Write the active editing area into its library entry. No-op in the VS
-     * Code extension (the open file is mirrored to disk instead, and is not a
-     * library entry) and when nothing actually changed (so loads/reloads don't
-     * bump updatedAt). Adopts the active area into a new entry when it isn't
-     * linked to one yet (fresh example, factory reset, legacy state).
+     * Write the active editing area into its library entry. No-op when nothing
+     * actually changed (so loads/reloads don't bump updatedAt). Adopts the
+     * active area into a new entry when it isn't linked to one yet (fresh
+     * example, factory reset, legacy state). Runs in EVERY runtime — in the
+     * extension the open file is linked to a library entry by openFileAsPreset
+     * and is ALSO mirrored to disk by the host bridge.
      */
     _touchActivePreset() {
       // The active area is always a view onto one library entry — in the web app,
@@ -2089,25 +2085,10 @@ export const usePresetStore = defineStore('preset', {
       this.desktopRightOpen = typeof isOpen === 'boolean' ? isOpen : !this.desktopRightOpen;
     },
 
-    // Desktop 3-pane layout (F7) -------------------------------------------
-    setPaneSizes(sizes) {
-      if (!Array.isArray(sizes) || sizes.length !== 3) return;
-      const nums = sizes.map(Number);
-      if (nums.some((n) => !Number.isFinite(n))) return;
-      this.paneSizes = nums;
-    },
-    /** Expand the right pane to 60% (left collapses); toggling back restores
-     *  the previous drag-set sizes. */
+    // Desktop right-pane maximize (F7) — the collapsible-columns layout only
+    // reads the boolean (wider right column, hidden left column).
     toggleRightPaneMaximize() {
-      if (this.isRightPaneMaximized) {
-        this.isRightPaneMaximized = false;
-        this.paneSizes = this._paneSizesBackup || [20, 50, 30];
-        this._paneSizesBackup = null;
-      } else {
-        this._paneSizesBackup = [...this.paneSizes];
-        this.isRightPaneMaximized = true;
-        this.paneSizes = [5, 35, 60];
-      }
+      this.isRightPaneMaximized = !this.isRightPaneMaximized;
     },
 
     // Modal toggles
@@ -3213,7 +3194,22 @@ export const usePresetStore = defineStore('preset', {
     buildSyncSnapshot(paths = SYNC_DATA_PATHS) {
       const snapshot = {};
       paths.forEach((key) => {
-        snapshot[key] = this[key];
+        if (key === 'prompts') {
+          // Strip the derived `macros` arrays, like activeAreaData does for
+          // library entries (analyzeAllMacros re-attaches them after apply).
+          // Syncing them bloats the payload and creates false "both changed"
+          // diffs in conflict detection when clients analyzed at different
+          // times.
+          const prompts = {};
+          Object.entries(this.prompts || {}).forEach(([id, prompt]) => {
+            // eslint-disable-next-line no-unused-vars
+            const { macros, ...rest } = prompt;
+            prompts[id] = rest;
+          });
+          snapshot[key] = prompts;
+        } else {
+          snapshot[key] = this[key];
+        }
       });
       return snapshot;
     },

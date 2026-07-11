@@ -24,8 +24,10 @@ Two runtime shapes from the same code:
 - Pinia + `pinia-plugin-persistedstate` (state + localStorage)
 - Vite 7 (build), Tailwind CSS v4 (`@tailwindcss/vite`)
 - Headless UI + Heroicons (accessible dialogs/menus/tabs/icons)
-- Splitpanes (desktop 3-pane), vuedraggable (drag-reorder), floating-vue
-  (tooltips), lodash-es (debounce)
+- floating-vue (tooltips), lodash-es (debounce)
+- Desktop 3-pane = collapsible columns in `AppLayout.vue` (no splitter lib);
+  drag-reorder = native HTML5 DnD in `PromptCard.vue`, armed from the ⋮⋮
+  handle on desktop/host (no drag lib)
 - Cloudflare Workers + KV + Wrangler (deploy)
 
 ## Architecture: one store, derive everything
@@ -76,28 +78,40 @@ API key (`X-API-Key`). Both resolve to the KV key `user:<id>`. Recovery is the
 `EMERGENCY_RESET_TOKEN` Worker-var backdoor (no email service). See `AUTH_PLAN.md`.
 
 - **`src/stores/cloudSync.js`** — orchestration. `initCloudSync()` reconciles
-  once (seed an empty cloud, adopt a newer cloud copy, or flush pending local
-  edits), then subscribes to store changes and pushes (debounced ~1.5s).
-  `reconnectCloudSync()` re-runs after sign-in/out (web) or connect/disconnect
-  (extension). Any failure ⇒ local-only. **Transport is pluggable:** the web app
-  uses `fetch('/api/presets', {credentials:'include'})` and syncs the full
-  `SYNC_DATA_PATHS`; the VS Code extension routes the _same_ reconcile through the
-  host bridge (`hostCloudGet`/`hostCloudPut`) and syncs `EXTENSION_LIBRARY_PATHS`
-  only (the saved-preset library + prefs — the open file stays local).
+  once, then subscribes to store changes and pushes (debounced ~1.5s, hard
+  upper bound `maxWait` 3s — the store's own derived mutations re-arm the
+  trailing edge). **Merge-first conflict handling:** the last-synced snapshot
+  persists in localStorage (`stpe:sync:base`) as a 3-way merge BASE across
+  restarts; divergence resolves through `resolveDivergence()` — per-entry
+  merge of `savedPresets` (base-aware; `updatedAt`-newer wins when the base is
+  unknown), local-wins-since-base for prefs. Only a genuine fork of the OPEN
+  document (both sides changed `rawJson`/`prompts`/`promptOrder`) asks the
+  user (web): "keep mine" pushes the MERGE with my document (conditional PUT,
+  other devices' entries survive), "use cloud" adopts wholesale, dismissal
+  defers. `reconnectCloudSync()` (sign-in/out, key connect/disconnect) clears
+  the persisted base first. Any failure ⇒ local-only. **Transport is
+  pluggable:** the web app uses `fetch('/api/presets',{credentials:'include'})`
+  and syncs the full `SYNC_DATA_PATHS`; the VS Code extension routes the _same_
+  reconcile through the host bridge (`hostCloudGet`/`hostCloudPut`) and syncs
+  `EXTENSION_LIBRARY_PATHS` only. `buildSyncSnapshot()` strips derived
+  `prompt.macros` (recomputed after apply) so analysis never causes diffs.
 - **`src/stores/localBridge.js`** — the extension's host seam. (a) File: mirrors
   the OPEN preset to a local `.json` over the webview↔host postMessage bridge
-  (`parseFromJson` in, `finalJson` out); the open file is never cloud-synced.
-  (b) Cloud transport: connect/validate an API key (held in VS Code SecretStorage,
-  never in the webview) and expose `hostCloudGet`/`hostCloudPut` for cloudSync.js.
-  `isVsCodeHost()` selects host vs web mode everywhere.
+  (`parseFromJson` in, `finalJson` out); the open file is ALSO linked to a
+  stable library entry (`openFileAsPreset` — the host's `load` supplies the
+  folder-mapping id when the workspace is linked, else `file:<path>`), so it
+  cloud-syncs two-way INSIDE `savedPresets`, never as top-level active-area
+  keys. (b) Cloud transport: connect/validate an API key (held in VS Code
+  SecretStorage, never in the webview) and expose `hostCloudGet`/`hostCloudPut`
+  for cloudSync.js. `isVsCodeHost()` selects host vs web mode everywhere.
 - **`src/stores/authStore.js`** — account/session state + API-key management over
   `/api/auth/*` and `/api/keys`. **`src/components/SyncSetup.vue`** — the shared
   sync panel (sign in / create account / recovery / generate-key), shown in
   `SettingsModal.vue`.
 - **`src/stores/syncStore.js`** — sync status only (`cloudEnabled`, `status`,
-  `lastSyncedAt`, `pendingSync`). Kept separate from the data store so status
-  updates never look like editable-data changes. Persists `lastSyncedAt`,
-  `pendingSync`.
+  `lastSyncedAt`, `pendingSync`, `fileLink`). Kept separate from the data store
+  so status updates never look like editable-data changes. Persists
+  `lastSyncedAt`, `pendingSync`.
 - **`worker/index.js` + `worker/auth.js`** — the Worker. `identify()` resolves a
   session cookie or `X-API-Key` → KV key `user:<id>`; no identity ⇒ **401, fail
   closed**. `auth.js` is dependency-free (Web Crypto PBKDF2 + D1); passwords,
@@ -190,8 +204,14 @@ expand button / double-click, or the right pane's Expand; state:
   (incl. conditionals + shorthand), highlight categories, autocomplete catalog,
   `defaultCustomWraps()` → `src/utils/macros.js`
 - Caret pixel coordinates (for the autocomplete dropdown) → `src/utils/caret.js`
-- Cloud-sync behaviour → `src/stores/cloudSync.js`
-- Sync status + passphrase state → `src/stores/syncStore.js`
+- Host/webview detection + editor mode (`web`/`file`/`library`) → `src/utils/host.js`
+- Search-term highlight splitting → `src/utils/highlight.js`
+- Keyboard shortcut registration/handling → `src/utils/shortcuts.js`
+- Token estimate + formatting → `src/utils/tokens.js`
+- Plain deep-clone (proxy-safe) → `src/utils/clone.js`
+- Cloud-sync behaviour (reconcile, merge, conflict flow) → `src/stores/cloudSync.js`
+- Sync status (`cloudEnabled`/`status`/`lastSyncedAt`/`pendingSync`/`fileLink`) → `src/stores/syncStore.js`
+- Account/session + API-key state → `src/stores/authStore.js`
 - Worker API / auth / KV access → `worker/index.js`
 - Worker config + bindings → `wrangler.jsonc`
 
@@ -221,6 +241,7 @@ expand button / double-click, or the right pane's Expand; state:
 - A variable's definition/reference lists → `src/components/RightSidebar/MacroDetails.vue`
 - One defined/referenced list, shared by inline + modal → `src/components/RightSidebar/VariableUsageList.vue`
 - Variables tab: list, status icons, safe rename → `src/components/RightSidebar/VariableManager.vue`
+- A variable's execution timeline (writes/reads in order) → `src/components/RightSidebar/VariableTimeline.vue`
 
 **Modals** (all build on the shared shell)
 
@@ -230,10 +251,13 @@ expand button / double-click, or the right pane's Expand; state:
 - Toast notifications, store-driven (replaces `alert`) → `src/components/ToastHost.vue`
 - Import JSON → `src/components/JsonImportModal.vue`
 - Export JSON → `src/components/JsonExportModal.vue`
-- Settings (language, **cloud-sync passphrase**, delete-confirm, **autocomplete
+- Settings (language, **cloud sync/account**, delete-confirm, **autocomplete
   dictionary**, factory reset, build stamp) → `src/components/SettingsModal.vue`
-- Saved-preset manager (search/sort/multi-select CRUD) → `src/components/PresetManagerModal.vue`
-- Thin `MacroDetails` expand wrapper bound to `isDetailsModalOpen` → `src/components/DetailsModal.vue`
+- Shared sync panel (sign in / create account / recovery / API keys; web +
+  extension modes) → `src/components/SyncSetup.vue`
+- Saved-preset manager (search/sort/multi-select CRUD, snapshots) → `src/components/PresetManagerModal.vue`
+- Global search palette (Ctrl+K, cross-preset) → `src/components/GlobalSearchModal.vue`
+- Keyboard-shortcuts help → `src/components/ShortcutsHelpModal.vue`
 
 **Assets / config**
 
@@ -265,5 +289,5 @@ npm run deploy       # build + wrangler deploy (Cloudflare Worker)
 npm run cf-preview   # build + wrangler dev (test the Worker + API locally)
 ```
 
-Cloud-sync setup (passphrase or Cloudflare Access) and one-click deploy are
-documented in **README.md → Private cloud sync (Cloudflare)**.
+Cloud-sync setup (account sign-in + API keys for the extension) and one-click
+deploy are documented in **README.md → Private cloud sync (Cloudflare)**.

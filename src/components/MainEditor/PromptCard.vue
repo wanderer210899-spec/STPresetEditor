@@ -25,9 +25,13 @@
     <div class="mb-2 flex items-center justify-between md:mb-0.5">
       <div class="flex min-w-0 flex-1 items-center">
         <!-- Desktop drag handle (hover-revealed); dragging is armed from here
-             so text selection inside the block never starts a drag -->
+             so text selection inside the block never starts a drag.
+             In the VS Code webview desktop mode is FORCED (isMobile is false at
+             any width), so the handle must exist below md too — otherwise a
+             docked panel < 768px has no way to arm a drag at all. -->
         <span
-          class="block-controls hidden cursor-grab rounded p-0.5 text-gray-400 md:inline-flex dark:text-gray-500"
+          class="block-controls cursor-grab rounded p-0.5 text-gray-400 dark:text-gray-500"
+          :class="isHostDesktop ? 'inline-flex' : 'hidden md:inline-flex'"
           :title="store.t('promptCard.dragHandle')"
           @mousedown="dragArmed = true"
           @mouseup="dragArmed = false"
@@ -313,6 +317,7 @@ import {
 } from '@heroicons/vue/20/solid';
 import { computed, nextTick, ref } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { isVsCodeHost } from '../../utils/host';
 import { splitByTerm } from '../../utils/highlight';
 import { categoryOf } from '../../utils/macros';
 import { estimateTokens, formatTokenCount } from '../../utils/tokens';
@@ -330,6 +335,10 @@ const props = defineProps({
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// The VS Code webview forces desktop interactions at any panel width
+// (AppLayout), so the drag handle must not be width-gated there.
+const isHostDesktop = isVsCodeHost();
 
 // Shared class for dropdown menu items (kept neutral for a restrained palette)
 const menuItemClass =

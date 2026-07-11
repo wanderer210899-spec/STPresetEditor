@@ -183,7 +183,7 @@ function shorthandType(op, scope) {
  * @param {string} text
  * @returns {string[]} unique variable names
  */
-export function extractVarRefs(text) {
+function extractVarRefs(text) {
   if (!text) return [];
   const refs = new Set();
   let m;

@@ -155,20 +155,13 @@ describe('F6c global search', () => {
 });
 
 describe('F7 maximizable right pane', () => {
-  it('maximize sets the right pane to 60% and restore brings back old sizes', () => {
-    store.setPaneSizes([25, 45, 30]);
+  // The collapsible-columns layout only reads the boolean; the splitpanes-era
+  // pixel sizes (paneSizes/setPaneSizes) were removed with the library.
+  it('toggles the maximized flag', () => {
+    expect(store.isRightPaneMaximized).toBe(false);
     store.toggleRightPaneMaximize();
     expect(store.isRightPaneMaximized).toBe(true);
-    expect(store.paneSizes[2]).toBe(60);
     store.toggleRightPaneMaximize();
     expect(store.isRightPaneMaximized).toBe(false);
-    expect(store.paneSizes).toEqual([25, 45, 30]);
-  });
-
-  it('rejects malformed sizes', () => {
-    store.setPaneSizes([25, 45, 30]);
-    store.setPaneSizes([1, 2]);
-    store.setPaneSizes(['x', 'y', 'z']);
-    expect(store.paneSizes).toEqual([25, 45, 30]);
   });
 });

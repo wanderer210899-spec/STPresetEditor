@@ -45,6 +45,7 @@ beforeEach(async () => {
 
   cloudDoc = null;
   puts = [];
+  window.localStorage.clear(); // the persisted merge base must not leak between tests
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, opts = {}) => {
@@ -127,7 +128,10 @@ describe('F2 conflict flow', () => {
     await vi.waitFor(() => expect(sync.status).toBe('synced'));
 
     const lastPut = puts[puts.length - 1];
-    expect('baseUpdatedAt' in lastPut).toBe(false);
+    // "Keep mine" is no longer a blind whole-snapshot overwrite: it pushes the
+    // MERGED snapshot conditionally (baseUpdatedAt present), so other devices'
+    // library entries survive the choice.
+    expect('baseUpdatedAt' in lastPut).toBe(true);
     expect(cloudDoc.data.prompts.a.content).toBe('local-edit');
     expect(sync.pendingSync).toBe(false);
     expect(sync.lastSyncedAt).toBe(cloudDoc.updatedAt);
@@ -176,7 +180,12 @@ describe('F2 conflict flow', () => {
     // A real edit → subscription → debounced push → 409 → dialog again.
     preset.updatePromptDetail({ promptId: 'a', field: 'content', value: 'local-edit-2' });
     await Promise.resolve(); // let the (pre-flush) subscription run
-    vi.advanceTimersByTime(1600); // fire the debounced push
+    // The store's own follow-up mutations (macro analysis at +300ms, the
+    // autosave flush at +1s) re-arm the trailing push debounce, so the push
+    // lands by its maxWait bound (3s) rather than the base 1.5s. The async
+    // advance flushes the promise chain between timers so the 409 → dialog
+    // flow completes deterministically.
+    await vi.advanceTimersByTimeAsync(4000);
     await vi.waitFor(() => expect(preset.confirmState.open).toBe(true));
     expect(sync.status).toBe('conflict');
   });
@@ -215,5 +224,72 @@ describe('sign-in reconcile: local edits are not silently discarded', () => {
     expect(preset.prompts.a.content).toBe('cloud-v1');
     expect(sync.status).toBe('synced');
     expect(sync.lastSyncedAt).toBe('T1');
+  });
+});
+
+describe('restart safety: the persisted merge base (RC2/RC3)', () => {
+  /** Simulate closing and reopening the app: fresh modules + fresh stores.
+   *  Only what really persists carries over — the merge base rides in
+   *  localStorage automatically; document state and sync flags are re-seeded
+   *  explicitly (standing in for the pinia persist plugin, which the tests
+   *  don't install). */
+  async function reloadApp({ pendingSync }) {
+    vi.resetModules();
+    setActivePinia(createPinia());
+    cloudSync = await import('../src/stores/cloudSync.js');
+    const { usePresetStore } = await import('../src/stores/presetStore.js');
+    const { useSyncStore } = await import('../src/stores/syncStore.js');
+    preset = usePresetStore();
+    sync = useSyncStore();
+    const data = cloudData('v1');
+    preset.rawJson = data.rawJson;
+    preset.originalFilename = data.originalFilename;
+    preset.prompts = JSON.parse(JSON.stringify(data.prompts));
+    preset.promptOrder = [...data.promptOrder];
+    sync.set({ lastSyncedAt: 'T1', pendingSync });
+  }
+
+  it('RC2: pending edits after a reload MERGE — remote additions survive', async () => {
+    await initAdopted(); // seeds + persists the merge base at T1
+
+    // Another device stored a new library entry (cloud moves to T2)…
+    cloudDoc = {
+      updatedAt: 'T2',
+      data: {
+        ...cloudData('v1'),
+        savedPresets: {
+          webp: { id: 'webp', name: 'Web', updatedAt: '2026-07-09T00:00:00.000Z', data: {} },
+        },
+      },
+    };
+
+    // …while this device reloads carrying an un-pushed edit (pendingSync was
+    // persisted true — the window closed inside the push-debounce gap).
+    await reloadApp({ pendingSync: true });
+    preset.prompts.a.content = 'local-edit';
+    await cloudSync.initCloudSync();
+
+    // Pre-fix behavior: the null in-memory base made "local win everywhere",
+    // wiping webp from the cloud. With the persisted base this merges.
+    expect(preset.confirmState.open).toBe(false); // library divergence never dialogs
+    expect(cloudDoc.data.prompts.a.content).toBe('local-edit'); // local edit survived
+    expect(cloudDoc.data.savedPresets.webp?.name).toBe('Web'); // remote addition survived
+    expect(sync.status).toBe('synced');
+    expect(sync.pendingSync).toBe(false);
+  });
+
+  it('RC3: offline changes with an unchanged cloud are pushed, not sealed as synced', async () => {
+    await initAdopted();
+
+    // Reload with NO pending flag (edits happened while sync was off), cloud
+    // still at T1. Pre-fix behavior: the final "already in sync" branch seeded
+    // the base from the differing local snapshot and the change never uploaded.
+    await reloadApp({ pendingSync: false });
+    preset.prompts.a.content = 'offline-edit';
+    await cloudSync.initCloudSync();
+
+    expect(puts.length).toBeGreaterThan(0);
+    expect(cloudDoc.data.prompts.a.content).toBe('offline-edit');
+    expect(sync.status).toBe('synced');
   });
 });
