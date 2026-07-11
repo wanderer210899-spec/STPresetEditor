@@ -3,108 +3,173 @@
   <div class="flex h-full flex-col">
     <!-- Editor header with title and controls -->
     <div class="mb-3 flex flex-shrink-0 flex-col gap-2">
-      <!-- Row 1: title, search, and view/action controls -->
-      <div class="flex items-center gap-3">
+      <!-- Row 1: title, search, and view/action controls. Wraps on narrow
+           screens (320px phones) instead of pushing buttons off-screen. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 class="section-title shrink-0">{{ store.t('editor.title') }}</h2>
         <!-- Inline search box -->
-        <div class="relative min-w-0 flex-1">
+        <div class="relative min-w-0 flex-1 basis-40">
           <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-            <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
+            <MagnifyingGlassIcon
+              class="h-5 w-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
           <input
+            id="editor-search-input"
+            v-model="searchDraft"
             type="text"
-            :value="store.editorSearchTerm"
             class="input pl-10"
+            :class="{ 'pr-20': searchDraft }"
             :placeholder="store.t('editor.searchPlaceholder')"
-            @input="onSearch"
+            @input="onSearchInput"
+            @keydown.enter.prevent="onSearchEnter"
+            @keydown.esc.prevent="clearSearch"
           />
+          <!-- "x / N" find-next counter + a clear button, inside the box -->
+          <div v-if="searchDraft" class="absolute inset-y-0 right-1.5 flex items-center gap-1">
+            <span
+              class="text-xs text-gray-400 tabular-nums dark:text-gray-500"
+              :title="matchStatsLabel"
+            >
+              {{ matchPositionLabel }}
+            </span>
+            <button
+              type="button"
+              class="btn-icon btn-icon-sm"
+              :title="store.t('common.clearSearch')"
+              @click="clearSearch"
+            >
+              <XMarkIcon class="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <!-- View + action controls -->
-        <div class="flex shrink-0 items-center gap-2">
-          <!-- Macro display mode toggle -->
-          <SwitchGroup as="div" class="flex items-center">
-            <SwitchLabel as="span" class="mr-2 hidden text-sm font-medium text-gray-700 lg:inline">
-              {{ isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode') }}
-            </SwitchLabel>
-            <Switch
-              :model-value="isPreviewMode"
-              :class="isPreviewMode ? 'bg-green-500' : 'bg-gray-400'"
-              class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out"
-              @update:model-value="store.toggleMacroDisplayMode()"
-            >
-              <span
-                aria-hidden="true"
-                :class="isPreviewMode ? 'translate-x-5' : 'translate-x-0'"
-                class="pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-              >
-                <span
-                  :class="
-                    isPreviewMode
-                      ? 'opacity-0 duration-100 ease-out'
-                      : 'opacity-100 duration-200 ease-in'
-                  "
-                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
-                  aria-hidden="true"
-                >
-                  <CodeBracketIcon class="h-3 w-3 text-gray-400" />
-                </span>
-                <span
-                  :class="
-                    isPreviewMode
-                      ? 'opacity-100 duration-200 ease-in'
-                      : 'opacity-0 duration-100 ease-out'
-                  "
-                  class="absolute inset-0 flex h-full w-full items-center justify-center transition-opacity"
-                  aria-hidden="true"
-                >
-                  <EyeIcon class="h-3 w-3 text-green-600" />
-                </span>
-              </span>
-            </Switch>
-          </SwitchGroup>
-
-          <span class="mx-0.5 h-6 w-px bg-gray-200" aria-hidden="true"></span>
-
-          <!-- Primary action: new prompt -->
-          <button class="btn btn-sm btn-primary" @click="store.createNewPrompt()">
-            <PlusIcon class="h-4 w-4" />
-            {{ store.t('promptLibrary.newPrompt') }}
-          </button>
-          <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
+        <!-- Find-next navigation (visible only while searching) -->
+        <div v-if="store.editorSearchTerm" class="flex shrink-0 items-center">
           <button
             class="btn-icon btn-icon-sm"
-            :class="{ 'btn-icon-active': store.isEditorMultiSelectActive }"
-            :title="store.t('editor.multiSelect')"
-            :aria-pressed="store.isEditorMultiSelectActive"
-            @click="store.toggleEditorMultiSelect()"
-          >
-            <ClipboardDocumentCheckIcon class="h-5 w-5" />
-          </button>
-          <!-- Collapse / expand all -->
-          <button
-            class="btn-icon btn-icon-sm"
-            :title="store.t('editor.collapseAll')"
-            @click="store.collapseAllPrompts()"
+            :disabled="!store.editorSearchStats.matches"
+            :title="store.t('editor.prevMatch')"
+            @click="store.editorSearchPrev()"
           >
             <ChevronUpIcon class="h-4 w-4" />
           </button>
           <button
             class="btn-icon btn-icon-sm"
-            :title="store.t('editor.expandAll')"
-            @click="store.expandAllPrompts()"
+            :disabled="!store.editorSearchStats.matches"
+            :title="store.t('editor.nextMatch')"
+            @click="store.editorSearchNext()"
           >
             <ChevronDownIcon class="h-4 w-4" />
           </button>
         </div>
+
+        <!-- View + action controls -->
+        <div class="flex shrink-0 items-center gap-2">
+          <!-- Primary action: new prompt (icon-only on narrow phones) -->
+          <button
+            class="btn btn-sm btn-primary"
+            :title="store.t('promptLibrary.newPrompt')"
+            @click="store.createNewPrompt()"
+          >
+            <PlusIcon class="h-4 w-4" />
+            <span class="hidden sm:inline">{{ store.t('promptLibrary.newPrompt') }}</span>
+          </button>
+
+          <!-- View options: display mode, multi-select, collapse/expand — tucked
+               into one menu so the header stays uncluttered. -->
+          <Menu as="div" class="relative">
+            <MenuButton class="btn-icon btn-icon-sm" :title="store.t('editor.viewOptions')">
+              <AdjustmentsHorizontalIcon class="h-5 w-5" />
+            </MenuButton>
+            <transition
+              enter-active-class="transition duration-100 ease-out"
+              enter-from-class="transform scale-95 opacity-0"
+              enter-to-class="transform scale-100 opacity-100"
+              leave-active-class="transition duration-75 ease-in"
+              leave-from-class="transform scale-100 opacity-100"
+              leave-to-class="transform scale-95 opacity-0"
+            >
+              <MenuItems
+                class="absolute right-0 z-20 mt-2 w-60 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-md ring-1 ring-gray-200 focus:outline-none dark:divide-gray-700 dark:bg-gray-800 dark:ring-gray-700"
+              >
+                <div class="px-1 py-1">
+                  <!-- Show raw macros vs preview their values -->
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.toggleMacroDisplayMode()"
+                    >
+                      <component
+                        :is="isPreviewMode ? EyeIcon : CodeBracketIcon"
+                        class="h-5 w-5 text-gray-500 dark:text-gray-400"
+                      />
+                      <span class="flex-1 text-left">
+                        {{
+                          isPreviewMode ? store.t('editor.previewMode') : store.t('editor.rawMode')
+                        }}
+                      </span>
+                      <CheckIcon
+                        v-if="isPreviewMode"
+                        class="h-4 w-4 text-green-600 dark:text-green-400"
+                      />
+                    </button>
+                  </MenuItem>
+                  <!-- Toggle multi-select (reveals checkboxes + batch bar) -->
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.toggleEditorMultiSelect()"
+                    >
+                      <ClipboardDocumentCheckIcon
+                        class="h-5 w-5 text-gray-500 dark:text-gray-400"
+                      />
+                      <span class="flex-1 text-left">{{ store.t('editor.multiSelect') }}</span>
+                      <CheckIcon
+                        v-if="store.isEditorMultiSelectActive"
+                        class="h-4 w-4 text-green-600 dark:text-green-400"
+                      />
+                    </button>
+                  </MenuItem>
+                </div>
+                <div class="px-1 py-1">
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.collapseAllPrompts()"
+                    >
+                      <ChevronUpIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <span class="flex-1 text-left">{{ store.t('editor.collapseAll') }}</span>
+                    </button>
+                  </MenuItem>
+                  <MenuItem v-slot="{ active }">
+                    <button
+                      :class="[active ? 'bg-gray-100 dark:bg-gray-700' : '', menuItemClass]"
+                      @click="store.expandAllPrompts()"
+                    >
+                      <ChevronDownIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                      <span class="flex-1 text-left">{{ store.t('editor.expandAll') }}</span>
+                    </button>
+                  </MenuItem>
+                </div>
+              </MenuItems>
+            </transition>
+          </Menu>
+        </div>
+      </div>
+
+      <!-- Search result summary (F6a): "N matches in M prompts" -->
+      <div v-if="store.editorSearchTerm" class="px-1 text-xs text-gray-500 dark:text-gray-400">
+        {{ matchStatsLabel }}
       </div>
 
       <!-- Contextual batch bar: only shown while in multi-select mode -->
       <div
         v-if="store.isEditorMultiSelectActive"
-        class="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5"
+        class="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900"
       >
-        <span class="mr-1 text-xs font-medium text-gray-600">
+        <span class="mr-1 text-xs font-medium text-gray-600 dark:text-gray-400">
           {{
             store.t('editor.selectedCount', {
               selected: store.selectedEditorPrompts.length,
@@ -119,7 +184,7 @@
           {{ store.t('editor.deselectAll') }}
         </button>
 
-        <span class="mx-1 h-5 w-px bg-gray-300" aria-hidden="true"></span>
+        <span class="mx-1 h-5 w-px bg-gray-300 dark:bg-gray-600" aria-hidden="true"></span>
 
         <button
           class="btn-icon btn-icon-sm"
@@ -155,9 +220,10 @@
       </div>
     </div>
 
-    <!-- Prompt list container -->
+    <!-- Prompt list container: cards on mobile, a centred column of
+         Notion-style blocks on desktop (F3) -->
     <div ref="scrollContainer" class="overflow-y-auto">
-      <div class="space-y-4">
+      <div class="space-y-4 md:mx-auto md:w-full md:max-w-[92ch] md:space-y-0.5">
         <PromptCard
           v-for="prompt in prompts"
           :key="prompt.id"
@@ -176,10 +242,12 @@
 </template>
 
 <script setup>
-import { Switch, SwitchGroup, SwitchLabel } from '@headlessui/vue';
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/vue';
 import {
+  AdjustmentsHorizontalIcon,
   ArrowDownIcon,
   ArrowUpIcon,
+  CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ClipboardDocumentCheckIcon,
@@ -188,6 +256,7 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   TrashIcon,
+  XMarkIcon,
 } from '@heroicons/vue/20/solid';
 import { debounce } from 'lodash-es';
 import { computed, onBeforeUpdate, ref, watch } from 'vue';
@@ -196,6 +265,10 @@ import PromptCard from './PromptCard.vue';
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// Shared row style for the View-options dropdown items
+const menuItemClass =
+  'group flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-900 dark:text-gray-100';
 
 // Refs for prompt card components (used for scrolling and animations)
 const promptCardRefs = ref({});
@@ -207,11 +280,49 @@ const isPreviewMode = computed(() => store.macroDisplayMode === 'preview');
 // Whether any prompt is currently selected for batch operations
 const hasSelection = computed(() => store.selectedEditorPrompts.length > 0);
 
-// Debounced search function to avoid excessive API calls
-// Use lodash-es for a more robust and consistent debounce implementation
-const onSearch = debounce((event) => {
-  store.setEditorSearch(event.target.value);
-}, 500); // 500ms debounce delay as requested
+// The input is controlled by a LOCAL ref so typing is always instant and can
+// never be reset by a re-render — critical with large presets, where filtering
+// hundreds of cards on each keystroke made the old `:value`+debounce input feel
+// stuck. Only the (expensive) filter is debounced into the store.
+const searchDraft = ref(store.editorSearchTerm);
+const pushSearch = debounce((value) => store.setEditorSearch(value), 250);
+const onSearchInput = () => pushSearch(searchDraft.value);
+// Keep the box in sync when the term changes elsewhere (Ctrl+F focus, nav, etc.)
+watch(
+  () => store.editorSearchTerm,
+  (value) => {
+    if (value !== searchDraft.value) searchDraft.value = value;
+  },
+);
+
+// Enter / Shift+Enter cycles through matches (F6b). Commit any pending
+// debounced input first so navigation uses what's visible in the box.
+const onSearchEnter = (event) => {
+  pushSearch.cancel();
+  store.setEditorSearch(searchDraft.value); // no-op if unchanged
+  if (event.shiftKey) store.editorSearchPrev();
+  else store.editorSearchNext();
+};
+
+// Clear the filter immediately (button / Esc) — always dismissable.
+const clearSearch = () => {
+  searchDraft.value = '';
+  pushSearch.cancel();
+  store.setEditorSearch('');
+};
+
+// "x / N" and "N matches in M prompts" labels
+const matchPositionLabel = computed(() => {
+  const { matches } = store.editorSearchStats;
+  const pos = store.editorSearchActiveIndex === -1 ? '–' : store.editorSearchActiveIndex + 1;
+  return `${pos} / ${matches}`;
+});
+const matchStatsLabel = computed(() =>
+  store.t('editor.matchStats', {
+    matches: store.editorSearchStats.matches,
+    prompts: store.editorSearchStats.prompts,
+  }),
+);
 
 // Before each update, clear the refs object to avoid memory leaks
 onBeforeUpdate(() => {

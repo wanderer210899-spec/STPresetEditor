@@ -3,8 +3,9 @@
     :data-id="prompt.id"
     class="relative mb-2 flex cursor-pointer items-center justify-between rounded-md border p-2 shadow-sm transition-colors duration-150"
     :class="{
-      'border-blue-300 bg-blue-50': isSelectedInLibrary,
-      'border-gray-200 bg-white hover:bg-gray-50': !isSelectedInLibrary,
+      'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/30': isSelectedInLibrary,
+      'border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-800':
+        !isSelectedInLibrary,
     }"
     draggable="true"
     @click="handleClick"
@@ -16,7 +17,7 @@
         v-if="store.isMultiSelectActive"
         type="checkbox"
         :checked="isSelectedInLibrary"
-        class="mr-3 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        class="mr-3 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:text-blue-400"
         @click.stop
         @change="toggleSelection"
       />
@@ -29,17 +30,23 @@
         "
         class="mr-3 flex-shrink-0 rounded-full p-1 transition-all duration-200"
         :class="{
-          'bg-green-100 hover:bg-green-200': isInOrder,
-          'hover:bg-gray-200': !isInOrder,
+          'bg-green-100 hover:bg-green-200 dark:bg-green-900/60 dark:hover:bg-green-800': isInOrder,
+          'hover:bg-gray-200 dark:hover:bg-gray-600': !isInOrder,
         }"
         @click.stop="addOrNavigate"
       >
-        <CheckCircleIcon v-if="isInOrder" class="h-5 w-5 text-green-600" />
-        <PlusCircleIcon v-else class="h-5 w-5 text-gray-500 hover:text-gray-700" />
+        <CheckCircleIcon v-if="isInOrder" class="h-5 w-5 text-green-600 dark:text-green-400" />
+        <PlusCircleIcon
+          v-else
+          class="h-5 w-5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        />
       </button>
       <div class="min-w-0 flex-grow">
         <p class="truncate text-sm font-semibold" :title="prompt.name">
-          {{ prompt.name }}
+          <template v-for="(seg, i) in nameParts" :key="i">
+            <mark v-if="seg.hit" class="search-mark">{{ seg.text }}</mark>
+            <template v-else>{{ seg.text }}</template>
+          </template>
         </p>
       </div>
     </div>
@@ -50,6 +57,7 @@
 import { CheckCircleIcon, PlusCircleIcon } from '@heroicons/vue/24/solid';
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';
+import { splitByTerm } from '../../utils/highlight';
 
 const props = defineProps({
   prompt: {
@@ -59,6 +67,9 @@ const props = defineProps({
 });
 
 const store = usePresetStore();
+
+// Name segments with search-hit marks (F6a)
+const nameParts = computed(() => splitByTerm(props.prompt.name || '', store.librarySearchTerm));
 
 const isSelectedInLibrary = computed(() => {
   return store.selectedLibraryPrompts.includes(props.prompt.id);

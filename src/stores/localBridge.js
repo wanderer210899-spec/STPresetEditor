@@ -1,8 +1,9 @@
 // Local-file bridge + cloud transport for the Cursor/VSCode extension (the "host").
 //
 // File seam: mirrors the OPEN preset to a local file via the webview <-> host
-// postMessage bridge (parseFromJson in, finalJson out). The open file is LOCAL —
-// it is never synced to the cloud.
+// postMessage bridge (parseFromJson in, finalJson out). The open file is ALSO
+// linked to a stable library entry (openFileAsPreset), so it cloud-syncs
+// two-way INSIDE savedPresets — never as top-level active-area keys.
 //
 // Cloud transport (A4 — account auth): the webview can't ride the web app's
 // session cookie (different origin), so the extension authenticates with a
@@ -15,16 +16,25 @@
 // web app, just with a different transport.
 //
 // Protocol (this file <-> extension/extension.js):
-//   webview -> host : ready | save{path,json} | cloudStateRequest
-//                     | cloudConnect{url,key} | cloudDisconnect
-//                     | cloudPullRequest | cloudPush{data}
-//   host -> webview : load{...} | cloudState{url,connected,email}
+//   webview -> host : ready | save{path,json} | createFile{name,json}
+//                     | cloudStateRequest | cloudConnect{url,key} | cloudDisconnect
+//                     | cloudPullRequest | cloudPush{data,baseUpdatedAt?}
+//   host -> webview : load{...} | fileCreated{ok,path,name,reason}
+//                     | cloudState{url,connected,email}
 //                     | cloudReady{ok,email,reason,url}
-//                     | cloudPulled{connected,data,updatedAt} | cloudAck{ok,updatedAt}
+//                     | cloudPulled{connected,data,updatedAt}
+//                     | cloudAck{ok,conflict?,updatedAt}
 //                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
+//                     | fileState{standalone,linked,state,fileName}  (open file's
+//                                 link to the cloud library, for the status chip)
 import { debounce } from 'lodash-es';
+import { toPlainClone } from '../utils/clone';
+import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
+
+// Re-export so existing consumers keep one import site for host detection.
+export { isVsCodeHost };
 
 const SAVE_DEBOUNCE_MS = 800;
 const REPLY_TIMEOUT_MS = 12000;
@@ -46,12 +56,7 @@ let cloudUrlValue = '';
 let reconcileHandler = null;
 
 // One-shot resolvers awaiting a host reply, keyed by reply kind.
-const pending = { connect: [], state: [], pull: [], push: [] };
-
-/** True when running inside a Cursor/VSCode webview (host mode). */
-export function isVsCodeHost() {
-  return typeof window !== 'undefined' && typeof window.acquireVsCodeApi === 'function';
-}
+const pending = { connect: [], state: [], pull: [], push: [], file: [] };
 
 function getApi() {
   if (!vscodeApi && isVsCodeHost()) vscodeApi = window.acquireVsCodeApi();
@@ -97,15 +102,55 @@ function applyConnection({ connected, email, url }) {
   sync.set({ cloudEnabled: cloudConnected });
 }
 
+/** Run a host-forwarded shortcut (Ctrl+F/K/S) against the store. Undo/redo are
+ *  intentionally NOT forwarded so native text editing keeps its own undo. */
+function handleShortcut(action) {
+  if (!store) return;
+  switch (action) {
+    case 'find': {
+      const el = typeof document !== 'undefined' && document.getElementById('editor-search-input');
+      if (el) {
+        el.focus();
+        el.select?.();
+      }
+      break;
+    }
+    case 'globalSearch':
+      store.openGlobalSearch();
+      break;
+    case 'save':
+      if (store.saveActivePreset()) store.showToast(store.t('toolbar.saved'), 'success');
+      break;
+    default:
+      break;
+  }
+}
+
 // --- File seam ---------------------------------------------------------------
 
-/** Apply a preset file pushed from the host. Opening does not rewrite the file
- *  (the baseline is set to the just-loaded state). */
+/** Stable library id for a local file, derived from its path so reopening the
+ *  same file maps to the same synced preset (no duplicates). */
+function filePresetId(path) {
+  return path ? `file:${path}` : '';
+}
+
+/** Apply a preset file pushed from the host. The open file is linked to a stable
+ *  library entry so it autosaves + syncs like the web app's active preset;
+ *  opening does not rewrite the file (the baseline is the just-loaded state).
+ *  The host supplies the folder mapping's presetId when the workspace is
+ *  linked, so the file syncs under ONE identity; otherwise fall back to the
+ *  path-derived `file:` id. */
 function applyLoad(message) {
   if (typeof message.json !== 'string') return;
   if (message.path) activePath = message.path;
-  store.parseFromJson(message.json); // also runs analyzeAllMacros()
-  if (message.name) store.originalFilename = message.name;
+  const presetId =
+    (typeof message.presetId === 'string' && message.presetId) || filePresetId(activePath);
+  if (presetId) {
+    store.openFileAsPreset(message.json, message.name, presetId); // parse + link + analyze
+  } else {
+    store.parseFromJson(message.json); // no path (shouldn't happen) — stay unlinked
+    if (message.name) store.originalFilename = message.name;
+  }
   fileSyncedJson = store.finalJson;
 }
 
@@ -149,6 +194,18 @@ export function setReconcileHandler(fn) {
   reconcileHandler = fn;
 }
 
+/**
+ * Ask the host to write a preset JSON to a NEW file next to the open one and
+ * open it in its own editor tab. Used by the Preset Manager in host mode so
+ * loading a library preset never overwrites the open file on disk.
+ * Resolves to { ok, path?, name?, reason? }.
+ */
+export function createPresetFile(name, json) {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false, reason: 'not_host' });
+  post({ type: 'createFile', name: name || '', json: json || '' });
+  return awaitReply('file', { ok: false, reason: 'timeout' });
+}
+
 // --- Cloud transport for cloudSync.js (host mode) ----------------------------
 
 /**
@@ -167,7 +224,10 @@ export function hostCloudGet() {
 
 /**
  * PUT a snapshot to the cloud via the host (host does the read-merge-write so
- * only the library keys we send are overlaid). Resolves to `{ ok, updatedAt }`.
+ * only the library keys we send are overlaid). Forwards `baseUpdatedAt` when
+ * present so the host can detect conflicts before merging (F2); omit it for
+ * the explicit "keep mine" force push. Resolves to
+ * `{ ok, conflict?, updatedAt }`.
  */
 export function hostCloudPut(payload) {
   if (!isVsCodeHost()) return Promise.resolve({ ok: false });
@@ -175,17 +235,15 @@ export function hostCloudPut(payload) {
   // reactive PROXIES — and `postMessage` (structured clone) throws DataCloneError
   // on those. Serialise to a plain, JSON-safe object before crossing the bridge
   // (the same normalisation the web transport gets for free via JSON.stringify).
-  const data = toPlain(payload && payload.data);
-  post({ type: 'cloudPush', data });
+  const data = toPlainClone(payload && payload.data);
+  const message = { type: 'cloudPush', data };
+  if (payload && 'baseUpdatedAt' in payload) message.baseUpdatedAt = payload.baseUpdatedAt ?? null;
+  post(message);
   return awaitReply('push', { ok: false }).then((msg) => ({
     ok: Boolean(msg && msg.ok),
+    conflict: Boolean(msg && msg.conflict),
     updatedAt: msg && msg.updatedAt,
   }));
-}
-
-/** Deep-clone to a plain, structured-clone-safe object (strips Vue proxies). */
-function toPlain(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
 /**
@@ -223,8 +281,29 @@ export async function initLocalBridge() {
       case 'cloudAck':
         settle('push', message);
         break;
+      case 'fileCreated':
+        settle('file', message);
+        break;
       case 'cloudReconcile':
         if (reconcileHandler) reconcileHandler();
+        break;
+      case 'shortcut':
+        // A keybinding VS Code would otherwise swallow (Ctrl+F/K/S), forwarded by
+        // the host so shortcuts work like the web app.
+        handleShortcut(message.action);
+        break;
+      case 'fileState':
+        // The host reports how the open file relates to the cloud library so the
+        // toolbar can show a clear "Linked · synced/pending" status.
+        sync.set({
+          fileLink: {
+            linked: Boolean(message.linked),
+            state: message.state || (message.standalone ? 'standalone' : 'unlinked'),
+            standalone: Boolean(message.standalone),
+            fileName: message.fileName || '',
+            connected: Boolean(message.connected),
+          },
+        });
         break;
     }
   });

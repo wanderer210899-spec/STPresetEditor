@@ -1,16 +1,23 @@
 <script setup>
 import { Dialog, DialogPanel, TransitionChild, TransitionRoot } from '@headlessui/vue';
-import { useBreakpoints } from '@vueuse/core';
-import { Pane, Splitpanes } from 'splitpanes';
-import 'splitpanes/dist/splitpanes.css';
-import { watchEffect } from 'vue';
+import { computed, ref, watchEffect } from 'vue';
+import { isVsCodeHost } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
 
-// Use VueUse to detect screen size based on Tailwind's breakpoints
-const breakpoints = useBreakpoints({
-  desktop: 768, // Tailwind's 'md' breakpoint
+// Track Tailwind's 'md' breakpoint with a plain matchMedia listener (this was
+// the sole @vueuse/core usage). AppLayout lives for the whole app, so the
+// listener needs no teardown.
+const desktopQuery = window.matchMedia('(min-width: 768px)');
+const gteDesktop = ref(desktopQuery.matches);
+desktopQuery.addEventListener('change', (event) => {
+  gteDesktop.value = event.matches;
 });
-const isDesktop = breakpoints.greaterOrEqual('desktop');
+// The VS Code / Cursor extension always runs on a desktop, but its panel is
+// often docked narrow (< 768px). Width-based mobile detection would then drop it
+// into the phone layout — no click-to-edit, drawer nav — which is the "extension
+// is missing desktop features" bug. Force the desktop UI in the extension; the
+// collapsible columns already handle a narrow panel.
+const isDesktop = computed(() => isVsCodeHost() || gteDesktop.value);
 
 const store = usePresetStore();
 
@@ -21,33 +28,50 @@ watchEffect(() => {
 </script>
 
 <template>
-  <!-- DESKTOP LAYOUT: 3-pane view with draggable splitters -->
-  <div v-if="isDesktop" class="flex-grow">
-    <!-- eslint-disable-next-line tailwindcss/no-custom-classname -->
-    <splitpanes class="default-theme">
-      <pane :size="20" min-size="15">
-        <div class="h-full overflow-auto bg-gray-50 p-4">
-          <slot name="left" />
-        </div>
-      </pane>
-      <pane :size="50" min-size="30">
-        <!-- The editor is the focus: a bright white canvas against muted sidebars -->
-        <div class="h-full overflow-auto bg-white p-4">
-          <slot name="main" />
-        </div>
-      </pane>
-      <pane :size="30" min-size="20">
-        <div class="relative h-full overflow-auto bg-gray-50 p-4">
-          <slot name="right" />
-        </div>
-      </pane>
-    </splitpanes>
+  <!-- DESKTOP LAYOUT: main editor always visible, with collapsible left/right
+       columns (toggled from the toolbar) instead of draggable splitters. -->
+  <div v-if="isDesktop" class="flex min-h-0">
+    <!-- Left: prompt library (hidden while the right pane is maximized) -->
+    <transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="w-0 opacity-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-to-class="w-0 opacity-0"
+    >
+      <aside
+        v-if="store.desktopLeftOpen && !store.isRightPaneMaximized"
+        class="w-72 shrink-0 overflow-auto border-r border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900"
+      >
+        <slot name="left" />
+      </aside>
+    </transition>
+
+    <!-- Main editor: the focus — a bright white canvas that fills the space -->
+    <main class="min-w-0 flex-1 overflow-auto bg-white p-4 dark:bg-gray-800">
+      <slot name="main" />
+    </main>
+
+    <!-- Right: details / variables (widens when maximized) -->
+    <transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="w-0 opacity-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-to-class="w-0 opacity-0"
+    >
+      <aside
+        v-if="store.desktopRightOpen"
+        class="relative shrink-0 overflow-auto border-l border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900"
+        :class="store.isRightPaneMaximized ? 'w-[40rem] max-w-[55vw]' : 'w-96'"
+      >
+        <slot name="right" />
+      </aside>
+    </transition>
   </div>
 
   <!-- MOBILE LAYOUT: Main view with off-canvas drawers -->
   <div v-else class="flex-grow overflow-hidden">
     <!-- Main content is always visible -->
-    <div class="h-full overflow-auto bg-white p-2">
+    <div class="h-full overflow-auto bg-white p-2 dark:bg-gray-800">
       <slot name="main" />
     </div>
 
@@ -74,7 +98,9 @@ watchEffect(() => {
           leave-from="translate-x-0"
           leave-to="-translate-x-full"
         >
-          <DialogPanel class="fixed inset-y-0 left-0 w-4/5 max-w-sm bg-white p-4 shadow-xl">
+          <DialogPanel
+            class="fixed inset-y-0 left-0 w-4/5 max-w-sm bg-white p-4 shadow-xl dark:bg-gray-800"
+          >
             <slot name="left" />
           </DialogPanel>
         </TransitionChild>
@@ -104,7 +130,9 @@ watchEffect(() => {
           leave-from="translate-x-0"
           leave-to="translate-x-full"
         >
-          <DialogPanel class="fixed inset-y-0 right-0 w-4/5 max-w-sm bg-white p-4 shadow-xl">
+          <DialogPanel
+            class="fixed inset-y-0 right-0 w-4/5 max-w-sm bg-white p-4 shadow-xl dark:bg-gray-800"
+          >
             <slot name="right" />
           </DialogPanel>
         </TransitionChild>
@@ -112,45 +140,3 @@ watchEffect(() => {
     </TransitionRoot>
   </div>
 </template>
-
-<style>
-@reference "tailwindcss";
-.splitpanes.default-theme .splitpanes__splitter {
-  @apply bg-gray-200 transition-colors duration-200 ease-in-out;
-  width: 6px;
-}
-
-/* On hover, the splitter subtly darkens */
-.splitpanes.default-theme .splitpanes__splitter:hover {
-  @apply bg-gray-300;
-}
-
-/* When dragging, it becomes more prominent */
-.splitpanes.default-theme .splitpanes--dragging .splitpanes__splitter {
-  @apply bg-gray-400;
-}
-
-/* The handle is a darker gray bar */
-.splitpanes.default-theme .splitpanes__splitter::before {
-  @apply bg-gray-400 transition-colors duration-200 ease-in-out;
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  margin-left: auto;
-  margin-right: auto;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 28px;
-  border-radius: 2px;
-}
-
-.splitpanes.default-theme .splitpanes__splitter:hover::before {
-  @apply bg-gray-500;
-}
-
-.splitpanes.default-theme .splitpanes__splitter::after {
-  display: none;
-}
-</style>

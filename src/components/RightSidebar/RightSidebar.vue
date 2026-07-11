@@ -1,22 +1,40 @@
 <template>
   <div class="flex h-full flex-col space-y-2">
     <TabGroup :selected-index="activeTabIndex" @change="changeTab">
-      <TabList class="flex flex-shrink-0 space-x-1 rounded-xl bg-gray-200 p-1">
-        <Tab v-for="tab in tabs" :key="tab.key" v-slot="{ selected }" as="template">
-          <button
-            :class="[
-              'w-full rounded-lg py-2 text-sm leading-5 font-medium',
-              'ring-white/60 ring-offset-2 ring-offset-blue-400 focus:ring-2 focus:outline-none',
-              selected ? 'bg-white text-blue-700 shadow' : 'text-blue-700/60 hover:text-blue-700',
-            ]"
-          >
-            <component :is="tab.icon" class="-mt-0.5 mr-1.5 inline-block h-5 w-5" />
-            {{ tab.label }}
-          </button>
-        </Tab>
-      </TabList>
+      <div class="flex flex-shrink-0 items-center gap-1">
+        <TabList class="flex min-w-0 flex-1 space-x-1 rounded-xl bg-gray-200 p-1 dark:bg-gray-700">
+          <Tab v-for="tab in tabs" :key="tab.key" v-slot="{ selected }" as="template">
+            <button
+              :class="[
+                'w-full rounded-lg py-2 text-sm leading-5 font-medium',
+                'ring-white/60 ring-offset-2 ring-offset-blue-400 focus:ring-2 focus:outline-none',
+                selected
+                  ? 'bg-white text-blue-700 shadow dark:bg-gray-800 dark:text-blue-300'
+                  : 'text-blue-700/60 hover:text-blue-700',
+              ]"
+            >
+              <component :is="tab.icon" class="-mt-0.5 mr-1.5 inline-block h-5 w-5" />
+              {{ tab.label }}
+            </button>
+          </Tab>
+        </TabList>
+        <!-- Maximize the right pane (F7, desktop only) -->
+        <button
+          v-if="!store.isMobile"
+          class="btn-icon btn-icon-sm shrink-0"
+          :title="
+            store.isRightPaneMaximized
+              ? store.t('rightSidebar.restore')
+              : store.t('rightSidebar.maximize')
+          "
+          @click="store.toggleRightPaneMaximize()"
+        >
+          <ArrowsPointingInIcon v-if="store.isRightPaneMaximized" class="h-5 w-5" />
+          <ArrowsPointingOutIcon v-else class="h-5 w-5" />
+        </button>
+      </div>
 
-      <TabPanels class="flex-grow overflow-y-auto rounded-xl bg-white shadow-sm">
+      <TabPanels class="flex-grow overflow-y-auto rounded-xl bg-white shadow-sm dark:bg-gray-800">
         <TabPanel :key="'details'" class="h-full p-4">
           <DetailsView />
         </TabPanel>
@@ -30,7 +48,7 @@
     <transition name="fade">
       <div v-if="store.isBatchReplaceModalOpen" class="absolute inset-0 z-40">
         <div class="absolute inset-0 flex">
-          <div class="ml-auto h-full w-full max-w-xl overflow-auto bg-gray-50 p-4">
+          <div class="ml-auto h-full w-full max-w-xl overflow-auto bg-gray-50 p-4 dark:bg-gray-900">
             <BatchReplaceModal />
           </div>
         </div>
@@ -41,6 +59,7 @@
 
 <script setup>
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue';
+import { ArrowsPointingInIcon, ArrowsPointingOutIcon } from '@heroicons/vue/24/outline';
 import { InformationCircleIcon, VariableIcon } from '@heroicons/vue/24/solid';
 import { computed } from 'vue';
 import { usePresetStore } from '../../stores/presetStore';

@@ -2,7 +2,7 @@
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
   "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional account-based cloud sync.",
-  "version": "0.3.1",
+  "version": "0.8.1",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -25,7 +25,9 @@
   "main": "./extension.js",
   "activationEvents": [
     "onCommand:stpe.open",
-    "onCommand:stpe.pullFromCloud"
+    "onCommand:stpe.openEditor",
+    "onCommand:stpe.pullFromCloud",
+    "onView:stpePresets"
   ],
   "contributes": {
     "configuration": {
@@ -35,8 +37,22 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Your **own** STPresetEditor cloud deployment, e.g. `https://<your-worker>.workers.dev`. Leave blank for local-only (no cloud). The extension never contacts any server until you set this. Deploy your own Worker from the project README, then paste its URL here and connect with an **API key** (generated in the web app: Settings → Cloud sync) from the editor's Settings → Cloud sync. You can also set this from that panel."
+        },
+        "stpe.presetGlob": {
+          "type": "string",
+          "default": "**/*.json",
+          "markdownDescription": "Glob for the **ST Presets** Explorer view. Matching `.json` files that parse as SillyTavern presets (an object with a `prompts` array) are listed; everything else is skipped silently. `node_modules` is always excluded."
         }
       }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "stpePresets",
+          "name": "ST Presets",
+          "icon": "$(json)"
+        }
+      ]
     },
     "commands": [
       {
@@ -46,13 +62,169 @@
         "icon": "$(edit)"
       },
       {
+        "command": "stpe.openEditor",
+        "title": "Open editor (no file)",
+        "category": "STPresetEditor",
+        "icon": "$(window)"
+      },
+      {
         "command": "stpe.pullFromCloud",
         "title": "Pull library from cloud",
         "category": "STPresetEditor",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stpe.refreshPresets",
+        "title": "Refresh presets",
+        "category": "STPresetEditor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stpe.newPreset",
+        "title": "New preset",
+        "category": "STPresetEditor",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "stpe.duplicatePreset",
+        "title": "Duplicate",
+        "category": "STPresetEditor",
+        "icon": "$(files)"
+      },
+      {
+        "command": "stpe.renamePreset",
+        "title": "Rename…",
+        "category": "STPresetEditor",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "stpe.deletePreset",
+        "title": "Delete",
+        "category": "STPresetEditor",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stpe.revealInExplorer",
+        "title": "Reveal in Explorer",
+        "category": "STPresetEditor"
+      },
+      {
+        "command": "stpe.linkFolder",
+        "title": "Link folder to cloud library",
+        "category": "STPE",
+        "icon": "$(link)"
+      },
+      {
+        "command": "stpe.syncFolder",
+        "title": "Sync folder with cloud library",
+        "category": "STPE",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stpe.downloadMissing",
+        "title": "Download missing presets",
+        "category": "STPE",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stpe.downloadPreset",
+        "title": "Download to folder",
+        "category": "STPE",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stpe.shortcut",
+        "title": "STPresetEditor: forward a shortcut to the editor"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "stpe.shortcut",
+        "args": "find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
+      },
+      {
+        "command": "stpe.shortcut",
+        "args": "globalSearch",
+        "key": "ctrl+k",
+        "mac": "cmd+k",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
+      },
+      {
+        "command": "stpe.shortcut",
+        "args": "save",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeWebviewPanelId == 'stpeEditor'"
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "stpe.openEditor",
+          "when": "view == stpePresets",
+          "group": "navigation@0"
+        },
+        {
+          "command": "stpe.newPreset",
+          "when": "view == stpePresets",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stpe.refreshPresets",
+          "when": "view == stpePresets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "stpe.syncFolder",
+          "when": "view == stpePresets",
+          "group": "navigation@3"
+        },
+        {
+          "command": "stpe.linkFolder",
+          "when": "view == stpePresets",
+          "group": "1_cloud@1"
+        },
+        {
+          "command": "stpe.downloadMissing",
+          "when": "view == stpePresets",
+          "group": "1_cloud@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "stpe.open",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "inline@1"
+        },
+        {
+          "command": "stpe.duplicatePreset",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "stpe.renamePreset",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "stpe.deletePreset",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "1_edit@3"
+        },
+        {
+          "command": "stpe.revealInExplorer",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "2_nav@1"
+        },
+        {
+          "command": "stpe.downloadPreset",
+          "when": "view == stpePresets && viewItem == stpeCloudPreset",
+          "group": "inline@1"
+        }
+      ],
       "explorer/context": [
         {
           "command": "stpe.open",

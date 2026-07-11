@@ -97,32 +97,36 @@ function triggerFileInput() {
     size="lg"
     @close="store.closeImportModal"
   >
-    <p class="text-sm text-gray-500">{{ store.t('importModal.description') }}</p>
+    <p class="text-sm text-gray-500 dark:text-gray-400">{{ store.t('importModal.description') }}</p>
 
     <!-- File selection area -->
     <div class="mt-4">
       <div
         :class="[
           'relative rounded-lg border-2 border-dashed p-6 text-center transition-colors',
-          isDragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400',
+          isDragOver
+            ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/30'
+            : 'border-gray-300 hover:border-gray-400 dark:border-gray-600',
         ]"
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
         @drop="handleFileDrop"
       >
-        <DocumentIcon class="mx-auto h-12 w-12 text-gray-400" />
+        <DocumentIcon class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
         <div class="mt-2">
-          <p class="text-sm text-gray-600">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
             {{ store.t('importModal.dragText') }}
             <button
               type="button"
-              class="font-medium text-blue-600 hover:text-blue-500"
+              class="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400"
               @click="triggerFileInput"
             >
               {{ store.t('importModal.clickToSelect') }}
             </button>
           </p>
-          <p class="mt-1 text-xs text-gray-500">{{ store.t('importModal.supportedFormat') }}</p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ store.t('importModal.supportedFormat') }}
+          </p>
         </div>
       </div>
 
@@ -138,9 +142,11 @@ function triggerFileInput() {
 
     <!-- Separator line -->
     <div class="mt-6 flex items-center">
-      <div class="flex-1 border-t border-gray-300"></div>
-      <span class="px-3 text-sm text-gray-500">{{ store.t('importModal.or') }}</span>
-      <div class="flex-1 border-t border-gray-300"></div>
+      <div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+      <span class="px-3 text-sm text-gray-500 dark:text-gray-400">
+        {{ store.t('importModal.or') }}
+      </span>
+      <div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
     </div>
 
     <!-- Text input area -->

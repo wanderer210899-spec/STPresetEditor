@@ -26,14 +26,14 @@
           >
             <DialogPanel
               :class="[
-                'w-full transform overflow-hidden rounded-2xl bg-white text-left align-middle shadow-xl transition-all',
+                'w-full transform overflow-hidden rounded-2xl bg-white text-left align-middle shadow-xl transition-all dark:bg-gray-800',
                 sizeClass,
               ]"
             >
               <!-- Header -->
               <div
                 v-if="title || $slots.title || $slots['header-actions']"
-                class="flex items-center justify-between gap-3 border-b border-gray-200 px-6 py-4"
+                class="flex items-center justify-between gap-3 border-b border-gray-200 px-6 py-4 dark:border-gray-700"
               >
                 <DialogTitle as="h3" class="section-title min-w-0 flex-1">
                   <slot name="title">{{ title }}</slot>
@@ -58,7 +58,7 @@
               <!-- Footer -->
               <div
                 v-if="!hideFooter"
-                class="flex items-center gap-3 border-t border-gray-200 px-6 py-4"
+                class="flex items-center gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"
               >
                 <slot name="footer-start" />
                 <div class="ml-auto flex items-center gap-3">

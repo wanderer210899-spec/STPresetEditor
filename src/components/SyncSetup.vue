@@ -5,7 +5,7 @@
     <!-- VS Code extension: connect with a Cloud URL + a pasted API key -->
     <template v-if="isExtension">
       <div v-if="!extConnected" class="space-y-2">
-        <p class="text-xs text-gray-500">{{ store.t('sync.extIntro') }}</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ store.t('sync.extIntro') }}</p>
         <input
           v-model="extUrl"
           type="text"
@@ -24,8 +24,12 @@
         <button class="btn btn-primary" :disabled="busy" @click="connectExt">
           {{ busy ? store.t('sync.extConnecting') : store.t('sync.extConnect') }}
         </button>
-        <p class="text-xs text-gray-500">{{ store.t('sync.extKeyHint') }}</p>
-        <p v-if="message" class="text-xs" :class="error ? 'text-red-600' : 'text-green-600'">
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ store.t('sync.extKeyHint') }}</p>
+        <p
+          v-if="message"
+          class="text-xs"
+          :class="error ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'"
+        >
           {{ message }}
         </p>
       </div>
@@ -39,14 +43,16 @@
             {{ store.t('sync.extDisconnect') }}
           </button>
         </div>
-        <p class="mt-1 text-xs text-gray-500">
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ store.t('sync.status') }}:
           <span class="font-medium">{{ sync.statusLabel }}</span>
         </p>
         <button class="btn btn-secondary btn-sm mt-2" :disabled="busy" @click="syncNow">
           {{ store.t('sync.extSyncNow') }}
         </button>
-        <p class="mt-2 text-xs text-gray-500">{{ store.t('sync.extConnectedHint') }}</p>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          {{ store.t('sync.extConnectedHint') }}
+        </p>
       </div>
     </template>
 
@@ -54,7 +60,7 @@
     <template v-else>
       <!-- Signed OUT: sign in / create account -->
       <div v-if="!auth.authenticated">
-        <p v-if="auth.needsSetup" class="mb-2 text-xs text-gray-500">
+        <p v-if="auth.needsSetup" class="mb-2 text-xs text-gray-500 dark:text-gray-400">
           {{ store.t('sync.createHint') }}
         </p>
         <div class="space-y-2">
@@ -85,8 +91,13 @@
         </div>
 
         <!-- Owner recovery (env-var backdoor) -->
-        <div v-if="showReset" class="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
-          <p class="text-xs text-gray-600">{{ store.t('sync.resetInstructions') }}</p>
+        <div
+          v-if="showReset"
+          class="mt-3 rounded border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
+        >
+          <p class="text-xs text-gray-600 dark:text-gray-400">
+            {{ store.t('sync.resetInstructions') }}
+          </p>
           <div class="mt-2 space-y-2">
             <input
               v-model="resetToken"
@@ -107,10 +118,16 @@
           </div>
         </div>
 
-        <p v-if="message" class="mt-2 text-xs" :class="error ? 'text-red-600' : 'text-green-600'">
+        <p
+          v-if="message"
+          class="mt-2 text-xs"
+          :class="error ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'"
+        >
           {{ message }}
         </p>
-        <p v-else class="mt-2 text-xs text-gray-500">{{ store.t('sync.localOnly') }}</p>
+        <p v-else class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          {{ store.t('sync.localOnly') }}
+        </p>
       </div>
 
       <!-- Signed IN: account + API keys -->
@@ -124,7 +141,7 @@
             {{ store.t('sync.signOut') }}
           </button>
         </div>
-        <p class="mt-1 text-xs text-gray-500">
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ store.t('sync.status') }}:
           <span class="font-medium">{{ sync.statusLabel }}</span>
         </p>
@@ -132,7 +149,7 @@
         <!-- API keys for the VS Code extension -->
         <div class="mt-4">
           <label class="field-label mb-1">{{ store.t('sync.apiKeysTitle') }}</label>
-          <p class="text-xs text-gray-500">{{ store.t('sync.apiKeysNote') }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ store.t('sync.apiKeysNote') }}</p>
 
           <div class="mt-2 flex items-center gap-2">
             <input
@@ -151,7 +168,7 @@
           <div v-if="auth.newKey" class="mt-2 rounded border border-amber-300 bg-amber-50 p-2">
             <p class="text-xs font-medium text-amber-800">{{ store.t('sync.copyKeyNote') }}</p>
             <div class="mt-1 flex items-center gap-2">
-              <code class="flex-1 truncate rounded bg-white px-2 py-1 text-xs">
+              <code class="flex-1 truncate rounded bg-white px-2 py-1 text-xs dark:bg-gray-800">
                 {{ auth.newKey }}
               </code>
               <button class="btn btn-secondary btn-sm shrink-0" @click="copyKey">
@@ -161,18 +178,20 @@
           </div>
 
           <!-- Existing keys -->
-          <ul v-if="auth.keys.length" class="mt-2 divide-y divide-gray-100">
+          <ul v-if="auth.keys.length" class="mt-2 divide-y divide-gray-100 dark:divide-gray-700">
             <li v-for="k in auth.keys" :key="k.id" class="flex items-center justify-between py-1.5">
-              <span class="text-xs text-gray-700">
+              <span class="text-xs text-gray-700 dark:text-gray-300">
                 <span class="font-medium">{{ k.name || k.prefix }}</span>
-                <span class="text-gray-400">· {{ k.prefix }}…</span>
+                <span class="text-gray-400 dark:text-gray-500">· {{ k.prefix }}…</span>
               </span>
               <button class="btn btn-secondary btn-sm" @click="auth.revokeKey(k.id)">
                 {{ store.t('sync.revoke') }}
               </button>
             </li>
           </ul>
-          <p v-else class="mt-2 text-xs text-gray-400">{{ store.t('sync.noKeys') }}</p>
+          <p v-else class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+            {{ store.t('sync.noKeys') }}
+          </p>
         </div>
       </div>
     </template>

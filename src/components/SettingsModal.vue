@@ -5,7 +5,7 @@
     size="md"
     @close="store.closeSettingsModal()"
   >
-    <div class="divide-y divide-gray-200">
+    <div class="divide-y divide-gray-200 dark:divide-gray-700">
       <!-- Language Setting -->
       <div class="pb-6">
         <label class="field-label mb-2">{{ store.t('toolbar.settings') }} - Language</label>
@@ -27,9 +27,34 @@
         </div>
       </div>
 
+      <!-- Theme Setting (F8b) — hidden in the VS Code webview, which follows
+           the editor's theme instead of an app setting -->
+      <div v-if="!isHost" class="py-6">
+        <label class="field-label mb-2">{{ store.t('settings.theme') }}</label>
+        <div class="flex items-center gap-2">
+          <button
+            v-for="mode in ['light', 'dark', 'system']"
+            :key="mode"
+            class="btn btn-sm"
+            :class="store.themeMode === mode ? 'btn-primary' : 'btn-secondary'"
+            @click="store.setThemeMode(mode)"
+          >
+            {{ store.t('settings.theme_' + mode) }}
+          </button>
+        </div>
+      </div>
+
       <!-- Cloud Sync Setting -->
       <div class="py-6">
         <SyncSetup />
+      </div>
+
+      <!-- Keyboard shortcuts reference (F8c) -->
+      <div class="py-6">
+        <label class="field-label mb-2">{{ store.t('shortcuts.title') }}</label>
+        <button class="btn btn-sm btn-secondary" @click="store.openShortcutsHelp()">
+          {{ store.t('shortcuts.settingsLink') }}
+        </button>
       </div>
 
       <!-- Delete Confirmation Setting -->
@@ -38,14 +63,14 @@
           <input
             type="checkbox"
             :checked="!store.skipDeleteConfirmation"
-            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:text-blue-400"
             @change="toggleDeleteConfirmation"
           />
-          <span class="ml-3 text-sm font-medium text-gray-700">
+          <span class="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
             {{ store.t('settings.showDeleteConfirmation') }}
           </span>
         </label>
-        <p class="mt-1 text-xs text-gray-500">
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ store.t('settings.showDeleteConfirmationNote') }}
         </p>
       </div>
@@ -53,7 +78,9 @@
       <!-- Autocomplete Dictionary -->
       <div class="py-6">
         <label class="field-label mb-1">{{ store.t('settings.autocomplete.title') }}</label>
-        <p class="mb-3 text-xs text-gray-500">{{ store.t('settings.autocomplete.note') }}</p>
+        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          {{ store.t('settings.autocomplete.note') }}
+        </p>
 
         <!-- Custom macros -->
         <div class="mb-4">
@@ -62,10 +89,12 @@
             <li
               v-for="m in store.customMacros"
               :key="m.name"
-              class="flex items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1 text-sm"
+              class="flex items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1 text-sm dark:bg-gray-900"
             >
               <span class="font-mono">{{ macroDisplay(m.name) }}</span>
-              <span class="flex-1 truncate text-xs text-gray-400">{{ m.hint }}</span>
+              <span class="flex-1 truncate text-xs text-gray-400 dark:text-gray-500">
+                {{ m.hint }}
+              </span>
               <button
                 class="btn-icon btn-icon-sm btn-icon-danger"
                 :title="store.t('common.delete')"
@@ -97,15 +126,17 @@
         <!-- Wrapping pairs -->
         <div>
           <p class="section-title mb-1">{{ store.t('settings.autocomplete.wrapsTitle') }}</p>
-          <p class="mb-1 text-xs text-gray-500">{{ store.t('settings.autocomplete.wrapsNote') }}</p>
+          <p class="mb-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ store.t('settings.autocomplete.wrapsNote') }}
+          </p>
           <ul v-if="store.customWraps.length" class="mb-2 space-y-1">
             <li
               v-for="(w, i) in store.customWraps"
               :key="i"
-              class="flex items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1 text-sm"
+              class="flex items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1 text-sm dark:bg-gray-900"
             >
               <span class="font-medium">{{ w.label }}</span>
-              <span class="flex-1 truncate font-mono text-xs text-gray-500">
+              <span class="flex-1 truncate font-mono text-xs text-gray-500 dark:text-gray-400">
                 {{ w.open }}…{{ w.close }}
               </span>
               <button
@@ -153,12 +184,12 @@
         <button class="btn btn-danger" @click="onResetToDefault">
           {{ store.t('toolbar.reset') }}
         </button>
-        <p class="mt-2 text-xs text-gray-500">{{ store.t('reset.confirm') }}</p>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ store.t('reset.confirm') }}</p>
       </div>
     </div>
 
     <template #footer-start>
-      <span class="text-xs text-gray-400" title="Deployed build (commit)">
+      <span class="text-xs text-gray-400 dark:text-gray-500" title="Deployed build (commit)">
         Build {{ appVersion }}
       </span>
     </template>
@@ -173,6 +204,7 @@
 <script setup>
 import { ref } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
+import { isVsCodeHost } from '../utils/host';
 import BaseModal from './BaseModal.vue';
 import SyncSetup from './SyncSetup.vue';
 
@@ -184,6 +216,7 @@ defineProps({
 });
 
 const store = usePresetStore();
+const isHost = isVsCodeHost();
 
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev';
 

@@ -8,6 +8,107 @@ fork's own work only.
 
 Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 
+**Intake 2026-07-10 (all resolved 2026-07-11):**
+[bugs/2026-07-10-sync-conflict-data-loss.md](./bugs/2026-07-10-sync-conflict-data-loss.md) ·
+[bugs/2026-07-10-extension-drag-reorder-broken.md](./bugs/2026-07-10-extension-drag-reorder-broken.md) ·
+[changes/2026-07-10-audit-findings.md](./changes/2026-07-10-audit-findings.md)
+
+## Perf: extension typing lag — fixed (extension 0.8.1)
+
+### 2026-07-11 / Session 3 — implementation (F1, F2, F4, F6)
+
+Fixed the reported webview typing lag. Full write-up + measured before/after in
+[bugs/2026-07-11-extension-typing-lag.md](./bugs/2026-07-11-extension-typing-lag.md).
+Per-keystroke main-thread time dropped **~90 ms → ~20 ms with zero long tasks**
+(was one long task per keystroke), and per-keystroke cost no longer scales with
+library size (22 ms at a 2.5 MB library vs 67 ms before F4).
+
+- **F1** — `MacroAutocompleteTextarea.vue` uses native CSS `field-sizing: content`
+  (rAF-coalesced JS fallback) → no forced reflow, and the per-keystroke double
+  `scrollHeight` read is gone.
+- **F2** — the persist config used v3 `paths`/`beforeRestore`/`afterRestore`,
+  which **pinia-plugin-persistedstate v4 ignores**: the plugin was serializing the
+  ENTIRE store (undo stacks, macros, snapshots, modal flags) every keystroke and
+  the extension's active-area exclusion was void (latent stale-file-on-open bug).
+  Migrated presetStore + syncStore to `pick`/`afterHydrate`, added a debounced
+  localStorage adapter (`src/utils/persistStorage.js`, flush-on-hide).
+- **F4** — saved-preset (and snapshot) `.data` is `markRaw`'d at every write site
+  + `afterHydrate`/`applyCloudData` normalizers, keeping the whole saved library
+  out of deep traversal + serialize. This is the structural win (size-independent
+  typing).
+- **F6** — the host no longer reconciles on the webview's OWN saves (self-write
+  suppression in the FS watcher); external edits still reconcile. Removes the
+  mid-typing 409/merge churn against the KV doc.
+- **Deferred:** F3 (merge deep watchers — marginal after F4, would touch the
+  just-shipped sync engine's `flush:'sync'` guard) and F5 (incremental analysis —
+  targets the post-pause hitch, not per-keystroke; touches analysis core).
+- **Validation:** vitest 91/91, eslint clean, web + webview builds, MCP-backed
+  before/after typing measurement, extension repacked as **0.8.1** (0.7.1/0.8.0
+  VSIX archived).
+
+### 2026-07-11 / Session 2 — investigation only (superseded by Session 3)
+
+Reproduced and attributed the lag (~90 ms/keystroke) via shimmed build +
+chrome-devtools MCP + JS self-profiler; proposed F1–F6. See the bug file.
+
+## Fix release: sync merge engine, webview drag, cleanup (extension 0.8.0)
+
+### 2026-07-11 / Session 1 — implementation (all intake items fixed)
+
+- **Sync (RC1–RC5 + C2)** — `cloudSync.js` refactored around a **persisted
+  merge base** (`stpe:sync:base` in localStorage): restarts merge instead of
+  clobbering; init routes local-changed-since-base through the merge rather
+  than blind-adopting over the just-linked disk file; "already in sync" now
+  verifies before sealing (offline edits push instead of orphaning); conflicts
+  are merge-first with the web dialog scoped to genuine open-document forks
+  ("keep mine" = merged conditional push, `forcePush` removed); push debounce
+  gained `maxWait: 3000`; `buildSyncSnapshot` strips derived `prompt.macros`.
+  One cloud identity per file (host `load` carries the folder-mapping id;
+  auto-map reuses legacy `file:` entries). Details + residual risks in the bug
+  file.
+- **Webview drag reorder** — the handle is width-gated only in the browser;
+  host mode renders it at every panel width (`PromptCard.vue`). Verified via
+  shimmed-host MCP repro @701px (arm → draggable → dragstart) with an
+  unshimmed browser control.
+- **Cleanup (audit)** — splitpanes + paneSizes state, @vueuse/core,
+  autoprefixer, postcss removed; NUL byte in `extension.js` → `'\0'` escape;
+  `utils/clone.js` consolidation; unexported internal-only symbols; 0.3.1 VSIX
+  archived; CLAUDE.md + stale sync comments rewritten. B7 skipped
+  (engines < 1.82 ⇒ no guaranteed host `fetch`).
+- **Validation:** vitest **91/91** (3 new restart-safety regression tests;
+  the pre-existing dismissal-reprompt failure now passes), eslint clean, web +
+  webview builds, **stpreseteditor-local-0.8.0.vsix** packaged with the fresh
+  bundle.
+- **Install step for the user:** install `extension/stpreseteditor-local-0.8.0.vsix`
+  and redeploy the web app (`npm run deploy`) so both sides run the new engine.
+
+### 2026-07-10 / Session 1 — investigation only (no code changes)
+
+Diagnosed the three intake items; all findings are in the intake files above.
+
+- **Sync data loss (both directions)** — five ranked root causes in
+  `bugs/2026-07-10-sync-conflict-data-loss.md`. Headliners: extension startup
+  blind-adopts the cloud over the just-linked open file (`cloudSync.js:407` +
+  `openFileAsPreset` running before the sync subscription attaches), and
+  `autoRebaseAndPush` merges against an EMPTY base when `syncedSerialized` is
+  null while `pendingSync` persisted true (`cloudSync.js:163`) — local then
+  wins everywhere, clobbering newer web edits. `npm test`: 88/89, the one
+  failure (conflict-dialog re-prompt timing) is regression marker RC5.
+- **Extension drag reorder dead** — reproduced via shimmed
+  `acquireVsCodeApi` + Chrome DevTools MCP: host mode forces `isMobile=false`
+  (drag needs the handle) but the handle is `hidden md:inline-flex`, i.e.
+  `display:none` in any webview panel < 768 px. Details + repro data in
+  `bugs/2026-07-10-extension-drag-reorder-broken.md`.
+- **Dead-code / redundancy audit (report-only)** —
+  `changes/2026-07-10-audit-findings.md`: `splitpanes` unused,
+  lodash-es/@vueuse one-function overlap, autoprefixer+postcss residual,
+  stale `extension/media` bundle (2026-06-18) vs 0.7.1 VSIX (2026-07-04),
+  literal NUL byte makes `extension.js` grep-invisible (binary), CLAUDE.md
+  drift (vuedraggable/splitpanes/DetailsModal/passphrase/“open file never
+  synced”). Nothing deleted.
+
+Next session: user picks fixes → change request(s) → grounded-coder.
+
 ## Fix: nested-macro rendering + full macro coverage + custom autocomplete
 
 Macros whose value contained a nested `{{...}}` (e.g. `{{.genre = …{{char}}…}}`)

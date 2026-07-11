@@ -183,7 +183,7 @@ function shorthandType(op, scope) {
  * @param {string} text
  * @returns {string[]} unique variable names
  */
-export function extractVarRefs(text) {
+function extractVarRefs(text) {
   if (!text) return [];
   const refs = new Set();
   let m;
@@ -314,6 +314,32 @@ export function categoryOf(macro) {
   if (macro.kind === 'get') return 'get';
   if (macro.kind === 'set' || macro.kind === 'mutate') return 'write';
   return getMacroCategory(macro.type);
+}
+
+const KNOWN_OP_LABELS = new Set([
+  'read',
+  'get',
+  'set',
+  'add',
+  'sub',
+  'inc',
+  'dec',
+  'delete',
+  'has',
+  'setIfNull',
+  'setIfFalsy',
+  'control',
+]);
+
+/**
+ * i18n key (under `macroCard.op.*`) describing a variable macro's operation,
+ * shared by the hover card and the variable timeline. Plain reads collapse to
+ * `read`; unknown ops return null (caller shows the raw op instead).
+ * @param {{ kind?: string, op?: string }} macroLike a MacroData or timeline event
+ */
+export function opLabelKey({ kind, op }) {
+  const label = kind === 'get' && op !== 'has' ? 'read' : op;
+  return KNOWN_OP_LABELS.has(label) ? `macroCard.op.${label}` : null;
 }
 
 /**

@@ -1,8 +1,10 @@
 <script setup>
+import { onBeforeUnmount, onMounted } from 'vue';
 import AppLayout from './components/AppLayout.vue';
 import AppToolbar from './components/AppToolbar.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import FocusEditorModal from './components/FocusEditorModal.vue';
+import GlobalSearchModal from './components/GlobalSearchModal.vue';
 import JsonExportModal from './components/JsonExportModal.vue';
 import JsonImportModal from './components/JsonImportModal.vue';
 import LeftSidebar from './components/LeftSidebar/PromptLibrary.vue';
@@ -10,19 +12,33 @@ import EditorView from './components/MainEditor/EditorView.vue';
 import PresetManagerModal from './components/PresetManagerModal.vue';
 import RightSidebar from './components/RightSidebar/RightSidebar.vue';
 import SettingsModal from './components/SettingsModal.vue';
+import ShortcutsHelpModal from './components/ShortcutsHelpModal.vue';
 import ToastHost from './components/ToastHost.vue';
 import { usePresetStore } from './stores/presetStore';
+import { registerShortcuts } from './utils/shortcuts';
 
 // Initialize the preset store. App startup (cloud reconcile + example fallback)
 // is handled in main.js so the cloud library loads before any default content.
 const store = usePresetStore();
+
+// Global keyboard shortcuts (F8c) — undo/redo, search, snapshot, etc.
+let unregisterShortcuts = null;
+onMounted(() => {
+  unregisterShortcuts = registerShortcuts(store);
+});
+onBeforeUnmount(() => unregisterShortcuts?.());
 </script>
 
 <template>
   <!-- Main application container with full height layout -->
-  <div id="app-container" class="flex h-screen flex-col bg-gray-100 font-sans text-gray-800">
+  <div
+    id="app-container"
+    class="flex h-screen flex-col bg-gray-100 font-sans text-gray-800 dark:bg-gray-900 dark:text-gray-200"
+  >
     <!-- Application header with toolbar -->
-    <header class="relative z-10 flex-shrink-0 bg-white px-3 py-1.5 shadow-md md:py-1">
+    <header
+      class="relative z-10 flex-shrink-0 bg-white px-3 py-1.5 shadow-md md:py-1 dark:bg-gray-800"
+    >
       <AppToolbar />
     </header>
 
@@ -52,6 +68,12 @@ const store = usePresetStore();
 
     <!-- Distraction-free focus editor (opened from a prompt card) -->
     <FocusEditorModal />
+
+    <!-- Cross-preset search palette (Ctrl/Cmd+K) -->
+    <GlobalSearchModal />
+
+    <!-- Keyboard shortcuts reference (?) -->
+    <ShortcutsHelpModal />
 
     <!-- Global in-app confirmation dialog + toast notifications -->
     <ConfirmDialog />

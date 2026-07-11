@@ -8,6 +8,7 @@
       :placeholder="placeholder"
       :readonly="readonly"
       :class="textareaClass"
+      :style="autoGrowStyle"
       @input="onInput"
       @keydown="onKeydown"
       @keyup="onKeyup"
@@ -17,21 +18,25 @@
 
     <ul
       v-if="open && suggestions.length"
-      class="absolute z-50 max-h-56 w-72 max-w-[90%] overflow-auto rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg"
+      class="absolute z-50 max-h-56 w-72 max-w-[90%] overflow-auto rounded-md border border-gray-200 bg-white py-1 text-sm shadow-lg dark:border-gray-700 dark:bg-gray-800"
       :style="{ top: menuTop + 'px', left: menuLeft + 'px' }"
     >
       <li
         v-for="(s, i) in suggestions"
         :key="s.value + '-' + i"
         class="flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5"
-        :class="i === activeIndex ? 'bg-blue-600 text-white' : 'text-gray-800 hover:bg-gray-100'"
+        :class="
+          i === activeIndex
+            ? 'bg-blue-600 text-white'
+            : 'text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+        "
         @mousedown.prevent="accept(i)"
         @mouseenter="activeIndex = i"
       >
         <span class="font-mono">{{ s.label }}</span>
         <span
           class="truncate text-xs"
-          :class="i === activeIndex ? 'text-blue-100' : 'text-gray-400'"
+          :class="i === activeIndex ? 'text-blue-100' : 'text-gray-400 dark:text-gray-500'"
         >
           {{ s.hint }}
         </span>
@@ -41,7 +46,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
 import { getCaretCoordinates } from '../utils/caret';
 import { MACRO_CATALOG, VAR_MACRO_META } from '../utils/macros';
@@ -56,7 +61,7 @@ const props = defineProps({
   id: { type: String, default: undefined },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'blur']);
 
 const store = usePresetStore();
 
@@ -75,10 +80,36 @@ function emitValue(value) {
   emit('update:modelValue', value);
 }
 
+// Native CSS auto-sizing (Chromium 123+, i.e. every modern VS Code webview)
+// grows the textarea with ZERO JavaScript layout reads. Only older engines fall
+// back to the scrollHeight measurement below.
+const NATIVE_FIELD_SIZING =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('field-sizing', 'content');
+
+// When native sizing is available, let CSS do it (`field-sizing: content`) so no
+// keystroke ever forces a synchronous layout.
+const autoGrowStyle = computed(() =>
+  props.autoGrow && NATIVE_FIELD_SIZING ? { 'field-sizing': 'content' } : undefined,
+);
+
+// Fallback path: coalesce into a single rAF so a keystroke's two triggers
+// (onInput + the modelValue watcher) collapse to one measurement per frame
+// instead of two synchronous forced reflows.
+let adjustQueued = false;
 function adjustHeight() {
-  if (!props.autoGrow || !ta.value) return;
-  ta.value.style.height = 'auto';
-  ta.value.style.height = `${ta.value.scrollHeight}px`;
+  if (!props.autoGrow || !ta.value || NATIVE_FIELD_SIZING || adjustQueued) return;
+  adjustQueued = true;
+  const run = () => {
+    adjustQueued = false;
+    const el = ta.value;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+  else run();
 }
 
 function closeMenu() {
@@ -366,6 +397,7 @@ function onKeydown(event) {
     accept(activeIndex.value);
   } else if (event.key === 'Escape') {
     event.preventDefault();
+    event.stopPropagation(); // only close the menu; hosts may exit edit on Esc
     closeMenu();
   }
 }
@@ -377,9 +409,10 @@ function onKeyup(event) {
   }
 }
 
-function onBlur() {
+function onBlur(event) {
   // Delay so a mousedown on a suggestion (which is prevented) can run first.
   window.setTimeout(closeMenu, 100);
+  emit('blur', event);
 }
 
 watch(
@@ -395,5 +428,13 @@ onMounted(() => {
 
 defineExpose({
   focus: () => ta.value?.focus(),
+  /** Focus and place the caret (used by the inline click-to-edit blocks). */
+  setCaret: (start, end = start) => {
+    const el = ta.value;
+    if (!el) return;
+    el.focus();
+    const max = el.value.length;
+    el.setSelectionRange(Math.min(start, max), Math.min(end, max));
+  },
 });
 </script>

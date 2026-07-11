@@ -117,7 +117,7 @@ describe('library reconcile (the "Sync library now" / save-then-push flow)', () 
   it('flushes a locally-saved preset to the cloud and settles on synced', async () => {
     // Pretend we already adopted the (empty) cloud, then the user saves a preset.
     sync.set({ lastSyncedAt: host.cloud.updatedAt, pendingSync: false });
-    preset.rawJson = '{"open":"file"}'; // the open file — must NOT be pushed
+    preset.rawJson = '{"open":"file"}'; // active-area path — only synced INSIDE its entry
     preset.savedPresets = { newp: { id: 'newp', name: 'Saved locally', prompts: [] } };
     sync.set({ pendingSync: true });
 
@@ -127,7 +127,9 @@ describe('library reconcile (the "Sync library now" / save-then-push flow)', () 
     expect(sync.pendingSync).toBe(false);
     expect(host.lastPush).not.toBeNull();
     expect(host.lastPush.savedPresets.newp.name).toBe('Saved locally');
-    // The open file stays local: rawJson must never be in the library payload.
+    // Active-area paths (rawJson, prompts, …) are never TOP-LEVEL in the library
+    // payload — the open file rides inside its savedPresets entry instead, which
+    // keeps multiple file panels from clobbering one shared active area.
     expect('rawJson' in host.lastPush).toBe(false);
   });
 
