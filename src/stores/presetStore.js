@@ -1,10 +1,18 @@
 import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
+import { markRaw } from 'vue';
 import languageData from '../assets/languages.json';
 import { toPlainClone } from '../utils/clone';
 import { isFileHost, isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
+import { createDebouncedStorage } from '../utils/persistStorage';
 import { estimateTokens } from '../utils/tokens';
+
+/**
+ * Debounced localStorage for the persist plugin (one instance). Coalesces the
+ * per-mutation serialize+write the plugin does on every keystroke.
+ */
+const persistStorage = createDebouncedStorage();
 
 /**
  * Holders for the in-app confirmation dialog's callbacks. Kept out of reactive
@@ -149,6 +157,39 @@ function activeAreaData(state) {
     promptOrder: [...(state.promptOrder || [])],
     promptCollapseStates: toPlainClone(state.promptCollapseStates || {}),
   };
+}
+
+/**
+ * A saved-preset entry's `.data` is an OPAQUE snapshot: components never bind to
+ * its internals (they read `entry.name`/`updatedAt`; `.data` is loaded into the
+ * active area imperatively and sync merges operate on plain JSON). Marking it raw
+ * keeps the entire saved library OUT of every deep store-watcher traversal and
+ * the persist serializer's proxy walk, so per-keystroke typing cost stops scaling
+ * with library size. Every writer replaces `.data` wholesale (never mutates it in
+ * place), so this never breaks a reactive update.
+ *
+ * `rawData` wraps a freshly-built plain snapshot; `markRawLibrary` re-clones an
+ * already-reactive library (post-hydrate / post-cloud-adopt) into raw form.
+ */
+function rawData(value) {
+  return value && typeof value === 'object' ? markRaw(value) : value;
+}
+function markRawLibrary(savedPresets) {
+  if (!savedPresets) return;
+  Object.values(savedPresets).forEach((entry) => {
+    if (!entry) return;
+    if (entry.data && typeof entry.data === 'object') {
+      entry.data = markRaw(toPlainClone(entry.data));
+    }
+    // Snapshots are opaque too — keep them out of traversal as well.
+    if (Array.isArray(entry.snapshots)) {
+      entry.snapshots.forEach((snap) => {
+        if (snap && snap.data && typeof snap.data === 'object') {
+          snap.data = markRaw(toPlainClone(snap.data));
+        }
+      });
+    }
+  });
 }
 
 /**
@@ -1063,7 +1104,7 @@ export const usePresetStore = defineStore('preset', {
       const entry = this.savedPresets[this.currentPresetId];
       const next = activeAreaData(this);
       if (JSON.stringify(entry.data) === JSON.stringify(next)) return;
-      entry.data = next;
+      entry.data = rawData(next); // opaque snapshot — keep it out of deep traversal
       entry.updatedAt = new Date().toISOString();
     },
     /** Debounced autosave — call after every active-area mutation. */
@@ -1084,7 +1125,7 @@ export const usePresetStore = defineStore('preset', {
       const now = new Date().toISOString();
       this.savedPresets[id] = {
         name,
-        data: activeAreaData(this),
+        data: rawData(activeAreaData(this)),
         createdAt: now,
         updatedAt: now,
       };
@@ -1233,7 +1274,7 @@ export const usePresetStore = defineStore('preset', {
           const data = toPlainClone(isUndo ? entry.before : entry.after);
           const libEntry = this.savedPresets[entry.presetId];
           if (libEntry) {
-            libEntry.data = { ...toPlainClone(libEntry.data || {}), ...toPlainClone(data) };
+            libEntry.data = rawData({ ...toPlainClone(libEntry.data || {}), ...toPlainClone(data) });
             libEntry.updatedAt = new Date().toISOString();
           }
           if (entry.presetId === this.currentPresetId) {
@@ -2439,7 +2480,7 @@ export const usePresetStore = defineStore('preset', {
 
         this.savedPresets[presetId] = {
           name: presetName,
-          data: presetData,
+          data: rawData(presetData),
           createdAt: now,
           updatedAt: now,
         };
@@ -2514,7 +2555,7 @@ export const usePresetStore = defineStore('preset', {
         this.requestConfirm({
           message: this.t('importModal.overwriteConfirm', { name: baseName }),
           onConfirm: () => {
-            this.savedPresets[existingId].data = presetData;
+            this.savedPresets[existingId].data = rawData(presetData);
             this.savedPresets[existingId].updatedAt = now;
             this.showToast(this.t('importModal.overwriteDone', { name: baseName }), 'success');
             this.closeImportModal();
@@ -2524,7 +2565,7 @@ export const usePresetStore = defineStore('preset', {
             const uniqueName = this._uniquePresetName(baseName, findPresetIdByName);
             this.savedPresets[window.crypto.randomUUID()] = {
               name: uniqueName,
-              data: presetData,
+              data: rawData(presetData),
               createdAt: now,
               updatedAt: now,
             };
@@ -2538,7 +2579,7 @@ export const usePresetStore = defineStore('preset', {
       // No duplicate, save directly under baseName
       this.savedPresets[window.crypto.randomUUID()] = {
         name: baseName,
-        data: presetData,
+        data: rawData(presetData),
         createdAt: now,
         updatedAt: now,
       };
@@ -2576,7 +2617,7 @@ export const usePresetStore = defineStore('preset', {
       const now = new Date().toISOString();
       this.savedPresets[presetId] = {
         name: presetName,
-        data: activeAreaData(this),
+        data: rawData(activeAreaData(this)),
         createdAt: now,
         updatedAt: now,
       };
@@ -2653,7 +2694,7 @@ export const usePresetStore = defineStore('preset', {
         this.t('presetManager.defaultName');
       this.savedPresets[presetId] = {
         name: displayName, // keep a name the user set in the library
-        data: nextData,
+        data: rawData(nextData),
         createdAt: existing?.createdAt || now,
         updatedAt: changed ? now : existing?.updatedAt || now,
         snapshots: existing?.snapshots || [],
@@ -2725,13 +2766,16 @@ export const usePresetStore = defineStore('preset', {
         id: window.crypto.randomUUID(),
         name: label,
         createdAt: now.toISOString(),
-        // Snapshot the durable preset content only (no UI state).
-        data: (({ rawJson, originalFilename, prompts, promptOrder }) => ({
-          rawJson,
-          originalFilename,
-          prompts,
-          promptOrder,
-        }))(toPlainClone(entry.data || {})),
+        // Snapshot the durable preset content only (no UI state). Raw like the
+        // entry's own data — snapshots are opaque and never bound reactively.
+        data: rawData(
+          (({ rawJson, originalFilename, prompts, promptOrder }) => ({
+            rawJson,
+            originalFilename,
+            prompts,
+            promptOrder,
+          }))(toPlainClone(entry.data || {})),
+        ),
       };
       entry.snapshots.unshift(snapshot);
       if (entry.snapshots.length > MAX_SNAPSHOTS_PER_PRESET) {
@@ -2763,7 +2807,7 @@ export const usePresetStore = defineStore('preset', {
       });
       const beforeData = pickDurable(toPlainClone(entry.data || {}));
 
-      entry.data = { ...toPlainClone(entry.data || {}), ...toPlainClone(snapshot.data) };
+      entry.data = rawData({ ...toPlainClone(entry.data || {}), ...toPlainClone(snapshot.data) });
       entry.updatedAt = new Date().toISOString();
 
       this._recordHistory({
@@ -2837,7 +2881,7 @@ export const usePresetStore = defineStore('preset', {
 
       this.savedPresets[newPresetId] = {
         name: newName.trim(),
-        data: JSON.parse(JSON.stringify(preset.data)), // Deep clone
+        data: rawData(JSON.parse(JSON.stringify(preset.data))), // Deep clone
         createdAt: now,
         updatedAt: now,
       };
@@ -2893,7 +2937,7 @@ export const usePresetStore = defineStore('preset', {
         // Save as default preset
         this.savedPresets[presetId] = {
           name: this.t('presetManager.factorySettings.factoryDefaultName'),
-          data: presetData,
+          data: rawData(presetData),
           createdAt: now,
           updatedAt: now,
         };
@@ -3224,6 +3268,9 @@ export const usePresetStore = defineStore('preset', {
       paths.forEach((key) => {
         if (key in data) this[key] = data[key];
       });
+      // Cloud-adopted library entries arrive reactive — normalize their opaque
+      // `.data` to raw so the library stays out of deep traversal (see rawData).
+      if (paths.includes('savedPresets')) markRawLibrary(this.savedPresets);
       this.clearHistory(); // cloud data replaces the document — undo would cross it
       this.analyzeAllMacros();
       this.applyTheme(); // the snapshot may carry a different themeMode
@@ -3232,30 +3279,30 @@ export const usePresetStore = defineStore('preset', {
   persist: {
     // Only persist the essential user data, not derived/UI states.
     //
-    // In the VS Code extension the active editing area is NOT durable local
-    // state: for a file webview the open .json on disk is the source of truth
-    // (re-pushed by the host on every open), and both file and standalone
-    // panels share one webview localStorage. Persisting the active area there
-    // would let a stale (or another panel's) file flash in before the host's
-    // `load` arrives — the "Untitled preset / wrong file on open" bug. So we
-    // drop the per-file/active-area paths in the extension and let the host
-    // (file mode) or the library reload in main.js (standalone mode) supply the
-    // document. The library + preferences still persist and sync normally.
-    paths: PERSIST_PATHS,
-    beforeRestore: () => {
-      console.log('[Persistence] About to restore store from localStorage');
-    },
-    afterRestore: (ctx) => {
-      const hasPersistedData = Boolean(ctx.store.rawJson);
-      console.log(`[Persistence] Store restored. Has persisted data: ${hasPersistedData}`);
-      if (hasPersistedData) {
-        console.log(
-          `[Persistence] Loaded ${Object.keys(ctx.store.prompts).length} prompts, ${ctx.store.promptOrder.length} in order`,
-        );
-        // Re-analyze macros after restore since derived states are not persisted
-        console.log('[Persistence] Re-analyzing macros after restore...');
-        ctx.store.analyzeAllMacros();
-      }
+    // `pick` (pinia-plugin-persistedstate v4) restricts BOTH what is written and
+    // what is re-applied on hydrate to PERSIST_PATHS. Two reasons this matters:
+    //   - Perf: without it the plugin serializes the ENTIRE store on every
+    //     mutation (undo stacks, macro snapshots, modal flags, per-prompt
+    //     `macros` — hundreds of KB) on the typing hot path.
+    //   - Correctness (extension): the active editing area is NOT durable local
+    //     state — a file webview reloads the open .json from the host on open,
+    //     and both file and standalone panels share one webview localStorage.
+    //     Persisting the active area would let a stale (or another panel's) file
+    //     flash in before the host's `load` arrives ("wrong file on open").
+    //     PERSIST_PATHS drops the per-file/active-area keys in the extension.
+    // NOTE: the v3 `paths`/`beforeRestore`/`afterRestore` keys are NOT read by
+    // v4 — use `pick`/`beforeHydrate`/`afterHydrate`.
+    pick: PERSIST_PATHS,
+    // Coalesce the per-keystroke serialize+write into one flush per ~400 ms.
+    storage: persistStorage,
+    afterHydrate: (ctx) => {
+      // Restored library entries come back reactive — normalize their opaque
+      // `.data` to raw so the saved library stays out of deep traversal/serialize
+      // on the typing hot path (see rawData).
+      markRawLibrary(ctx.store.savedPresets);
+      // Derived state (macros, variables, snapshots) is not persisted — rebuild
+      // it from the restored prompts.
+      if (ctx.store.rawJson) ctx.store.analyzeAllMacros();
     },
   },
 });

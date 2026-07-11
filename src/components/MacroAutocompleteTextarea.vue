@@ -8,6 +8,7 @@
       :placeholder="placeholder"
       :readonly="readonly"
       :class="textareaClass"
+      :style="autoGrowStyle"
       @input="onInput"
       @keydown="onKeydown"
       @keyup="onKeyup"
@@ -45,7 +46,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { usePresetStore } from '../stores/presetStore';
 import { getCaretCoordinates } from '../utils/caret';
 import { MACRO_CATALOG, VAR_MACRO_META } from '../utils/macros';
@@ -79,10 +80,36 @@ function emitValue(value) {
   emit('update:modelValue', value);
 }
 
+// Native CSS auto-sizing (Chromium 123+, i.e. every modern VS Code webview)
+// grows the textarea with ZERO JavaScript layout reads. Only older engines fall
+// back to the scrollHeight measurement below.
+const NATIVE_FIELD_SIZING =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('field-sizing', 'content');
+
+// When native sizing is available, let CSS do it (`field-sizing: content`) so no
+// keystroke ever forces a synchronous layout.
+const autoGrowStyle = computed(() =>
+  props.autoGrow && NATIVE_FIELD_SIZING ? { 'field-sizing': 'content' } : undefined,
+);
+
+// Fallback path: coalesce into a single rAF so a keystroke's two triggers
+// (onInput + the modelValue watcher) collapse to one measurement per frame
+// instead of two synchronous forced reflows.
+let adjustQueued = false;
 function adjustHeight() {
-  if (!props.autoGrow || !ta.value) return;
-  ta.value.style.height = 'auto';
-  ta.value.style.height = `${ta.value.scrollHeight}px`;
+  if (!props.autoGrow || !ta.value || NATIVE_FIELD_SIZING || adjustQueued) return;
+  adjustQueued = true;
+  const run = () => {
+    adjustQueued = false;
+    const el = ta.value;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+  else run();
 }
 
 function closeMenu() {

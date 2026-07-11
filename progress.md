@@ -13,6 +13,44 @@ Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 [bugs/2026-07-10-extension-drag-reorder-broken.md](./bugs/2026-07-10-extension-drag-reorder-broken.md) ·
 [changes/2026-07-10-audit-findings.md](./changes/2026-07-10-audit-findings.md)
 
+## Perf: extension typing lag — fixed (extension 0.8.1)
+
+### 2026-07-11 / Session 3 — implementation (F1, F2, F4, F6)
+
+Fixed the reported webview typing lag. Full write-up + measured before/after in
+[bugs/2026-07-11-extension-typing-lag.md](./bugs/2026-07-11-extension-typing-lag.md).
+Per-keystroke main-thread time dropped **~90 ms → ~20 ms with zero long tasks**
+(was one long task per keystroke), and per-keystroke cost no longer scales with
+library size (22 ms at a 2.5 MB library vs 67 ms before F4).
+
+- **F1** — `MacroAutocompleteTextarea.vue` uses native CSS `field-sizing: content`
+  (rAF-coalesced JS fallback) → no forced reflow, and the per-keystroke double
+  `scrollHeight` read is gone.
+- **F2** — the persist config used v3 `paths`/`beforeRestore`/`afterRestore`,
+  which **pinia-plugin-persistedstate v4 ignores**: the plugin was serializing the
+  ENTIRE store (undo stacks, macros, snapshots, modal flags) every keystroke and
+  the extension's active-area exclusion was void (latent stale-file-on-open bug).
+  Migrated presetStore + syncStore to `pick`/`afterHydrate`, added a debounced
+  localStorage adapter (`src/utils/persistStorage.js`, flush-on-hide).
+- **F4** — saved-preset (and snapshot) `.data` is `markRaw`'d at every write site
+  + `afterHydrate`/`applyCloudData` normalizers, keeping the whole saved library
+  out of deep traversal + serialize. This is the structural win (size-independent
+  typing).
+- **F6** — the host no longer reconciles on the webview's OWN saves (self-write
+  suppression in the FS watcher); external edits still reconcile. Removes the
+  mid-typing 409/merge churn against the KV doc.
+- **Deferred:** F3 (merge deep watchers — marginal after F4, would touch the
+  just-shipped sync engine's `flush:'sync'` guard) and F5 (incremental analysis —
+  targets the post-pause hitch, not per-keystroke; touches analysis core).
+- **Validation:** vitest 91/91, eslint clean, web + webview builds, MCP-backed
+  before/after typing measurement, extension repacked as **0.8.1** (0.7.1/0.8.0
+  VSIX archived).
+
+### 2026-07-11 / Session 2 — investigation only (superseded by Session 3)
+
+Reproduced and attributed the lag (~90 ms/keystroke) via shimmed build +
+chrome-devtools MCP + JS self-profiler; proposed F1–F6. See the bug file.
+
 ## Fix release: sync merge engine, webview drag, cleanup (extension 0.8.0)
 
 ### 2026-07-11 / Session 1 — implementation (all intake items fixed)

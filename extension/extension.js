@@ -136,6 +136,30 @@ let fileStates = new Map();
 /** Cloud entries with no mapped file, from the last reconcile. */
 let cloudOnlyEntries = [];
 
+/**
+ * Files the extension itself just wrote from a webview save. The FS watcher
+ * echoes these back almost immediately; reconciling on that echo would race the
+ * webview's OWN cloud push (its cloudSync engine already pushed the edit) and
+ * cause mid-typing 409/merge churn. So we skip the reconcile for a short window
+ * after a self-write. External edits (another editor) are never in this set and
+ * still trigger a reconcile normally.
+ */
+const selfWrites = new Map(); // normalized fsPath -> expiry epoch ms
+const SELF_WRITE_WINDOW_MS = 4000;
+function markSelfWrite(filePath) {
+  selfWrites.set(path.normalize(filePath), Date.now() + SELF_WRITE_WINDOW_MS);
+}
+function isRecentSelfWrite(filePath) {
+  const key = path.normalize(filePath);
+  const expiry = selfWrites.get(key);
+  if (expiry == null) return false;
+  if (Date.now() > expiry) {
+    selfWrites.delete(key);
+    return false;
+  }
+  return true;
+}
+
 const FILE_STATES = {
   synced: { label: 'synced', icon: 'check' },
   pending: { label: 'pending ↑', icon: 'arrow-up' },
@@ -230,6 +254,10 @@ function setupWatcher(context) {
   const onFsEvent = (uri) => {
     if (uri && path.basename(uri.fsPath) === folderLib.MAPPING_FILENAME) return;
     if (treeProvider) treeProvider.refresh();
+    // A webview save echoes back through the watcher — the webview already
+    // pushed that edit, so don't reconcile (and race its push). Tree badges
+    // still refresh above; the periodic reconcile reconverges any drift.
+    if (uri && isRecentSelfWrite(uri.fsPath)) return;
     scheduleReconcile();
   };
   watcher.onDidCreate(onFsEvent);
@@ -906,13 +934,14 @@ function handleSave(filePath, json) {
   try {
     JSON.parse(json); // guard: never write invalid JSON over a real preset
     writeFileAtomic(filePath, json);
+    markSelfWrite(filePath); // suppress the watcher echo (see selfWrites)
     statusBar.text = `$(check) Preset saved ${new Date().toLocaleTimeString()}`;
     statusBar.tooltip = filePath;
     statusBar.show();
-    // Push the edit to the cloud library right away when this folder is linked.
-    // (The atomic write is a temp-file rename, which the FS watcher may miss, so
-    // we don't rely on it alone.) No-op when the folder isn't linked.
-    scheduleReconcile();
+    // No host reconcile here: the saving webview's own cloudSync engine pushes
+    // this edit (the open file is a mapped library entry). A reconcile now would
+    // just race that push and churn 409s during typing. The periodic reconcile
+    // and external-edit watcher events keep the folder mapping/tree converged.
   } catch (error) {
     vscode.window.showErrorMessage(
       `STPresetEditor: failed to save ${path.basename(filePath)} — ${error.message}`,

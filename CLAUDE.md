@@ -21,10 +21,13 @@ Two runtime shapes from the same code:
 ## Tech stack
 
 - Vue 3 (Composition API, `<script setup>`)
-- Pinia + `pinia-plugin-persistedstate` (state + localStorage)
+- Pinia + `pinia-plugin-persistedstate` **v4** (state + localStorage; use
+  `pick`/`afterHydrate`, and a debounced storage adapter — see Architecture)
 - Vite 7 (build), Tailwind CSS v4 (`@tailwindcss/vite`)
 - Headless UI + Heroicons (accessible dialogs/menus/tabs/icons)
 - floating-vue (tooltips), lodash-es (debounce)
+- Auto-grow textareas use native CSS `field-sizing: content` (rAF-coalesced JS
+  fallback) — no per-keystroke layout reads (`MacroAutocompleteTextarea.vue`)
 - Desktop 3-pane = collapsible columns in `AppLayout.vue` (no splitter lib);
   drag-reorder = native HTML5 DnD in `PromptCard.vue`, armed from the ⋮⋮
   handle on desktop/host (no drag lib)
@@ -36,20 +39,36 @@ The single source of truth is the Pinia **preset** store
 (`src/stores/presetStore.js`). Components dispatch actions → state changes →
 getters/computed re-render. Components hold almost no business logic.
 
-- **Persisted to localStorage** = portable data only (the `persist.paths` list):
-  `rawJson`, `originalFilename`, `prompts`, `promptOrder`, `macroDisplayMode`,
-  `currentLanguage`, `promptCollapseStates`, `skipDeleteConfirmation`,
-  `savedPresets`, `currentPresetId`, `defaultPresetId`.
+- **Persisted to localStorage** = portable data only (`PERSIST_PATHS`, wired as
+  the plugin's `persist.pick`): `rawJson`, `originalFilename`, `prompts`,
+  `promptOrder`, `macroDisplayMode`, `currentLanguage`, `promptCollapseStates`,
+  `skipDeleteConfirmation`, `savedPresets`, `currentPresetId`, `defaultPresetId`.
+  **pinia-plugin-persistedstate is v4** — use `pick`/`beforeHydrate`/`afterHydrate`,
+  NOT the v3 `paths`/`beforeRestore`/`afterRestore` (v4 silently ignores those and
+  persists the WHOLE store — a real perf + wrong-file-on-open bug). Writes go
+  through a debounced localStorage adapter (`src/utils/persistStorage.js`,
+  ~400 ms, flush on hide/unload) so a burst of edits serializes once, not per
+  keystroke.
+- **Saved library `.data` is `markRaw`'d (non-reactive).** `savedPresets[*].data`
+  (and each snapshot's `.data`) is an opaque snapshot — components read
+  `entry.name`/`updatedAt`, never `.data` internals, and every writer REPLACES
+  `.data` wholesale. `markRaw` keeps the whole library out of deep-watcher
+  traversal + the persist serializer's proxy walk, so typing cost doesn't scale
+  with library size. Helpers `rawData()` / `markRawLibrary()` in `presetStore.js`;
+  keep the invariant when adding a new `savedPresets[id].data = …` site, and never
+  mutate `.data` in place.
 - **Derived / NOT persisted:** macro analysis (`variables`,
   `unresolvedVariables`, `macroStateSnapshots`), selection, search, modal flags,
-  mobile flags. Recomputed after a restore by `analyzeAllMacros()`.
+  mobile flags, undo/redo stacks. Recomputed after a restore by `analyzeAllMacros()`
+  (in `afterHydrate`).
 - That **same path list is also exported as `SYNC_DATA_PATHS`** and is exactly
   what gets synced to the cloud. **When you add a persisted field, update BOTH
-  `persist.paths` and `SYNC_DATA_PATHS`** (both live in `presetStore.js`). If the
-  field belongs to the saved-preset library (not the active editing area), it is
-  picked up by `EXTENSION_LIBRARY_PATHS` automatically (it's `SYNC_DATA_PATHS`
-  minus the active-area/per-file paths); add it to `EXTENSION_LOCAL_ONLY_PATHS`
-  instead if it should stay local to the VS Code extension.
+  `persist.pick` (via `PERSIST_PATHS`) and `SYNC_DATA_PATHS`** (both live in
+  `presetStore.js`). If the field belongs to the saved-preset library (not the
+  active editing area), it is picked up by `EXTENSION_LIBRARY_PATHS` automatically
+  (it's `SYNC_DATA_PATHS` minus the active-area/per-file paths); add it to
+  `EXTENSION_LOCAL_ONLY_PATHS` instead if it should stay local to the VS Code
+  extension.
 
 ### Startup order (`src/main.js`)
 
@@ -172,7 +191,7 @@ Runs on every structural edit; debounced (300ms) for content typing via
 **Custom autocomplete dictionary:** users extend the catalog from Settings —
 `customMacros` (`{{name}}` snippets) and `customWraps` (paired notations like
 `<!-- … -->`, seeded by `defaultCustomWraps()`). Both are **additive**, persisted,
-**and synced** (added to `persist.paths` + `SYNC_DATA_PATHS`); store actions live
+**and synced** (added to `persist.pick` via `PERSIST_PATHS` + `SYNC_DATA_PATHS`); store actions live
 in `presetStore.js`, the editing UI in `SettingsModal.vue`. The textarea merges
 `customMacros` into the `{{` menu and exposes **Ctrl+Space** to open a snippet
 menu (wraps first) that wraps the current selection or drops the caret between
@@ -209,6 +228,7 @@ expand button / double-click, or the right pane's Expand; state:
 - Keyboard shortcut registration/handling → `src/utils/shortcuts.js`
 - Token estimate + formatting → `src/utils/tokens.js`
 - Plain deep-clone (proxy-safe) → `src/utils/clone.js`
+- Debounced localStorage adapter for the persist plugin → `src/utils/persistStorage.js`
 - Cloud-sync behaviour (reconcile, merge, conflict flow) → `src/stores/cloudSync.js`
 - Sync status (`cloudEnabled`/`status`/`lastSyncedAt`/`pendingSync`/`fileLink`) → `src/stores/syncStore.js`
 - Account/session + API-key state → `src/stores/authStore.js`

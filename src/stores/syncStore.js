@@ -58,6 +58,9 @@ export const useSyncStore = defineStore('sync', {
     },
   },
   persist: {
-    paths: ['lastSyncedAt', 'pendingSync'],
+    // v4 uses `pick`, not `paths`. Only persist the offline-edit bookkeeping;
+    // transient status (cloudEnabled/status/fileLink) must be recomputed each
+    // load, never restored stale.
+    pick: ['lastSyncedAt', 'pendingSync'],
   },
 });
