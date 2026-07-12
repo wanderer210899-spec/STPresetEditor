@@ -266,6 +266,10 @@
     },
     "sync": {
       "title": "Cloud sync",
+      "syncNow": "Sync now",
+      "syncNowPulled": "Synced — pulled the latest changes.",
+      "syncNowUpToDate": "Already up to date.",
+      "syncNowOffline": "Cloud sync isn't connected.",
       "createHint": "This deployment has no owner yet. Create your account to claim it.",
       "createAccount": "Create account",
       "signIn": "Sign in",
@@ -709,6 +713,10 @@
     },
     "sync": {
       "title": "云同步",
+      "syncNow": "立即同步",
+      "syncNowPulled": "已同步 — 已拉取最新更改。",
+      "syncNowUpToDate": "已是最新。",
+      "syncNowOffline": "云同步未连接。",
       "createHint": "此部署尚无所有者。创建您的账户以认领它。",
       "createAccount": "创建账户",
       "signIn": "登录",

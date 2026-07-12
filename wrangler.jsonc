@@ -1,38 +1,37 @@
 {
-  // Cloudflare Worker config — committed on purpose and **secret-free**: no
-  // passwords, API keys, or account-specific resource ids live here, so this repo
-  // is a clean template anyone can self-host. The KV namespace and the D1 auth
-  // database are bound by NAME only (no id), so the one-click Deploy button
-  // auto-provisions a fresh, PRIVATE KV + D1 in each deployer's own account —
-  // nobody shares storage. (Deploying with `wrangler` from a clone instead?
-  // Create them and paste YOUR ids in a LOCAL copy — see the README CLI steps —
-  // but don't commit those ids back here.)
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "stpreseteditor",
-  "main": "worker/index.js",
-  "compatibility_date": "2025-06-01",
-
-  // Serve the Vite build, with single-page-app fallback for client routes.
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-  },
-
-  // Presets library storage. No "id" => auto-provisioned per deployer.
-  "kv_namespaces": [
-    {
-      "binding": "PRESETS",
-    },
-  ],
-
-  // Auth store (accounts, sessions, API keys). No "database_id" => auto-provisioned
-  // per deployer; the migrations in ./migrations create the tables on deploy.
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "stpreseteditor-auth",
-      "migrations_dir": "migrations",
-    },
-  ],
+	// Cloudflare Worker config — committed on purpose and **secret-free**: no
+	// passwords, API keys, or account-specific resource ids live here, so this repo
+	// is a clean template anyone can self-host. The KV namespace and the D1 auth
+	// database are bound by NAME only (no id), so the one-click Deploy button
+	// auto-provisions a fresh, PRIVATE KV + D1 in each deployer's own account —
+	// nobody shares storage. (Deploying with `wrangler` from a clone instead?
+	// Create them and paste YOUR ids in a LOCAL copy — see the README CLI steps —
+	// but don't commit those ids back here.)
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "stpreseteditor",
+	"main": "worker/index.js",
+	"compatibility_date": "2025-06-01",
+	// Serve the Vite build, with single-page-app fallback for client routes.
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+	},
+	// Presets library storage. No "id" => auto-provisioned per deployer.
+	"kv_namespaces": [
+		{
+			"binding": "PRESETS",
+			"id": "51e58c31c9854bd08466901e6f76fcdf",
+		},
+	],
+	// Auth store (accounts, sessions, API keys). No "database_id" => auto-provisioned
+	// per deployer; the migrations in ./migrations create the tables on deploy.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "stpreseteditor-auth",
+			"migrations_dir": "migrations",
+			"database_id": "07540f5c-1b0c-4ed5-a9ec-7dc72235045e",
+		},
+	],
 }

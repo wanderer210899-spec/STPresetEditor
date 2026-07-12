@@ -418,28 +418,43 @@ async function openConflictDialog(doc) {
  * document fork on the web asks the user). Exported for tests; wired to
  * focus/visibility/interval by startAutoPull().
  */
-export async function pollCloudNow() {
+export async function pollCloudNow({ force = false } = {}) {
   const preset = presetRef;
   const sync = syncRef;
-  if (!preset || !sync || !sync.cloudEnabled) return;
-  if (pullInFlight || conflictOpen) return;
-  if (typeof document !== 'undefined' && document.hidden) return;
+  if (!preset || !sync || !sync.cloudEnabled) return false;
+  if (pullInFlight || conflictOpen) return false;
+  // Auto-pull skips a hidden tab; a user-forced "Sync now" does NOT — VS Code
+  // webviews report hidden/unfocused unreliably, which is why remote changes
+  // used to appear only after switching the document and reloading (S2).
+  if (!force && typeof document !== 'undefined' && document.hidden) return false;
 
   pullInFlight = true;
   try {
     const doc = await getDoc();
-    if (!doc || !doc.updatedAt || !doc.data) return;
-    if (doc.updatedAt === sync.lastSyncedAt) return;
+    if (!doc || !doc.updatedAt || !doc.data) return false;
+    if (doc.updatedAt === sync.lastSyncedAt) return false;
     if (sync.pendingSync) {
       // Both sides changed. Merge — but after an explicit "not now" the 30s
       // poll stays quiet; the next edit-triggered push resolves instead.
       if (!conflictDeferred) await resolveDivergence(preset, sync);
-      return;
+      return true;
     }
     adoptCloud(preset, sync, doc);
+    return true;
   } finally {
     pullInFlight = false;
   }
+}
+
+/**
+ * User-triggered "Sync now" (S2): force an immediate remote pull and live-apply
+ * it to the OPEN editor, bypassing the focus/visibility/30s auto-pull and its
+ * hidden-tab guard. A reliable alternative to closing and reopening the document
+ * just to pick up another device's changes.
+ * @returns {Promise<boolean>} whether a remote change was pulled in
+ */
+export function syncNow() {
+  return pollCloudNow({ force: true });
 }
 
 /** Attach the F2 pull triggers once: tab refocus, visibility, 30s interval. */

@@ -246,6 +246,90 @@ describe('F4 variable timelines + end values', () => {
   });
 });
 
+// F5: content typing runs INCREMENTAL analysis — re-tokenize only the edited
+// prompt(s) on the 300ms debounce, then rebuild aggregates from every ordered
+// prompt's already-attached macros. Guards the "no list-wide invalidation" win
+// and the cross-prompt correctness the full pass used to give.
+describe('F5 incremental macro analysis', () => {
+  it('re-tokenizes only the edited prompt, leaving other prompts’ macros untouched', () => {
+    store.prompts.a.content = '{{setvar::x::1}}';
+    store.prompts.b.content = '{{getvar::x}}';
+    store.analyzeAllMacros();
+    const bMacros = store.prompts.b.macros; // reference must survive (no re-render)
+
+    store.updatePromptDetail({ promptId: 'a', field: 'content', value: '{{setvar::x::2}}' });
+    vi.advanceTimersByTime(300);
+
+    expect(store.prompts.b.macros).toBe(bMacros); // same array reference
+    expect(store.prompts.a.macros).toHaveLength(1);
+    expect(store.prompts.a.macros[0].value).toBe('2'); // re-tokenized to new content
+  });
+
+  it('re-tokenizes every prompt edited within one debounce window', () => {
+    store.prompts.a.content = 'x';
+    store.prompts.b.content = 'y';
+    store.analyzeAllMacros();
+
+    store.updatePromptDetail({ promptId: 'a', field: 'content', value: '{{setvar::y::1}}' });
+    store.updatePromptDetail({ promptId: 'b', field: 'content', value: '{{getvar::y}}' });
+    vi.advanceTimersByTime(300);
+
+    expect(store.prompts.a.macros[0].varName).toBe('y');
+    expect(store.prompts.b.macros[0].varName).toBe('y');
+    expect(store.variables.y).toBeDefined();
+    expect(store.unresolvedVariables.map((v) => v.varName)).not.toContain('y');
+  });
+
+  it('rebuilds cross-prompt aggregates so an edit elsewhere resolves a variable', () => {
+    store.prompts.a.content = '{{getvar::z}}';
+    store.prompts.b.content = '';
+    store.analyzeAllMacros();
+    expect(store.unresolvedVariables.map((v) => v.varName)).toContain('z');
+
+    store.updatePromptDetail({ promptId: 'b', field: 'content', value: '{{setvar::z::1}}' });
+    vi.advanceTimersByTime(300);
+
+    expect(store.unresolvedVariables.map((v) => v.varName)).not.toContain('z');
+    expect(store.variableEndValues.z).toBe('1');
+  });
+
+  it('falls back to a full pass before the first analysis', () => {
+    store.prompts.a.content = '{{setvar::x::1}}';
+    store.prompts.b.content = '{{getvar::x}}';
+    expect(store._macrosInitialized).toBe(false);
+
+    store.queueIncrementalMacroAnalysis('a');
+    vi.advanceTimersByTime(300);
+
+    expect(store._macrosInitialized).toBe(true);
+    expect(store.prompts.a.macros).toHaveLength(1);
+    expect(store.prompts.b.macros).toHaveLength(1); // full pass tokenized b too
+    expect(store.variables.x).toBeDefined();
+  });
+
+  it('produces the same aggregates as a full re-analysis (incremental ≡ full)', () => {
+    store.prompts.a.content = '{{setvar::x::5}}';
+    store.prompts.b.content = '{{addvar::x::3}} {{getvar::x}}';
+    store.analyzeAllMacros();
+
+    store.updatePromptDetail({ promptId: 'a', field: 'content', value: '{{setvar::x::10}}' });
+    vi.advanceTimersByTime(300);
+    const incremental = JSON.stringify({
+      vars: store.variables,
+      end: store.variableEndValues,
+      timelines: store.variableTimelines,
+    });
+
+    store.analyzeAllMacros(); // authoritative full recompute over the same state
+    const full = JSON.stringify({
+      vars: store.variables,
+      end: store.variableEndValues,
+      timelines: store.variableTimelines,
+    });
+    expect(incremental).toBe(full);
+  });
+});
+
 describe('A4 system-prompt guards', () => {
   it('selectAllEditorPrompts skips system prompts', () => {
     store.selectAllEditorPrompts();
@@ -259,5 +343,44 @@ describe('A4 system-prompt guards', () => {
     store.resolveConfirm();
     expect(store.prompts.a).toBeUndefined();
     expect(store.prompts.b).toBeDefined(); // system prompt survives
+  });
+});
+
+// Bug 2026-07-12: two DIFFERENT files sharing a basename created two library
+// entries with identical names (openFileAsPreset skipped the name-dedupe the
+// web/adopt path already applied). Decided fix: disambiguate the display name of
+// a genuinely-new entry, and NEVER merge distinct presets (distinct stable id).
+describe('openFileAsPreset same-name handling', () => {
+  const fileJson = (content) =>
+    JSON.stringify({
+      prompts: [{ identifier: 'p', name: 'P', content, enabled: true }],
+      prompt_order: [{ character_id: 100001, order: [{ identifier: 'p', enabled: true }] }],
+    });
+
+  it('dedupes display names for different files, without merging them', () => {
+    store.openFileAsPreset(fileJson('A'), 'MyPreset.json', 'file:/a/MyPreset.json');
+    store.openFileAsPreset(fileJson('B'), 'MyPreset.json', 'file:/b/MyPreset.json');
+
+    // Two SEPARATE entries survive (distinct stable ids → never merged).
+    expect(store.savedPresets['file:/a/MyPreset.json']).toBeDefined();
+    expect(store.savedPresets['file:/b/MyPreset.json']).toBeDefined();
+
+    // …but their display names are disambiguated, not identical.
+    const names = [
+      store.savedPresets['file:/a/MyPreset.json'].name,
+      store.savedPresets['file:/b/MyPreset.json'].name,
+    ];
+    expect(names).toContain('MyPreset');
+    expect(names).toContain('MyPreset (2)');
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it('re-opening the SAME file keeps its name stable (no runaway "(2)")', () => {
+    store.openFileAsPreset(fileJson('A'), 'MyPreset.json', 'file:/a/MyPreset.json');
+    const firstName = store.savedPresets['file:/a/MyPreset.json'].name;
+    // Re-open the same path (same stable id) — must not re-dedupe.
+    store.openFileAsPreset(fileJson('A2'), 'MyPreset.json', 'file:/a/MyPreset.json');
+    expect(store.savedPresets['file:/a/MyPreset.json'].name).toBe(firstName);
+    expect(Object.keys(store.savedPresets)).toHaveLength(1);
   });
 });

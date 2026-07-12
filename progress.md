@@ -8,10 +8,72 @@ fork's own work only.
 
 Work on branch `claude/wizardly-mayer-srchqd`. Newest first.
 
+**Intake 2026-07-12 (approved to build; not yet implemented):**
+[changes/2026-07-12-webview-perf-and-sync-evaluation.md](./changes/2026-07-12-webview-perf-and-sync-evaluation.md)
+— confirms Tailwind/UI libs are pre-fork (not the regression); audits remaining perf items
+(F5/F3 deferred, P4 stringify) and the sync gap. User approved all four tiers. Refined scope:
+"working memory" = the currently-open preset + its versioning only, NOT VS Code's workspace. ·
+[bugs/2026-07-12-same-name-saved-as-duplicate-entries-not-snapshots.md](./bugs/2026-07-12-same-name-saved-as-duplicate-entries-not-snapshots.md)
+— same-name saves forked duplicate entries; **FIXED step 1a** (name dedupe in `openFileAsPreset`).
+Remaining tiers (S1/S2, F5, L1, QoL) still open.
+
 **Intake 2026-07-10 (all resolved 2026-07-11):**
 [bugs/2026-07-10-sync-conflict-data-loss.md](./bugs/2026-07-10-sync-conflict-data-loss.md) ·
 [bugs/2026-07-10-extension-drag-reorder-broken.md](./bugs/2026-07-10-extension-drag-reorder-broken.md) ·
 [changes/2026-07-10-audit-findings.md](./changes/2026-07-10-audit-findings.md)
+
+## Perf + sync tiers: F5 incremental analysis, S2 forced pull (step 1b)
+
+### 2026-07-12 / Session 2 — F5 + S2 (+ P4 verified)
+
+- **F5 incremental macro analysis** — content typing now re-tokenizes ONLY the edited
+  prompt(s) instead of clearing/reassigning `.macros` on every prompt. New store methods
+  `queueIncrementalMacroAnalysis` / `_flushIncrementalMacros` / `_retokenizePrompt`; Pass 2/3
+  extracted to `_rebuildMacroAggregates` (shared by full + incremental). Dirty prompt-ids
+  accumulate in a `markRaw` scratch Set (lodash debounce keeps only the last arg). Structural
+  edits keep the full `analyzeAllMacros`. Removes the ~300 ms post-pause list-wide re-render.
+  Tests: `presetStore.test.js` "F5 incremental macro analysis" (5, incl. incremental≡full).
+- **S2 forced pull** — `pollCloudNow({force})` + exported `syncNow()` bypass the hidden-tab
+  guard so remote changes live-apply into the OPEN editor without switching the document.
+  Auto-pull already existed; VS Code webviews report hidden/unfocused unreliably. Primitive
+  is tested; the toolbar "Sync now" button is left to wire (needs a visual check).
+  Test: `reproSaveSync.test.js` "F. syncNow() forces a pull even when the tab reports hidden".
+- **S1 confirmed** — open preset + versioning already persist via `PERSIST_PATHS`
+  (savedPresets incl. snapshots + currentPresetId), independent of VS Code workspace. No change.
+- **P4 VERIFIED real** — persistedstate serializes `pick(state)` (whole library) per mutation
+  before the debounced write; a large library still pays an O(size) stringify per keystroke.
+  Fix (IndexedDB / change-detected split) deferred — needs deps + migration + profiling.
+- Suite 99/99, lint clean. Full status + deferrals in
+  [changes/2026-07-12-webview-perf-and-sync-evaluation.md](./changes/2026-07-12-webview-perf-and-sync-evaluation.md).
+- **Live-validated** (chrome-devtools MCP, production bundle): F5 in the web SPA (only-edited-prompt
+  re-tokenize, multi-prompt window, structural→full-pass; 0 console errors) and S2 with two real
+  clients on the local worker (:8787 — cloud round-trip, live-apply without reload, hidden-guard
+  reproduced). VS Code webview isn't reliably MCP-drivable; manual checklist + full results in
+  [changes/2026-07-12-live-validation.md](./changes/2026-07-12-live-validation.md).
+- **"Sync now" button wired + live-validated** — both AppToolbar sync dots are click-to-`syncNow()`
+  (en+zh + toast). A real click on a hidden client forced a pull the auto-sync skips, updating the
+  open editor; no-op click → "already up to date"; 0 console errors. Files: `AppToolbar.vue`,
+  `languages.json`. Resolves the deferred QoL S2 wiring.
+
+## Same-name presets — duplicate entries → deduped (step 1a)
+
+### 2026-07-12 / Session 1 — bug fix (openFileAsPreset name dedupe)
+
+Opening two DIFFERENT files that share a basename created two library entries with
+identical names, because `openFileAsPreset` skipped the display-name dedupe that the
+web/adopt path (`_adoptActivePreset` → `_dedupedPresetName`) already applies.
+
+- **Fix** — `presetStore.js` `openFileAsPreset`: a genuinely-new entry's `displayName`
+  now runs through `_dedupedPresetName` (known ids keep their name; distinct files
+  become "MyPreset" / "MyPreset (2)"). Decided semantics: distinct stable ids are
+  NEVER merged by name, only disambiguated (option "snapshot the OPEN lineage only").
+- **Tests** — `test/presetStore.test.js` → "openFileAsPreset same-name handling"
+  (dedupe-not-merge; same-file re-open keeps a stable name). Full suite 93/93, lint clean.
+- **Deferred to S3 (identity unification):** cross-panel / post-cloud-merge name
+  collisions, and same-file-different-id (workspace link vs unlink) lineage.
+- Bug: [bugs/2026-07-12-same-name-saved-as-duplicate-entries-not-snapshots.md](./bugs/2026-07-12-same-name-saved-as-duplicate-entries-not-snapshots.md).
+  Remaining tiers (S1/S2 working memory, F5 perf, L1 IndexedDB, QoL) in the
+  [evaluation doc](./changes/2026-07-12-webview-perf-and-sync-evaluation.md).
 
 ## Perf: extension typing lag — fixed (extension 0.8.1)
 

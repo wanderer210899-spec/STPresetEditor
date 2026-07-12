@@ -19,6 +19,7 @@ import { computed } from 'vue';
 import { formatTokenCount } from '../utils/tokens';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
+import { syncNow } from '../stores/cloudSync';
 
 // Initialize the preset store
 const store = usePresetStore();
@@ -38,6 +39,21 @@ const saveCurrent = () => {
 
 // Cloud sync status (Cloudflare KV) for the indicator
 const sync = useSyncStore();
+
+// Manual "Sync now" (S2): force an immediate remote pull into the open editor,
+// bypassing the focus/visibility/30s auto-pull (which a VS Code webview can miss
+// when it reports itself hidden). Same conflict-safe merge as the auto-pull.
+const doSyncNow = async () => {
+  if (!sync.cloudEnabled) {
+    store.showToast(store.t('sync.syncNowOffline'), 'info');
+    return;
+  }
+  const pulled = await syncNow();
+  store.showToast(
+    store.t(pulled ? 'sync.syncNowPulled' : 'sync.syncNowUpToDate'),
+    pulled ? 'success' : 'info',
+  );
+};
 const syncDotClass = computed(() => {
   if (!sync.cloudEnabled) return 'bg-gray-300 dark:bg-gray-600';
   switch (sync.status) {
@@ -133,15 +149,18 @@ const menuItemClass =
       >
         {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
       </span>
-      <!-- Cloud-library sync status (same everywhere now that the extension's
-           open file syncs like the web app's active preset). -->
-      <div
-        class="mr-1 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
-        :title="sync.statusLabel"
+      <!-- Cloud-library sync status + click-to-"Sync now" (same everywhere now
+           that the extension's open file syncs like the web app's active preset). -->
+      <button
+        type="button"
+        class="mr-1 flex items-center gap-1.5 rounded px-1 py-0.5 text-xs text-gray-500 transition hover:bg-gray-100 disabled:hover:bg-transparent dark:text-gray-400 dark:hover:bg-gray-700/50"
+        :title="sync.cloudEnabled ? store.t('sync.syncNow') : sync.statusLabel"
+        :disabled="sync.status === 'syncing'"
+        @click="doSyncNow"
       >
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
-      </div>
+      </button>
       <!-- Save the current preset now (autosave already runs; this is the
            explicit "commit + confirm" the file workflow expects). Kept out front
            as an everyday essential. -->
@@ -237,12 +256,16 @@ const menuItemClass =
 
     <!-- Mobile: Action Group with Right Sidebar Toggle and Menu -->
     <div v-if="store.isMobile" class="flex items-center">
-      <!-- Cloud sync status dot -->
-      <span
-        class="mr-1 inline-block h-2 w-2 rounded-full"
-        :class="syncDotClass"
-        :title="sync.statusLabel"
-      ></span>
+      <!-- Cloud sync status dot — tap to "Sync now" -->
+      <button
+        type="button"
+        class="mr-1 flex h-6 w-6 items-center justify-center rounded"
+        :title="sync.cloudEnabled ? store.t('sync.syncNow') : sync.statusLabel"
+        :disabled="sync.status === 'syncing'"
+        @click="doSyncNow"
+      >
+        <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
+      </button>
       <!-- Right Sidebar Toggle Button -->
       <button class="btn-icon" @click="store.toggleRightSidebar()">
         <InformationCircleIcon class="h-6 w-6" />

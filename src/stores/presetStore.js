@@ -310,6 +310,12 @@ export const usePresetStore = defineStore('preset', {
     macroStateSnapshots: {}, // Stores the value of each getvar at its execution point
     variableEndValues: {}, // Simulated value of each variable after the full pass (F4, derived)
     variableTimelines: {}, // Ordered def/ref events per variable in execution order (F4, derived)
+    // F5 incremental analysis scratch (derived, never persisted/synced): whether a
+    // full pass has run (so per-prompt macros exist to rebuild aggregates from), and
+    // the set of prompt ids whose content changed since the last analysis flush.
+    // markRaw'd so per-keystroke dirty-tracking never enters reactive traversal.
+    _macrosInitialized: false,
+    _dirtyMacroPrompts: markRaw(new Set()),
 
     // Multi-selection state
     isMultiSelectActive: false, // Whether multi-selection mode is active
@@ -914,6 +920,23 @@ export const usePresetStore = defineStore('preset', {
         prompt.macros = macros; // Attach parsed macros
       });
 
+      // Aggregate rebuild (former Pass 2 + 3) reads every ordered prompt's
+      // attached `.macros`; extracted so incremental analysis (F5) can rebuild
+      // the aggregates without re-tokenizing unchanged prompts.
+      this._rebuildMacroAggregates();
+      this._macrosInitialized = true;
+      this._dirtyMacroPrompts.clear();
+
+      console.log('[analyzeAllMacros] Analysis complete.');
+    },
+
+    /**
+     * Rebuild the derived macro aggregates (variables, unresolved, snapshots,
+     * timelines, end values) from the `.macros` already attached to each ordered
+     * prompt. Pure over `promptOrder` + `prompts[*].macros` — it never
+     * re-tokenizes — so both the full pass and incremental analysis share it.
+     */
+    _rebuildMacroAggregates() {
       // --- Pass 2: Consolidated Analysis (based on promptOrder) ---
       const allVarNames = new Set();
       const definitions = {}; // { varName: [{ promptId, enabled }, ...] }
@@ -1062,9 +1085,25 @@ export const usePresetStore = defineStore('preset', {
         newEndValues[varName] = currentVarState[varName];
       });
       this.variableEndValues = newEndValues;
+    },
 
-      console.log('[analyzeAllMacros] Analysis complete.');
-      console.log('[analyzeAllMacros] Variables:', this.variables);
+    /**
+     * Re-tokenize ONLY the given prompt (leaving every other prompt's `.macros`
+     * reference untouched so unchanged PromptCards don't re-render), then return
+     * whether it was applied. Skips prompts that no longer exist.
+     */
+    _retokenizePrompt(promptId) {
+      const prompt = this.prompts[promptId];
+      if (!prompt) return false;
+      const content = prompt.content || '';
+      prompt.macros = tokenizeMacros(content).map((token) => ({
+        id: `${prompt.id}-${token.start}`,
+        full: token.full,
+        start: token.start,
+        end: token.end,
+        ...classifyMacro(token.inner),
+      }));
+      return true;
     },
 
     findPromptIdByMacroId(macroId) {
@@ -1077,8 +1116,37 @@ export const usePresetStore = defineStore('preset', {
       }
       return null;
     },
-    analyzeAllMacrosDebounced: debouncedAction(function () {
-      this.analyzeAllMacros();
+    /**
+     * F5 incremental analysis entry point for content typing. Marks the edited
+     * prompt dirty and schedules a debounced flush. Because lodash `debounce`
+     * keeps only the LAST call's args, dirty ids accumulate in a set so editing
+     * several prompts within one 300 ms window re-tokenizes all of them.
+     */
+    queueIncrementalMacroAnalysis(promptId) {
+      if (promptId) this._dirtyMacroPrompts.add(promptId);
+      this._flushIncrementalMacrosDebounced();
+    },
+    /**
+     * Re-tokenize only the dirty prompts, then rebuild the aggregates from every
+     * ordered prompt's already-attached `.macros`. Falls back to a full pass
+     * before the first analysis (no `.macros` attached yet to rebuild from).
+     */
+    _flushIncrementalMacros() {
+      if (!this._macrosInitialized) {
+        this.analyzeAllMacros();
+        return;
+      }
+      let touched = false;
+      this._dirtyMacroPrompts.forEach((promptId) => {
+        if (this._retokenizePrompt(promptId)) touched = true;
+      });
+      this._dirtyMacroPrompts.clear();
+      // Even a no-op edit (e.g. the dirty prompt was deleted) is safe to rebuild;
+      // aggregates only read ordered prompts, so a stale id just drops out.
+      if (touched) this._rebuildMacroAggregates();
+    },
+    _flushIncrementalMacrosDebounced: debouncedAction(function () {
+      this._flushIncrementalMacros();
     }, 300),
 
     // --- Autosave (F1): the active area is always a view onto one library entry ---
@@ -1595,7 +1663,8 @@ export const usePresetStore = defineStore('preset', {
         }
         prompt[field] = value;
         if (field === 'content') {
-          this.analyzeAllMacrosDebounced();
+          // F5: re-tokenize only this prompt on the debounce, not the whole list.
+          this.queueIncrementalMacroAnalysis(promptId);
         }
         this.touchActivePresetDebounced();
       }
@@ -2688,10 +2757,15 @@ export const usePresetStore = defineStore('preset', {
       const existing = this.savedPresets[presetId];
       const nextData = activeAreaData(this);
       const changed = !existing || JSON.stringify(existing.data) !== JSON.stringify(nextData);
-      const displayName =
-        existing?.name ||
-        (name ? name.replace(/\.[^/.]+$/, '') : '') ||
-        this.t('presetManager.defaultName');
+      const derivedName =
+        (name ? name.replace(/\.[^/.]+$/, '') : '') || this.t('presetManager.defaultName');
+      // Known id → keep the library name the user already set. Genuinely NEW id →
+      // dedupe the display name against other entries, exactly as the web/adopt
+      // path does (_adoptActivePreset), so two DIFFERENT files that share a
+      // basename become "MyPreset" / "MyPreset (2)" instead of two entries with
+      // identical names. Decided semantics 2026-07-12: distinct presets (distinct
+      // stable id) are NEVER merged by name — they are only disambiguated.
+      const displayName = existing?.name || this._dedupedPresetName(derivedName);
       this.savedPresets[presetId] = {
         name: displayName, // keep a name the user set in the library
         data: rawData(nextData),

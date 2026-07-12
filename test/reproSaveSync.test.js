@@ -168,6 +168,37 @@ describe('extension open file — two-way sync like web', () => {
     expect(cp.webp?.name).toBe('Web v2'); // the other device's edits are preserved
   }, 14000);
 
+  it('F. syncNow() forces a pull even when the tab reports hidden (S2)', async () => {
+    await cloud.reconnectCloudSync();
+    openFile('/a.json', 'HELLO');
+    await wait(2000);
+    expect(sync.status).toBe('synced');
+
+    // The web edits the SAME preset in the cloud (another device).
+    const cloudEntry = structuredClone(host.cloud.data.savedPresets['file:/a.json']);
+    cloudEntry.data.prompts.p.content = 'FROM_WEB';
+    cloudEntry.updatedAt = new Date().toISOString();
+    webWrites({ 'file:/a.json': cloudEntry });
+
+    // Simulate a VS Code webview that reports itself hidden/unfocused: the
+    // auto-pull's hidden guard fires, so the open editor stays stale…
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    try {
+      await cloud.pollCloudNow();
+      await wait(200);
+      expect(preset.prompts.p.content).toBe('HELLO'); // auto-pull suppressed while hidden
+
+      // …but the explicit "Sync now" forces the pull and live-applies it into
+      // the open editor — no document switch/reload needed.
+      const pulled = await cloud.syncNow();
+      await wait(200);
+      expect(pulled).toBe(true);
+      expect(preset.prompts.p.content).toBe('FROM_WEB');
+    } finally {
+      delete document.hidden; // revert to happy-dom's default (visible)
+    }
+  }, 10000);
+
   it('E. RC1: restart with a changed disk file AND a moved cloud — both survive', async () => {
     // Session 1: open + sync a file, establishing the persisted merge base.
     await cloud.reconnectCloudSync();
