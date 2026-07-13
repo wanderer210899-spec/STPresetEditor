@@ -22,7 +22,12 @@
       "tokenTotalTitle": "Approximate token count of enabled prompts (estimate)",
       "toggleLibrary": "Toggle prompt library",
       "toggleDetails": "Toggle details panel",
-      "more": "More"
+      "more": "More",
+      "sendToCloud": "Send to cloud",
+      "sendToCloudTitle": "Upload the open preset to your cloud under its name — a same-named cloud preset is replaced (previous version kept as a snapshot)",
+      "saveToWorkspaceTitle": "Save this preset as a .json file into a workspace folder you pick (a same-named file there is overwritten)",
+      "savedToWorkspace": "Saved {file}",
+      "saveToWorkspaceFailed": "Couldn't save into the workspace."
     },
     "importModal": {
       "title": "Import JSON File",
@@ -266,10 +271,6 @@
     },
     "sync": {
       "title": "Cloud sync",
-      "syncNow": "Sync now",
-      "syncNowPulled": "Synced — pulled the latest changes.",
-      "syncNowUpToDate": "Already up to date.",
-      "syncNowOffline": "Cloud sync isn't connected.",
       "createHint": "This deployment has no owner yet. Create your account to claim it.",
       "createAccount": "Create account",
       "signIn": "Sign in",
@@ -310,32 +311,22 @@
       "extConnecting": "Connecting…",
       "extDisconnect": "Disconnect",
       "extKeyHint": "Get a key: open your deployment in a browser → Settings → Cloud sync → Generate key.",
-      "extSyncNow": "Sync library now",
-      "extConnectedHint": "Your saved-preset library now syncs with your cloud both ways (it pulls on connect). The file you're editing stays local. Use “Sync library now” to pull the latest library on demand.",
+      "extConnectedHint": "Connected. Nothing syncs by itself: use \"Send to cloud\" to upload the open preset, and the cloud browser to load cloud presets or save them into your workspace.",
       "extErrNoUrl": "Enter your Worker URL first.",
       "extErrNoKey": "Paste an API key generated in the web app.",
       "extErrInvalidKey": "That API key was rejected. Generate a fresh one in the web app.",
       "extErrUnreachable": "Couldn't reach that URL. Check the Worker URL and your connection.",
       "extErrGeneric": "Couldn't connect. Check the URL and key, then try again.",
-      "conflict": {
-        "title": "Sync conflict",
-        "message": "Another device updated this library at {time}.\nChoose which version to keep — the other one will be overwritten.",
-        "keepMine": "Keep this device's version",
-        "useCloud": "Use cloud version"
-      }
-    },
-    "fileLink": {
-      "synced": "Saved · in library",
-      "pending": "Saving…",
-      "conflict": "Sync conflict",
-      "localOnly": "Local only",
-      "unlinked": "Local file",
-      "titleSynced": "Autosaved to this file, and its linked cloud-library preset is up to date.",
-      "titlePending": "Saving your edits to the file and its linked cloud-library preset…",
-      "titleConflict": "This file changed both locally and in the cloud. Open the ST Presets panel to choose which copy to keep.",
-      "titleLocalOnly": "The folder is linked to your cloud library, but this file isn't part of it yet — it will sync on the next reconcile.",
-      "titleUnlinked": "Editing a local file. Autosaves to disk. Use the ST Presets panel → “Link folder to cloud library” to also sync it to your cloud.",
-      "titleOffline": "Editing a local file. Autosaves to disk, but cloud sync isn't connected — open Settings → Cloud sync and paste your API key to sync it across devices."
+      "refresh": "Refresh from cloud",
+      "refreshed": "Refreshed from the cloud.",
+      "refreshFailed": "Couldn't reach the cloud.",
+      "notConnected": "Cloud isn't connected — sign in or connect an API key in Settings.",
+      "sentCreated": "Created \"{name}\" in the cloud.",
+      "sentUpdated": "Updated \"{name}\" in the cloud (previous version kept as a snapshot).",
+      "sendFailed": "Couldn't send to the cloud.",
+      "deleteFailed": "Couldn't delete \"{name}\" from the cloud.",
+      "renameFailed": "Couldn't rename \"{name}\" in the cloud.",
+      "extRefresh": "Reload cloud list"
     },
     "presetManager": {
       "title": "Preset Manager",
@@ -377,10 +368,9 @@
         "loadDefaultPreset": "Load Default Preset",
         "factoryDefaultName": "Factory Default"
       },
-      "save": "Save",
       "saved": "Saved",
       "saveAsCopy": "Save as copy",
-      "autosaveNote": "Edits save automatically into the loaded preset (and sync). “Save” commits now; “Save as copy” keeps a separate version.",
+      "autosaveNote": "Edits save automatically into the loaded preset. “Save” commits now; “Save as copy” keeps a separate version. In VS Code, cloud upload is always the explicit “Send to cloud” button.",
       "copySaved": "Saved a copy as \"{name}\"",
       "openAsNewFile": "Open as new file",
       "openAsNewFileHint": "Save this preset as a separate new .json and open it",
@@ -403,7 +393,8 @@
         "limitPruned": "Snapshot limit reached — the oldest snapshot was removed",
         "deleteConfirm": "Delete this snapshot?",
         "defaultName": "Snapshot {time}"
-      }
+      },
+      "refreshFromCloud": "Refresh from cloud"
     },
     "batchReplaceModal": {
       "title": "Batch Replace",
@@ -469,7 +460,12 @@
       "tokenTotalTitle": "已启用提示词的估算 token 数（近似值）",
       "toggleLibrary": "切换提示词库",
       "toggleDetails": "切换详情面板",
-      "more": "更多"
+      "more": "更多",
+      "sendToCloud": "发送到云端",
+      "sendToCloudTitle": "将当前预设按名称上传到云端 — 云端同名预设会被替换（旧版本保留为快照）",
+      "saveToWorkspaceTitle": "将此预设保存为 .json 文件到你选择的工作区文件夹（同名文件会被覆盖）",
+      "savedToWorkspace": "已保存 {file}",
+      "saveToWorkspaceFailed": "保存到工作区失败。"
     },
     "importModal": {
       "title": "导入JSON文件",
@@ -713,10 +709,6 @@
     },
     "sync": {
       "title": "云同步",
-      "syncNow": "立即同步",
-      "syncNowPulled": "已同步 — 已拉取最新更改。",
-      "syncNowUpToDate": "已是最新。",
-      "syncNowOffline": "云同步未连接。",
       "createHint": "此部署尚无所有者。创建您的账户以认领它。",
       "createAccount": "创建账户",
       "signIn": "登录",
@@ -757,32 +749,22 @@
       "extConnecting": "连接中…",
       "extDisconnect": "断开连接",
       "extKeyHint": "获取密钥：在浏览器中打开您的部署 → 设置 → 云同步 → 生成密钥。",
-      "extSyncNow": "立即同步预设库",
-      "extConnectedHint": "您保存的预设库现在与云双向同步（连接时会自动拉取）。当前正在编辑的文件仍保留在本地。点击“立即同步预设库”可随时拉取最新预设库。",
+      "extConnectedHint": "已连接。不会自动同步：使用“发送到云端”上传当前预设；在云端库浏览器中加载云端预设或将其保存到工作区。",
       "extErrNoUrl": "请先输入您的 Worker 地址。",
       "extErrNoKey": "请粘贴在网页应用中生成的 API 密钥。",
       "extErrInvalidKey": "该 API 密钥被拒绝。请在网页应用中重新生成。",
       "extErrUnreachable": "无法访问该地址。请检查 Worker 地址和您的网络连接。",
       "extErrGeneric": "无法连接。请检查地址和密钥后重试。",
-      "conflict": {
-        "title": "同步冲突",
-        "message": "另一台设备在 {time} 更新了此库。\n请选择要保留的版本 — 另一个版本将被覆盖。",
-        "keepMine": "保留此设备的版本",
-        "useCloud": "使用云端版本"
-      }
-    },
-    "fileLink": {
-      "synced": "已保存 · 已入库",
-      "pending": "保存中…",
-      "conflict": "同步冲突",
-      "localOnly": "仅本地",
-      "unlinked": "本地文件",
-      "titleSynced": "已自动保存到该文件，其关联的云预设库条目也已是最新。",
-      "titlePending": "正在将您的编辑保存到文件及其关联的云预设库条目…",
-      "titleConflict": "该文件在本地和云端都发生了更改。请打开 ST Presets 面板选择要保留的版本。",
-      "titleLocalOnly": "文件夹已关联到云预设库，但此文件尚未加入 — 将在下次同步时加入。",
-      "titleUnlinked": "正在编辑本地文件，会自动保存到磁盘。使用 ST Presets 面板 →“将文件夹关联到云预设库”即可同步到云端。",
-      "titleOffline": "正在编辑本地文件，会自动保存到磁盘，但云同步尚未连接 — 请打开 设置 → 云同步 粘贴您的 API 密钥即可跨设备同步。"
+      "refresh": "从云端刷新",
+      "refreshed": "已从云端刷新。",
+      "refreshFailed": "无法连接云端。",
+      "notConnected": "尚未连接云端 — 请在设置中登录或连接 API 密钥。",
+      "sentCreated": "已在云端创建“{name}”。",
+      "sentUpdated": "已更新云端的“{name}”（旧版本已保留为快照）。",
+      "sendFailed": "发送到云端失败。",
+      "deleteFailed": "无法从云端删除“{name}”。",
+      "renameFailed": "无法在云端重命名“{name}”。",
+      "extRefresh": "重新加载云端列表"
     },
     "presetManager": {
       "title": "预设管理器",
@@ -824,10 +806,9 @@
         "loadDefaultPreset": "加载默认预设",
         "factoryDefaultName": "出厂默认"
       },
-      "save": "保存",
       "saved": "已保存",
       "saveAsCopy": "另存为副本",
-      "autosaveNote": "编辑会自动保存到当前载入的预设（并同步）。“保存”立即提交；“另存为副本”保留一份单独版本。",
+      "autosaveNote": "编辑会自动保存到当前载入的预设。“保存”立即提交；“另存为副本”保留一份单独版本。在 VS Code 中，上传云端始终通过“发送到云端”按钮显式完成。",
       "copySaved": "已另存为副本“{name}”",
       "openAsNewFile": "另存为新文件并打开",
       "openAsNewFileHint": "将此预设另存为单独的新 .json 文件并打开",
@@ -850,7 +831,8 @@
         "limitPruned": "快照数量已达上限，最早的快照已被删除",
         "deleteConfirm": "确定删除此快照吗？",
         "defaultName": "快照 {time}"
-      }
+      },
+      "refreshFromCloud": "从云端刷新"
     },
     "batchReplaceModal": {
       "title": "批量替换",

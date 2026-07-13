@@ -1,6 +1,15 @@
 <template>
   <BaseModal :show="isOpen" :title="store.t('presetManager.title')" size="2xl" @close="closeModal">
     <template #header-actions>
+      <!-- Explicit "refresh from cloud": re-list the cloud presets now. -->
+      <button
+        v-if="!isFile && sync.cloudEnabled"
+        class="btn btn-sm btn-secondary"
+        @click="refreshLibrary"
+      >
+        <ArrowPathIcon class="h-4 w-4" />
+        {{ store.t('presetManager.refreshFromCloud') }}
+      </button>
       <button class="btn btn-sm btn-secondary" @click="openImportModal">
         <ArrowDownTrayIcon class="h-4 w-4" />
         {{ store.t('presetManager.import') }}
@@ -307,6 +316,7 @@
 <script setup>
 import {
   ArrowDownTrayIcon,
+  ArrowPathIcon,
   ArrowUpTrayIcon,
   BookmarkIcon,
   CameraIcon,
@@ -318,9 +328,11 @@ import {
   TrashIcon,
 } from '@heroicons/vue/24/outline';
 import { nextTick, reactive, ref, watch } from 'vue';
+import { refreshCloudLibrary } from '../stores/cloudSync';
 import { createPresetFile } from '../stores/localBridge';
 import { isFileHost } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
+import { useSyncStore } from '../stores/syncStore';
 import BaseModal from './BaseModal.vue';
 
 defineProps({
@@ -331,11 +343,18 @@ defineProps({
 });
 
 const store = usePresetStore();
+const sync = useSyncStore();
 
 // A file-backed webview edits ONE local .json: loading a library preset either
 // replaces that file's contents (with a confirm) or spins off a new file. The
-// web app and the standalone library editor just load into the editor.
+// web app and the cloud browser just load into the editor.
 const isFile = isFileHost();
+
+// Explicit "refresh from cloud" — re-list the cloud presets (newest wins).
+const refreshLibrary = async () => {
+  const ok = await refreshCloudLibrary();
+  store.showToast(store.t(ok ? 'sync.refreshed' : 'sync.refreshFailed'), ok ? 'success' : 'error');
+};
 
 const isRenameModalOpen = ref(false);
 const renameValue = ref('');

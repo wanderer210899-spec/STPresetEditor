@@ -47,8 +47,13 @@
           {{ store.t('sync.status') }}:
           <span class="font-medium">{{ sync.statusLabel }}</span>
         </p>
-        <button class="btn btn-secondary btn-sm mt-2" :disabled="busy" @click="syncNow">
-          {{ store.t('sync.extSyncNow') }}
+        <button
+          v-if="isLibrary"
+          class="btn btn-secondary btn-sm mt-2"
+          :disabled="busy"
+          @click="refreshList"
+        >
+          {{ store.t('sync.extRefresh') }}
         </button>
         <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
           {{ store.t('sync.extConnectedHint') }}
@@ -200,13 +205,14 @@
 
 <script setup>
 import { onMounted, ref } from 'vue';
-import { reconnectCloudSync } from '../stores/cloudSync';
+import { reconnectCloudSync, refreshCloudLibrary } from '../stores/cloudSync';
 import {
   connectCloud,
   disconnectCloud,
   isVsCodeHost,
   requestCloudState,
 } from '../stores/localBridge';
+import { isLibraryHost } from '../utils/host';
 import { useAuthStore } from '../stores/authStore';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -218,6 +224,8 @@ const sync = useSyncStore();
 // VS Code extension mode: the webview can't ride the web session cookie, so the
 // user pastes a Cloud URL + API key here and the host validates/holds it.
 const isExtension = isVsCodeHost();
+// Only the cloud browser lists the cloud library (the file editor stays local).
+const isLibrary = isLibraryHost();
 const extUrl = ref('');
 const extKey = ref('');
 const extConnected = ref(false);
@@ -347,10 +355,10 @@ async function disconnectExt() {
   await reconnectCloudSync(); // drop to local-only
 }
 
-// Re-reconcile the cloud library now (the open file is untouched).
-async function syncNow() {
+// Cloud browser: explicitly re-list the cloud library.
+async function refreshList() {
   busy.value = true;
-  await reconnectCloudSync();
+  await refreshCloudLibrary();
   busy.value = false;
 }
 

@@ -7,16 +7,19 @@ files that own them, so changes land in the right place.
 
 STPresetEditor is a single-page **Vue 3** app for visually editing SillyTavern
 `preset.json` files — managing prompts, ordering them, and analysing the
-`{{...}}` macro/variable system. This fork adds **optional private cloud sync** on
-Cloudflare so the same library is available across devices.
+`{{...}}` macro/variable system. This fork adds **optional private cloud
+storage** on Cloudflare: passive, NAME-keyed storage of presets (one record per
+preset name — never two records for one name), so the same library is available
+across devices without an automatic multi-writer sync engine.
 
 Two runtime shapes from the same code:
 
 - **Static SPA (default):** all data lives in the browser's `localStorage`.
   Works with `npm run dev` or any static host.
-- **Cloudflare Worker (this fork):** the same SPA plus a small `/api/presets`
-  sync API backed by Cloudflare KV. When the API is unreachable or the user is
-  not authenticated, it silently falls back to local-only.
+- **Cloudflare Worker (this fork):** the same SPA plus a small name-keyed
+  `/api/presets` storage API backed by Cloudflare KV. When the API is
+  unreachable or the user is not authenticated, it silently falls back to
+  local-only.
 
 ## Tech stack
 
@@ -61,87 +64,122 @@ getters/computed re-render. Components hold almost no business logic.
   `unresolvedVariables`, `macroStateSnapshots`), selection, search, modal flags,
   mobile flags, undo/redo stacks. Recomputed after a restore by `analyzeAllMacros()`
   (in `afterHydrate`).
-- That **same path list is also exported as `SYNC_DATA_PATHS`** and is exactly
-  what gets synced to the cloud. **When you add a persisted field, update BOTH
-  `persist.pick` (via `PERSIST_PATHS`) and `SYNC_DATA_PATHS`** (both live in
-  `presetStore.js`). If the field belongs to the saved-preset library (not the
-  active editing area), it is picked up by `EXTENSION_LIBRARY_PATHS` automatically
-  (it's `SYNC_DATA_PATHS` minus the active-area/per-file paths); add it to
-  `EXTENSION_LOCAL_ONLY_PATHS` instead if it should stay local to the VS Code
-  extension.
+- **Preferences are local-only.** The cloud stores named PRESETS, not settings:
+  when you add a persisted field, add it to `PERSIST_PATHS` (in
+  `presetStore.js`; wired as `persist.pick`). In the VS Code extension the
+  active-area/per-panel keys are excluded via `EXTENSION_LOCAL_ONLY_PATHS`
+  (both webview panels share one localStorage — persisting the open file would
+  cause "wrong file on open").
 
 ### Startup order (`src/main.js`)
 
 1. The persist plugin restores from localStorage.
-2. `bootstrap()` awaits `initCloudSync()` — reconciles local vs cloud and adopts
-   the user's cloud library if they are authenticated.
-3. Only if there is still no data, it loads the bundled `src/assets/example.json`.
+2. `bootstrap()` branches by `getEditorMode()`:
+   - **web** — awaits `initCloudSync()` (adopts the signed-in user's cloud
+     library, per name), THEN loads the bundled `src/assets/example.json` only
+     if there is still no data.
+   - **file** (VS Code file editor) — `initLocalBridge()` only. No cloud engine:
+     the host pushes the file content; edits mirror to disk.
+   - **library** (VS Code cloud browser) — `initLocalBridge()` +
+     `initCloudSync()` (mirrors the cloud list), then opens the Preset Manager
+     over a BLANK editor — the cloud library is a list you load from. Never
+     loads the example.
 
-This order prevents briefly flashing the example over a real cloud library.
 `App.vue` deliberately does **not** load the example — that is owned by `main.js`.
 
-## Cloud sync (this fork's addition)
+## Cloud storage (this fork's addition) — "storage + explicit save"
 
 ```
 Browser (Pinia preset store)
-  └─ src/stores/cloudSync.js        pull on load, debounced push on change
-       └─ /api/presets (GET/PUT)  ──►  worker/index.js
-                                         ├─ serves the built SPA (ASSETS binding)
-                                         ├─ /api/auth/*, /api/keys → D1 (DB binding)
-                                         └─ Cloudflare KV (PRESETS namespace)
+  └─ src/stores/cloudSync.js     per-preset client (adopt / put / delete by NAME)
+       └─ /api/presets[/:name] ──►  worker/index.js
+                                      ├─ serves the built SPA (ASSETS binding)
+                                      ├─ /api/auth/*, /api/keys → D1 (DB binding)
+                                      └─ Cloudflare KV (PRESETS namespace)
+                                          one record per preset: user:<id>:p:<name>
 ```
+
+**The cloud is passive, NAME-keyed storage.** A cloud preset is identified by
+its name; there is never more than one record per name (the structural fix for
+the old cross-device duplication bug — no ids to diverge, no documents to
+merge). Writing an existing name replaces it (newest wins); `PUT ?snapshot=1`
+(the explicit send) keeps the replaced version as a restorable snapshot inside
+the record. There is NO background reconcile, NO conflict dialog, NO polling.
 
 **Auth model: one deployment = one owner.** Sign in with email + password
 (sessions in D1) on the web; the VS Code extension / any client uses a generated
-API key (`X-API-Key`). Both resolve to the KV key `user:<id>`. Recovery is the
-`EMERGENCY_RESET_TOKEN` Worker-var backdoor (no email service). See `AUTH_PLAN.md`.
+API key (`X-API-Key`). Both resolve to the KV prefix `user:<id>:p:`. Recovery is
+the `EMERGENCY_RESET_TOKEN` Worker-var backdoor (no email service). See
+`AUTH_PLAN.md`.
 
-- **`src/stores/cloudSync.js`** — orchestration. `initCloudSync()` reconciles
-  once, then subscribes to store changes and pushes (debounced ~1.5s, hard
-  upper bound `maxWait` 3s — the store's own derived mutations re-arm the
-  trailing edge). **Merge-first conflict handling:** the last-synced snapshot
-  persists in localStorage (`stpe:sync:base`) as a 3-way merge BASE across
-  restarts; divergence resolves through `resolveDivergence()` — per-entry
-  merge of `savedPresets` (base-aware; `updatedAt`-newer wins when the base is
-  unknown), local-wins-since-base for prefs. Only a genuine fork of the OPEN
-  document (both sides changed `rawJson`/`prompts`/`promptOrder`) asks the
-  user (web): "keep mine" pushes the MERGE with my document (conditional PUT,
-  other devices' entries survive), "use cloud" adopts wholesale, dismissal
-  defers. `reconnectCloudSync()` (sign-in/out, key connect/disconnect) clears
-  the persisted base first. Any failure ⇒ local-only. **Transport is
-  pluggable:** the web app uses `fetch('/api/presets',{credentials:'include'})`
-  and syncs the full `SYNC_DATA_PATHS`; the VS Code extension routes the _same_
-  reconcile through the host bridge (`hostCloudGet`/`hostCloudPut`) and syncs
-  `EXTENSION_LIBRARY_PATHS` only. `buildSyncSnapshot()` strips derived
-  `prompt.macros` (recomputed after apply) so analysis never causes diffs.
+Who talks to the cloud, and when:
+
+- **Web app** — keeps its auto-save UX. `initCloudSync()` runs a per-name,
+  newest-wins reconcile on load, then subscribes to store changes and pushes
+  CHANGED entries (debounced 1.5s / maxWait 4s) under their names; local
+  deletes/renames propagate the same way. A small persisted map
+  (`stpe:cloud:pushed`, name → last pushed/adopted state) tells "new local
+  preset → upload" apart from "deleted in the cloud → remove locally, never
+  resurrect". The toolbar dot is an explicit **Refresh from cloud**.
+- **VS Code file editor** (Interface A) — NO cloud engine at all. Edits mirror
+  to the file on disk. The toolbar's explicit **Send to cloud** uploads the open
+  file under its FILE name (`sendActivePresetToCloud`, `?snapshot=1`). There is
+  deliberately no load-from-cloud in this interface.
+- **VS Code cloud browser** (Interface B, `stpe.openEditor`) — mirrors the cloud
+  list into `savedPresets` on init/refresh (adopt-only; local unsent edits are
+  never clobbered, and never auto-pushed). Explicit actions map to cloud calls:
+  Preset Manager delete/rename → `cloudLibraryHooks` (registered by cloudSync in
+  library mode; see `src/stores/cloudHooks.js`) → host `cloudDelete`/`cloudRename`;
+  **Send to cloud** uploads the open preset; the normal **Save** button routes to
+  `saveActiveToWorkspace` — the host shows a workspace-folder QuickPick and
+  OVERWRITES a same-named file (name = identity, never a "(2)" copy).
+
+File responsibilities:
+
+- **`src/stores/cloudSync.js`** — the client: transports (web `fetch` vs host
+  bridge), the pushed-map bookkeeping, `initCloudSync()` / `refreshCloudLibrary()`
+  / `sendActivePresetToCloud()` / `reconnectCloudSync()` (clears the pushed map on
+  credential changes). Store side: `adoptCloudEntry` (upsert by name, keeps local
+  id links) and `removeLibraryEntryByName` live in `presetStore.js`.
+- **`src/stores/cloudHooks.js`** — tiny registry so `presetStore` actions
+  (deletePreset / updatePreset / batch delete) can notify the cloud layer of
+  EXPLICIT management actions without an import cycle. Only the cloud browser
+  registers hooks; the web app's diff push covers these itself.
 - **`src/stores/localBridge.js`** — the extension's host seam. (a) File: mirrors
   the OPEN preset to a local `.json` over the webview↔host postMessage bridge
-  (`parseFromJson` in, `finalJson` out); the open file is ALSO linked to a
-  stable library entry (`openFileAsPreset` — the host's `load` supplies the
-  folder-mapping id when the workspace is linked, else `file:<path>`), so it
-  cloud-syncs two-way INSIDE `savedPresets`, never as top-level active-area
-  keys. (b) Cloud transport: connect/validate an API key (held in VS Code
-  SecretStorage, never in the webview) and expose `hostCloudGet`/`hostCloudPut`
-  for cloudSync.js. `isVsCodeHost()` selects host vs web mode everywhere.
+  (`parseFromJson` in, `finalJson` out); the open file is linked to a stable
+  LOCAL library entry (`openFileAsPreset`, id `file:<path>`) so autosave and
+  snapshots work — that entry never reaches the cloud by itself. (b) Explicit
+  cloud requests: connect/validate an API key (held in VS Code SecretStorage,
+  never in the webview) and one-shot wrappers `hostCloudList/Load/Send/Delete/
+Rename` + `saveActiveToWorkspace`. `isVsCodeHost()` / `getEditorMode()` select
+  the runtime everywhere.
 - **`src/stores/authStore.js`** — account/session state + API-key management over
   `/api/auth/*` and `/api/keys`. **`src/components/SyncSetup.vue`** — the shared
   sync panel (sign in / create account / recovery / generate-key), shown in
   `SettingsModal.vue`.
-- **`src/stores/syncStore.js`** — sync status only (`cloudEnabled`, `status`,
-  `lastSyncedAt`, `pendingSync`, `fileLink`). Kept separate from the data store
-  so status updates never look like editable-data changes. Persists
-  `lastSyncedAt`, `pendingSync`.
+- **`src/stores/syncStore.js`** — cloud status only (`cloudEnabled`, `status`,
+  `lastSyncedAt`, `pendingSync`). Kept separate from the data store so status
+  updates never look like editable-data changes. Persists `lastSyncedAt`,
+  `pendingSync`.
 - **`worker/index.js` + `worker/auth.js`** — the Worker. `identify()` resolves a
-  session cookie or `X-API-Key` → KV key `user:<id>`; no identity ⇒ **401, fail
-  closed**. `auth.js` is dependency-free (Web Crypto PBKDF2 + D1); passwords,
-  sessions, and API keys are stored only as hashes. No secrets in the repo.
+  session cookie or `X-API-Key` → identity; no identity ⇒ **401, fail closed**.
+  Routes: `GET /api/presets` (index from KV metadata), `GET/PUT/DELETE
+/api/presets/:name`. `auth.js` is dependency-free (Web Crypto PBKDF2 + D1);
+  passwords, sessions, and API keys are stored only as hashes. No secrets in the
+  repo.
+- **`extension/extension.js`** — the host: file read/write, the plain ST Presets
+  tree (file ops + per-file "Send to cloud"), the webview panels (file / cloud
+  browser), API-key storage, and the explicit cloud HTTP handlers. No watchers
+  push to the cloud; nothing cloud-side happens without a user action.
 - **`wrangler.jsonc`** — Worker config. KV `PRESETS` has **no id** (auto-provisioned
   per deployer). D1 binding `DB` holds accounts; forkers run `wrangler d1 create`
   - `migrations apply`. Optional Worker vars: `OWNER_EMAIL`, `EMERGENCY_RESET_TOKEN`.
 
-Wire format between store and Worker: `{ updatedAt, data }`, where `data` is a
-`SYNC_DATA_PATHS` snapshot produced by `buildSyncSnapshot()` and applied by
-`applyCloudData()` (both in `presetStore.js`).
+Wire format per preset: `{ name, updatedAt, data, snapshots }`, where `data` is
+one library entry's `.data` (`rawJson`, `originalFilename`, `prompts` sans
+derived `macros`, `promptOrder`, `promptCollapseStates`) and `snapshots` matches
+the local snapshot shape (`{ id, name, createdAt, data }`).
 
 ## Macro system (the core editor feature)
 
@@ -211,8 +249,9 @@ expand button / double-click, or the right pane's Expand; state:
 - App bootstrap + cloud-first load order → `src/main.js`
 - Root component, mounts global modals → `src/App.vue`
 - Desktop 3-pane vs mobile drawers, mobile breakpoint → `src/components/AppLayout.vue`
-- Top toolbar (import/export/presets/settings buttons, mobile menu, **sync status
-  dot**) → `src/components/AppToolbar.vue`
+- Top toolbar (import/export/presets/settings buttons, mobile menu, **cloud
+  status dot / refresh**, **Send to cloud** + Save routing per editor mode) →
+  `src/components/AppToolbar.vue`
 
 **State / logic (most business changes go here)**
 
@@ -229,8 +268,9 @@ expand button / double-click, or the right pane's Expand; state:
 - Token estimate + formatting → `src/utils/tokens.js`
 - Plain deep-clone (proxy-safe) → `src/utils/clone.js`
 - Debounced localStorage adapter for the persist plugin → `src/utils/persistStorage.js`
-- Cloud-sync behaviour (reconcile, merge, conflict flow) → `src/stores/cloudSync.js`
-- Sync status (`cloudEnabled`/`status`/`lastSyncedAt`/`pendingSync`/`fileLink`) → `src/stores/syncStore.js`
+- Cloud client (adopt/refresh/send/delete by name, pushed-map) → `src/stores/cloudSync.js`
+- Explicit-action hooks between store and cloud layer → `src/stores/cloudHooks.js`
+- Cloud status (`cloudEnabled`/`status`/`lastSyncedAt`/`pendingSync`) → `src/stores/syncStore.js`
 - Account/session + API-key state → `src/stores/authStore.js`
 - Worker API / auth / KV access → `worker/index.js`
 - Worker config + bindings → `wrangler.jsonc`

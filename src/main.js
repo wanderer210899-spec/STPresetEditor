@@ -41,25 +41,18 @@ async function bootstrap() {
 
   const mode = getEditorMode();
 
-  // File-backed extension webview: the OPEN preset comes from a local file via
-  // the host bridge — not the cloud, and not the bundled example. The host
-  // pushes the file content as a 'load' message right after we signal 'ready'.
-  // The saved-preset LIBRARY still syncs through the same cloud engine below
-  // (host transport), so the example must never load over a real cloud library.
+  // File-backed extension webview (Interface A): the OPEN preset comes from a
+  // local file via the host bridge — never the cloud, never the example. Edits
+  // stay local (mirrored to disk); the only cloud affordance is the explicit
+  // "Send to cloud" button, which needs no engine here.
   if (mode === 'file') {
     await initLocalBridge();
-    try {
-      await initCloudSync();
-    } catch (error) {
-      console.error('[cloudSync] initialization failed:', error);
-    }
     return;
   }
 
-  // Standalone extension editor: no file attached. It behaves like the web app
-  // (edit a library preset, autosaved + synced), but cloud rides the host
-  // bridge. initLocalBridge wires the host message listener the cloud transport
-  // needs; there is no open file, so its file-save path stays idle.
+  // Cloud browser webview (Interface B): no file attached. It opens BLANK —
+  // the cloud library is a list you load from, so mirror the cloud list and
+  // open the Preset Manager instead of auto-loading anything.
   if (mode === 'library') {
     await initLocalBridge();
     try {
@@ -67,19 +60,7 @@ async function bootstrap() {
     } catch (error) {
       console.error('[cloudSync] initialization failed:', error);
     }
-    if (!store.rawJson) {
-      // Restore the last-edited (or default) library preset into the active
-      // area; fall back to the bundled example for a brand-new instance.
-      const restoreId =
-        (store.currentPresetId &&
-          store.savedPresets[store.currentPresetId] &&
-          store.currentPresetId) ||
-        (store.defaultPresetId &&
-          store.savedPresets[store.defaultPresetId] &&
-          store.defaultPresetId);
-      if (restoreId) store.loadPreset(restoreId);
-      else store.initializeDefaultData(JSON.stringify(exampleData));
-    }
+    if (!store.rawJson) store.openPresetManager();
     return;
   }
 

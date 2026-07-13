@@ -1,8 +1,8 @@
 {
   "name": "stpreseteditor-local",
   "displayName": "STPresetEditor — Local Files",
-  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional account-based cloud sync.",
-  "version": "0.8.1",
+  "description": "Edit SillyTavern presets from local files using the STPresetEditor UI, with optional explicit send/load to your own private cloud.",
+  "version": "0.9.0",
   "publisher": "wanderer210899",
   "license": "MIT",
   "repository": {
@@ -26,7 +26,6 @@
   "activationEvents": [
     "onCommand:stpe.open",
     "onCommand:stpe.openEditor",
-    "onCommand:stpe.pullFromCloud",
     "onView:stpePresets"
   ],
   "contributes": {
@@ -63,15 +62,15 @@
       },
       {
         "command": "stpe.openEditor",
-        "title": "Open editor (no file)",
+        "title": "Open cloud library (browser)",
         "category": "STPresetEditor",
-        "icon": "$(window)"
+        "icon": "$(cloud)"
       },
       {
-        "command": "stpe.pullFromCloud",
-        "title": "Pull library from cloud",
+        "command": "stpe.sendPreset",
+        "title": "Send to cloud",
         "category": "STPresetEditor",
-        "icon": "$(cloud-download)"
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "stpe.refreshPresets",
@@ -107,30 +106,6 @@
         "command": "stpe.revealInExplorer",
         "title": "Reveal in Explorer",
         "category": "STPresetEditor"
-      },
-      {
-        "command": "stpe.linkFolder",
-        "title": "Link folder to cloud library",
-        "category": "STPE",
-        "icon": "$(link)"
-      },
-      {
-        "command": "stpe.syncFolder",
-        "title": "Sync folder with cloud library",
-        "category": "STPE",
-        "icon": "$(sync)"
-      },
-      {
-        "command": "stpe.downloadMissing",
-        "title": "Download missing presets",
-        "category": "STPE",
-        "icon": "$(cloud-download)"
-      },
-      {
-        "command": "stpe.downloadPreset",
-        "title": "Download to folder",
-        "category": "STPE",
-        "icon": "$(cloud-download)"
       },
       {
         "command": "stpe.shortcut",
@@ -176,21 +151,6 @@
           "command": "stpe.refreshPresets",
           "when": "view == stpePresets",
           "group": "navigation@2"
-        },
-        {
-          "command": "stpe.syncFolder",
-          "when": "view == stpePresets",
-          "group": "navigation@3"
-        },
-        {
-          "command": "stpe.linkFolder",
-          "when": "view == stpePresets",
-          "group": "1_cloud@1"
-        },
-        {
-          "command": "stpe.downloadMissing",
-          "when": "view == stpePresets",
-          "group": "1_cloud@2"
         }
       ],
       "view/item/context": [
@@ -198,6 +158,11 @@
           "command": "stpe.open",
           "when": "view == stpePresets && viewItem == stpePreset",
           "group": "inline@1"
+        },
+        {
+          "command": "stpe.sendPreset",
+          "when": "view == stpePresets && viewItem == stpePreset",
+          "group": "1_edit@0"
         },
         {
           "command": "stpe.duplicatePreset",
@@ -218,11 +183,6 @@
           "command": "stpe.revealInExplorer",
           "when": "view == stpePresets && viewItem == stpePreset",
           "group": "2_nav@1"
-        },
-        {
-          "command": "stpe.downloadPreset",
-          "when": "view == stpePresets && viewItem == stpeCloudPreset",
-          "group": "inline@1"
         }
       ],
       "explorer/context": [

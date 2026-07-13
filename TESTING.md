@@ -1,5 +1,12 @@
 # Testing guide — `claude/preset-editor-improvements-l6p4ug`
 
+> **⚠️ Historical (pre-2026-07-13).** The automatic sync engine this guide
+> exercises (conflict prompts, folder link / `.stpe-library.json`, per-file
+> badges, "Sync library") was REPLACED by the explicit "storage + explicit
+> save" model — see `changes/2026-07-13-cloud-storage-explicit-save.md` and
+> README → _Using the cloud_. The setup steps (local sandbox Worker, `.vsix`
+> install) still apply; the sync-behaviour walkthroughs do not.
+
 A step-by-step walkthrough for trying everything on this branch **without
 deploying anything**. You only need to copy-paste the commands; each step says
 what you should see. Three test setups, from simplest to most complete:

@@ -97,10 +97,24 @@ describe('F8a unified undo/redo', () => {
     expect(store.undoStack).toHaveLength(HISTORY_LIMIT);
   });
 
-  it('clears history when a new document arrives (cloud apply)', () => {
+  it('clears history when a cloud copy of the OPEN preset is adopted', () => {
+    store.saveActivePreset(); // link the active area to a library entry
     store.togglePromptEnabled('a');
     expect(store.canUndo).toBe(true);
-    store.applyCloudData({ prompts: { ...store.prompts } }, ['prompts']);
+    const name = store.savedPresets[store.currentPresetId].name;
+    store.adoptCloudEntry({
+      name,
+      updatedAt: '2099-01-01T00:00:00.000Z',
+      data: {
+        rawJson: '{"prompts":[]}',
+        originalFilename: 'test.json',
+        prompts: {
+          a: { id: 'a', identifier: 'a', name: 'Alpha', content: 'cloud', enabled: true },
+        },
+        promptOrder: ['a'],
+      },
+    });
+    expect(store.prompts.a.content).toBe('cloud'); // the open editor reloaded
     expect(store.canUndo).toBe(false);
     expect(store.canRedo).toBe(false);
   });

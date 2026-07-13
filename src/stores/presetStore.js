@@ -2,6 +2,7 @@ import { debounce } from 'lodash-es';
 import { defineStore } from 'pinia';
 import { markRaw } from 'vue';
 import languageData from '../assets/languages.json';
+import { cloudLibraryHooks } from './cloudHooks';
 import { toPlainClone } from '../utils/clone';
 import { isFileHost, isVsCodeHost } from '../utils/host';
 import { VAR_MACRO_NAMES, classifyMacro, tokenizeMacros } from '../utils/macros';
@@ -27,36 +28,11 @@ let confirmCancelCallback = null;
 let confirmDismissCallback = null;
 
 /**
- * The state paths that make up a user's portable data and are synced to the
- * cloud (Cloudflare KV) so the same library is available on every device.
- * UI-only and derived state are intentionally excluded.
- */
-export const SYNC_DATA_PATHS = [
-  'rawJson',
-  'originalFilename',
-  'prompts',
-  'promptOrder',
-  'macroDisplayMode',
-  'currentLanguage',
-  'promptCollapseStates',
-  'globalCollapseState',
-  'skipDeleteConfirmation',
-  'savedPresets',
-  'currentPresetId',
-  'defaultPresetId',
-  'customMacros',
-  'customWraps',
-  'themeMode',
-];
-
-/**
- * Paths that are NOT synced (or persisted) by the VS Code extension. The
- * extension's open file IS the active editing area, and its content is synced
- * INSIDE its savedPresets entry (see openFileAsPreset) — never as these
- * top-level keys, so multiple file panels can't clobber one shared active area.
- * `currentPresetId` is a per-panel/per-device selection (driven by which file
- * you opened), so it stays local too: syncing it would flash the cloud's active
- * preset over the open file before it loads and hijack the web's active editor.
+ * Paths that are NOT persisted by the VS Code extension. The extension's open
+ * file IS the active editing area: a file webview reloads the open .json from
+ * the host on open, and file + library panels share one webview localStorage,
+ * so persisting the active area (or the per-panel selection) would let a stale
+ * or another panel's file flash in before the host's `load` arrives.
  */
 const EXTENSION_LOCAL_ONLY_PATHS = [
   'rawJson',
@@ -67,14 +43,6 @@ const EXTENSION_LOCAL_ONLY_PATHS = [
   'globalCollapseState',
   'currentPresetId',
 ];
-
-/**
- * The library-only subset synced by the VS Code extension (cloud = central drive
- * for the saved-preset library + prefs, never the open file).
- */
-export const EXTENSION_LIBRARY_PATHS = SYNC_DATA_PATHS.filter(
-  (key) => !EXTENSION_LOCAL_ONLY_PATHS.includes(key),
-);
 
 /**
  * Full set of localStorage-persisted paths (portable data + device-local
@@ -96,8 +64,8 @@ const PERSIST_PATHS_BASE = [
   'customMacros',
   'customWraps',
   'themeMode',
-  // Device-specific layout — persisted but deliberately NOT in SYNC_DATA_PATHS
-  // (layout should not follow you across devices).
+  // Device-specific layout — persisted, and like every other preference it is
+  // local-only (the cloud stores named presets, not settings).
   'desktopLeftOpen',
   'desktopRightOpen',
 ];
@@ -1161,9 +1129,9 @@ export const usePresetStore = defineStore('preset', {
      */
     _touchActivePreset() {
       // The active area is always a view onto one library entry — in the web app,
-      // the standalone library editor, AND (now) the extension's file webview,
-      // where the open file is linked to a stable entry by openFileAsPreset so it
-      // autosaves + syncs like the web. The open file is still mirrored to disk
+      // the cloud-browser webview, AND the extension's file webview, where the
+      // open file is linked to a stable LOCAL entry by openFileAsPreset so it
+      // autosaves like the web. The open file is still mirrored to disk
       // separately by the host bridge.
       if (!this.currentPresetId || !this.savedPresets[this.currentPresetId]) {
         this._adoptActivePreset();
@@ -1342,7 +1310,10 @@ export const usePresetStore = defineStore('preset', {
           const data = toPlainClone(isUndo ? entry.before : entry.after);
           const libEntry = this.savedPresets[entry.presetId];
           if (libEntry) {
-            libEntry.data = rawData({ ...toPlainClone(libEntry.data || {}), ...toPlainClone(data) });
+            libEntry.data = rawData({
+              ...toPlainClone(libEntry.data || {}),
+              ...toPlainClone(data),
+            });
             libEntry.updatedAt = new Date().toISOString();
           }
           if (entry.presetId === this.currentPresetId) {
@@ -2740,10 +2711,10 @@ export const usePresetStore = defineStore('preset', {
 
     /**
      * Extension file webview: open a local preset file AND link it to a stable
-     * library entry (keyed by `presetId`, derived from the file path), so the
-     * open file autosaves + syncs like the web app's active preset. The disk file
-     * is authoritative on open — its content becomes the current library state
-     * (and pushes up); ongoing edits and cloud changes then sync two-way. The
+     * LOCAL library entry (keyed by `presetId`, derived from the file path), so
+     * the open file autosaves like the web app's active preset and keeps its
+     * snapshots across reopens. The entry is a local cache only — nothing about
+     * it reaches the cloud without the explicit "Send to cloud" action. The
      * host bridge keeps mirroring the active area to the .json on disk.
      * @param {string} json - the file's JSON text
      * @param {string} name - the file's basename (for the entry's display name)
@@ -2777,10 +2748,10 @@ export const usePresetStore = defineStore('preset', {
     },
 
     /**
-     * Reload the active editing area from its library entry (the extension calls
-     * this after a cloud pull/merge so the open editor — and the mirrored .json on
-     * disk — reflect the just-adopted cloud changes). `originalFilename` and
-     * `currentPresetId` are preserved. No-op when the active area already matches.
+     * Reload the active editing area from its library entry (used after
+     * adopting a cloud copy of the OPEN preset, so the editor reflects it).
+     * `originalFilename` and `currentPresetId` are preserved. No-op when the
+     * active area already matches.
      * @returns {boolean} whether the active area changed
      */
     reloadActiveFromLibrary() {
@@ -2932,16 +2903,25 @@ export const usePresetStore = defineStore('preset', {
       const preset = this.savedPresets[presetId];
       if (!preset) return false;
 
+      const oldName = preset.name;
       preset.name = name.trim();
       preset.updatedAt = new Date().toISOString();
+      // Explicit rename — in the cloud browser this renames the CLOUD preset
+      // (name = identity), via the registered hook. Web/file modes have none.
+      if (preset.name && preset.name !== oldName) {
+        cloudLibraryHooks()?.onRenamed?.(oldName, preset.name);
+      }
       return true;
     },
     deletePreset(presetId) {
       if (this.savedPresets[presetId]) {
+        const name = this.savedPresets[presetId].name;
         delete this.savedPresets[presetId];
         if (this.currentPresetId === presetId) {
           this.currentPresetId = null;
         }
+        // Explicit delete — in the cloud browser this deletes the CLOUD preset.
+        cloudLibraryHooks()?.onDeleted?.(name);
         return true;
       }
       return false;
@@ -3081,6 +3061,7 @@ export const usePresetStore = defineStore('preset', {
     },
     _performDeleteSelectedPresets() {
       this.selectedPresets.forEach((presetId) => {
+        const name = this.savedPresets[presetId]?.name;
         delete this.savedPresets[presetId];
         if (this.currentPresetId === presetId) {
           this.currentPresetId = null;
@@ -3088,6 +3069,8 @@ export const usePresetStore = defineStore('preset', {
         if (this.defaultPresetId === presetId) {
           this.defaultPresetId = null;
         }
+        // Explicit delete — in the cloud browser this deletes the CLOUD preset.
+        if (name) cloudLibraryHooks()?.onDeleted?.(name);
       });
       this.selectedPresets = new Set();
       this.presetMultiSelectActive = false;
@@ -3302,52 +3285,56 @@ export const usePresetStore = defineStore('preset', {
       return { prompts: new Set(top.changes.map((c) => c.promptId)).size };
     },
 
-    // --- Cloud sync helpers (used by stores/cloudSync.js) ---
+    // --- Cloud storage helpers (used by stores/cloudSync.js) ---
 
     /**
-     * Build a plain snapshot of just the given data paths for upload.
-     * @param {string[]} [paths] - which state paths to include (default: full sync set)
-     * @returns {Object} snapshot keyed by the chosen paths
+     * Adopt ONE named cloud preset into the local library. Name = identity:
+     * an existing entry with the same name is updated IN PLACE (its local id —
+     * and with it currentPresetId/defaultPresetId links — survives); a new name
+     * becomes a new entry. When the adopted preset is the one currently open,
+     * the active editing area reloads from it (no-op if the content matches).
+     * @param {{name: string, updatedAt?: string, data: Object, snapshots?: Array}} cloudEntry
+     * @returns {string|null} the local entry id, or null for an unusable record
      */
-    buildSyncSnapshot(paths = SYNC_DATA_PATHS) {
-      const snapshot = {};
-      paths.forEach((key) => {
-        if (key === 'prompts') {
-          // Strip the derived `macros` arrays, like activeAreaData does for
-          // library entries (analyzeAllMacros re-attaches them after apply).
-          // Syncing them bloats the payload and creates false "both changed"
-          // diffs in conflict detection when clients analyzed at different
-          // times.
-          const prompts = {};
-          Object.entries(this.prompts || {}).forEach(([id, prompt]) => {
-            // eslint-disable-next-line no-unused-vars
-            const { macros, ...rest } = prompt;
-            prompts[id] = rest;
-          });
-          snapshot[key] = prompts;
-        } else {
-          snapshot[key] = this[key];
-        }
-      });
-      return snapshot;
+    adoptCloudEntry(cloudEntry) {
+      const name = typeof cloudEntry?.name === 'string' ? cloudEntry.name.trim() : '';
+      if (!name || !cloudEntry.data || typeof cloudEntry.data !== 'object') return null;
+      const existingId = this._findPresetIdByName(name);
+      const id = existingId || window.crypto.randomUUID();
+      const existing = existingId ? this.savedPresets[existingId] : null;
+      const now = new Date().toISOString();
+      this.savedPresets[id] = {
+        name,
+        data: rawData(toPlainClone(cloudEntry.data)),
+        createdAt: existing?.createdAt || now,
+        updatedAt: cloudEntry.updatedAt || now,
+        snapshots: Array.isArray(cloudEntry.snapshots)
+          ? cloudEntry.snapshots.map((snap) => ({
+              ...snap,
+              data: rawData(toPlainClone(snap?.data || {})),
+            }))
+          : existing?.snapshots || [],
+      };
+      if (id === this.currentPresetId) this.reloadActiveFromLibrary();
+      return id;
     },
 
     /**
-     * Replace local data with a snapshot pulled from the cloud, then re-analyze.
-     * @param {Object} data - snapshot previously produced by buildSyncSnapshot
-     * @param {string[]} [paths] - which keys to adopt (default: full sync set)
+     * Drop every library entry with this name (used when a preset was deleted
+     * in the cloud — never resurrect it locally). Does NOT call the cloud
+     * hooks: this is the cloud→local direction.
+     * @returns {boolean} whether anything was removed
      */
-    applyCloudData(data, paths = SYNC_DATA_PATHS) {
-      if (!data || typeof data !== 'object') return;
-      paths.forEach((key) => {
-        if (key in data) this[key] = data[key];
-      });
-      // Cloud-adopted library entries arrive reactive — normalize their opaque
-      // `.data` to raw so the library stays out of deep traversal (see rawData).
-      if (paths.includes('savedPresets')) markRawLibrary(this.savedPresets);
-      this.clearHistory(); // cloud data replaces the document — undo would cross it
-      this.analyzeAllMacros();
-      this.applyTheme(); // the snapshot may carry a different themeMode
+    removeLibraryEntryByName(name) {
+      let removed = false;
+      for (const [id, entry] of Object.entries(this.savedPresets || {})) {
+        if (entry?.name !== name) continue;
+        delete this.savedPresets[id];
+        if (this.currentPresetId === id) this.currentPresetId = null;
+        if (this.defaultPresetId === id) this.defaultPresetId = null;
+        removed = true;
+      }
+      return removed;
     },
   },
   persist: {

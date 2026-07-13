@@ -1,6 +1,9 @@
-// Phase 2 (F2) — client-side automatic sync: silent adoption on poll, and the
-// conflict flow (keep mine / use cloud / dismiss-defers) against an in-memory
-// fetch mock that mirrors the Worker's conditional-PUT semantics.
+// Web cloud client — "storage + explicit save" model. The cloud is name-keyed
+// storage; the web app keeps its auto-save UX via a per-entry diff push. These
+// tests run against an in-memory fetch mock that mirrors the Worker's
+// name-keyed routes, and cover the acceptance checklist's web-side behaviour:
+// adopt on load, upload new names, newest-wins, deletes stick (no
+// resurrection), renames move the record, and same-name writes never duplicate.
 
 import { randomUUID } from 'node:crypto';
 import { createPinia, setActivePinia } from 'pinia';
@@ -19,59 +22,97 @@ const jsonRes = (body, status = 200) =>
     headers: { 'content-type': 'application/json' },
   });
 
-function cloudData(content) {
+/** A cloud record in the worker's stored shape. */
+function record(name, content, updatedAt) {
   return {
-    rawJson: '{"prompts":[]}',
-    originalFilename: 'cloud.json',
-    prompts: {
-      a: { id: 'a', identifier: 'a', name: 'Alpha', content, enabled: true },
+    name,
+    updatedAt,
+    data: {
+      rawJson: '{"prompts":[]}',
+      originalFilename: `${name}.json`,
+      prompts: { a: { id: 'a', identifier: 'a', name: 'Alpha', content, enabled: true } },
+      promptOrder: ['a'],
     },
-    promptOrder: ['a'],
+    snapshots: [],
   };
 }
 
 let preset;
 let sync;
 let cloudSync;
-// The mock server: GET returns `cloudDoc`; PUT applies the Worker's
-// conditional-write rule and records every body in `puts`.
-let cloudDoc;
-let puts;
+// The mock server: `cloud` maps name -> record; `signedOut` makes every route 401.
+let cloud;
+let signedOut;
+let requests; // [{ method, name, snapshot }]
 
-beforeEach(async () => {
-  vi.useFakeTimers();
-  vi.resetModules();
-  setActivePinia(createPinia());
-
-  cloudDoc = null;
-  puts = [];
-  window.localStorage.clear(); // the persisted merge base must not leak between tests
+function installFetchMock() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, opts = {}) => {
-      if ((opts.method || 'GET') === 'GET') {
-        return jsonRes(cloudDoc || { updatedAt: null, data: null });
+      if (signedOut) return jsonRes({ error: 'unauthenticated' }, 401);
+      const parsed = new URL(url, 'https://app.test');
+      const method = opts.method || 'GET';
+      const rest = parsed.pathname.slice('/api/presets'.length);
+      const name = rest.startsWith('/') ? decodeURIComponent(rest.slice(1)) : null;
+      requests.push({ method, name, snapshot: parsed.searchParams.get('snapshot') === '1' });
+
+      if (name === null) {
+        return jsonRes({
+          presets: Array.from(cloud.values())
+            .map((r) => ({ name: r.name, updatedAt: r.updatedAt }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        });
       }
-      const body = JSON.parse(opts.body);
-      puts.push(body);
-      if (
-        'baseUpdatedAt' in body &&
-        cloudDoc &&
-        cloudDoc.updatedAt &&
-        body.baseUpdatedAt !== cloudDoc.updatedAt
-      ) {
-        return jsonRes({ error: 'conflict', updatedAt: cloudDoc.updatedAt }, 409);
+      if (method === 'GET') {
+        return cloud.has(name) ? jsonRes(cloud.get(name)) : jsonRes({ error: 'not_found' }, 404);
       }
-      cloudDoc = { updatedAt: body.updatedAt, data: body.data };
-      return jsonRes({ ok: true, updatedAt: body.updatedAt });
+      if (method === 'PUT') {
+        const body = JSON.parse(opts.body);
+        const existing = cloud.get(name);
+        const updatedAt = body.updatedAt || new Date().toISOString();
+        let snapshots = Array.isArray(body.snapshots) ? body.snapshots : existing?.snapshots || [];
+        if (
+          parsed.searchParams.get('snapshot') === '1' &&
+          existing &&
+          JSON.stringify(existing.data) !== JSON.stringify(body.data)
+        ) {
+          snapshots = [
+            { id: 's', createdAt: existing.updatedAt, data: existing.data },
+            ...snapshots,
+          ];
+        }
+        cloud.set(name, { name, updatedAt, data: body.data, snapshots });
+        return jsonRes({ ok: true, updatedAt, existed: Boolean(existing) });
+      }
+      if (method === 'DELETE') {
+        cloud.delete(name);
+        return jsonRes({ ok: true });
+      }
+      return jsonRes({ error: 'method_not_allowed' }, 405);
     }),
   );
+}
 
+/** Fresh app boot (fresh modules + stores); localStorage — and with it the
+ *  persisted pushed-map — carries over unless a test clears it. */
+async function bootApp() {
+  vi.resetModules();
+  setActivePinia(createPinia());
   cloudSync = await import('../src/stores/cloudSync.js');
   const { usePresetStore } = await import('../src/stores/presetStore.js');
   const { useSyncStore } = await import('../src/stores/syncStore.js');
   preset = usePresetStore();
   sync = useSyncStore();
+}
+
+beforeEach(async () => {
+  vi.useFakeTimers();
+  cloud = new Map();
+  signedOut = false;
+  requests = [];
+  window.localStorage.clear(); // the pushed map must not leak between tests
+  installFetchMock();
+  await bootApp();
 });
 
 afterEach(() => {
@@ -80,216 +121,164 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Boot with a cloud doc at T1 and let the client adopt it. */
-async function initAdopted() {
-  cloudDoc = { updatedAt: 'T1', data: cloudData('v1') };
-  await cloudSync.initCloudSync();
-  expect(sync.cloudEnabled).toBe(true);
-  expect(sync.lastSyncedAt).toBe('T1');
-  expect(preset.prompts.a.content).toBe('v1');
-}
+const putsFor = (name) => requests.filter((r) => r.method === 'PUT' && r.name === name);
+const localNames = () => Object.values(preset.savedPresets).map((e) => e.name);
 
-/** Simulate another device pushing v2, and a local un-pushed edit. */
-function diverge() {
-  cloudDoc = { updatedAt: 'T2', data: cloudData('v2') };
-  preset.prompts.a.content = 'local-edit';
-  sync.set({ pendingSync: true });
-}
+describe('startup reconcile', () => {
+  it('adopts the cloud library into the local list (no pushes, no dialogs)', async () => {
+    cloud.set('One', record('One', 'v1', 'T1'));
+    cloud.set('Two', record('Two', 'v2', 'T2'));
+    await cloudSync.initCloudSync();
 
-describe('F2 automatic pull', () => {
-  it('adopts a newer cloud copy silently when there are no local edits', async () => {
-    await initAdopted();
-    cloudDoc = { updatedAt: 'T2', data: cloudData('v2') };
-    await cloudSync.pollCloudNow();
-    expect(preset.prompts.a.content).toBe('v2');
-    expect(sync.lastSyncedAt).toBe('T2');
+    expect(sync.cloudEnabled).toBe(true);
     expect(sync.status).toBe('synced');
-    expect(preset.confirmState.open).toBe(false);
+    expect(localNames().sort()).toEqual(['One', 'Two']);
+    expect(requests.some((r) => r.method === 'PUT')).toBe(false);
+    expect(preset.confirmState.open).toBe(false); // no conflict dialogs exist anymore
   });
 
-  it('does nothing when the cloud is unchanged', async () => {
-    await initAdopted();
-    await cloudSync.pollCloudNow();
-    expect(sync.lastSyncedAt).toBe('T1');
-    expect(puts).toHaveLength(0);
+  it('uploads a local preset the cloud has never seen', async () => {
+    preset.savedPresets.id1 = {
+      name: 'Mine',
+      data: record('Mine', 'local', '').data,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    };
+    await cloudSync.initCloudSync();
+
+    expect(cloud.has('Mine')).toBe(true);
+    expect(cloud.size).toBe(1);
+    expect(sync.status).toBe('synced');
+  });
+
+  it('a preset deleted in the cloud stays deleted — never resurrected', async () => {
+    cloud.set('Doomed', record('Doomed', 'v1', 'T1'));
+    await cloudSync.initCloudSync();
+    expect(localNames()).toContain('Doomed');
+
+    // Another device deletes it; this device restarts with its stale local copy.
+    cloud.delete('Doomed');
+    await bootApp();
+    preset.savedPresets.stale = {
+      name: 'Doomed',
+      data: record('Doomed', 'v1', 'T1').data,
+      createdAt: 'T1',
+      updatedAt: 'T1',
+    };
+    requests = [];
+    await cloudSync.initCloudSync();
+
+    expect(localNames()).not.toContain('Doomed'); // removed locally
+    expect(cloud.has('Doomed')).toBe(false); // and NOT pushed back
+    expect(putsFor('Doomed')).toHaveLength(0);
+  });
+
+  it('newest wins when both sides changed the same name', async () => {
+    cloud.set('P', record('P', 'v1', '2026-07-01T00:00:00.000Z'));
+    await cloudSync.initCloudSync();
+
+    // Cloud moves ahead…
+    cloud.set('P', record('P', 'cloud-newer', '2026-07-10T00:00:00.000Z'));
+    // …and local moved too, but EARLIER.
+    await bootApp();
+    preset.savedPresets.p = {
+      name: 'P',
+      data: record('P', 'local-older', '').data,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-05T00:00:00.000Z',
+    };
+    await cloudSync.initCloudSync();
+    expect(preset.savedPresets.p.data.prompts.a.content).toBe('cloud-newer');
+
+    // The reverse: local newer than cloud → local wins (pushed up).
+    cloud.set('Q', record('Q', 'cloud-older', '2026-07-02T00:00:00.000Z'));
+    await bootApp();
+    window.localStorage.clear();
+    preset.savedPresets.q = {
+      name: 'Q',
+      data: record('Q', 'local-newer', '').data,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-09T00:00:00.000Z',
+    };
+    await cloudSync.initCloudSync();
+    expect(cloud.get('Q').data.prompts.a.content).toBe('local-newer');
+  });
+
+  it('stays local-only when signed out (401)', async () => {
+    signedOut = true;
+    preset.savedPresets.id1 = {
+      name: 'Mine',
+      data: record('Mine', 'local', '').data,
+      updatedAt: 'T1',
+    };
+    await cloudSync.initCloudSync();
+    expect(sync.cloudEnabled).toBe(false);
+    expect(cloud.size).toBe(0);
+    expect(localNames()).toContain('Mine'); // nothing was touched
   });
 });
 
-describe('F2 conflict flow', () => {
-  it('keep mine → force PUT without baseUpdatedAt', async () => {
-    await initAdopted();
-    diverge();
+describe('web auto-save (the diff push)', () => {
+  it('edits to the open preset upload under its NAME — one record, no duplicates', async () => {
+    await cloudSync.initCloudSync();
 
-    await cloudSync.pollCloudNow();
-    expect(preset.confirmState.open).toBe(true);
-    expect(sync.status).toBe('conflict');
-
-    preset.resolveConfirm(); // "Keep this device's version"
-    await vi.waitFor(() => expect(sync.status).toBe('synced'));
-
-    const lastPut = puts[puts.length - 1];
-    // "Keep mine" is no longer a blind whole-snapshot overwrite: it pushes the
-    // MERGED snapshot conditionally (baseUpdatedAt present), so other devices'
-    // library entries survive the choice.
-    expect('baseUpdatedAt' in lastPut).toBe(true);
-    expect(cloudDoc.data.prompts.a.content).toBe('local-edit');
-    expect(sync.pendingSync).toBe(false);
-    expect(sync.lastSyncedAt).toBe(cloudDoc.updatedAt);
-  });
-
-  it('use cloud → adopts the cloud copy and discards the local push', async () => {
-    await initAdopted();
-    diverge();
-
-    await cloudSync.pollCloudNow();
-    expect(preset.confirmState.open).toBe(true);
-
-    preset.cancelConfirm(); // "Use cloud version"
-    await vi.waitFor(() => expect(sync.status).toBe('synced'));
-
-    expect(preset.prompts.a.content).toBe('v2');
-    expect(sync.lastSyncedAt).toBe('T2');
-    expect(sync.pendingSync).toBe(false);
-    expect(puts).toHaveLength(0); // nothing was pushed
-    expect(cloudDoc.data.prompts.a.content).toBe('v2'); // cloud untouched
-  });
-
-  it('dismiss defers: nothing is lost and the poll stops nagging', async () => {
-    await initAdopted();
-    diverge();
-
-    await cloudSync.pollCloudNow();
-    expect(preset.confirmState.open).toBe(true);
-
-    preset.dismissConfirm(); // Esc / backdrop — "not now"
-    expect(preset.prompts.a.content).toBe('local-edit'); // local kept
-    expect(sync.status).toBe('conflict');
-    expect(sync.pendingSync).toBe(true);
-
-    await cloudSync.pollCloudNow(); // 30s tick — must not re-prompt
-    expect(preset.confirmState.open).toBe(false);
-    expect(preset.prompts.a.content).toBe('local-edit');
-  });
-
-  it('after a dismissal, the next edit-triggered push re-opens the dialog', async () => {
-    await initAdopted();
-    diverge();
-    await cloudSync.pollCloudNow();
-    preset.dismissConfirm();
-
-    // A real edit → subscription → debounced push → 409 → dialog again.
-    preset.updatePromptDetail({ promptId: 'a', field: 'content', value: 'local-edit-2' });
-    await Promise.resolve(); // let the (pre-flush) subscription run
-    // The store's own follow-up mutations (macro analysis at +300ms, the
-    // autosave flush at +1s) re-arm the trailing push debounce, so the push
-    // lands by its maxWait bound (3s) rather than the base 1.5s. The async
-    // advance flushes the promise chain between timers so the 409 → dialog
-    // flow completes deterministically.
-    await vi.advanceTimersByTimeAsync(4000);
-    await vi.waitFor(() => expect(preset.confirmState.open).toBe(true));
-    expect(sync.status).toBe('conflict');
-  });
-});
-
-describe('sign-in reconcile: local edits are not silently discarded', () => {
-  it('asks which to keep when the device has un-synced edits that differ from the cloud', async () => {
-    // Simulate editing while signed OUT: local data + undo history, but nothing
-    // flagged pendingSync (sync was off). Then "sign in" to a non-empty cloud.
+    // Open a document and let autosave adopt it into the library.
+    preset.rawJson = '{"prompts":[]}';
+    preset.originalFilename = 'My Preset.json';
     preset.prompts = {
-      a: { id: 'a', identifier: 'a', name: 'Alpha', content: 'mine', enabled: true },
+      a: { id: 'a', identifier: 'a', name: 'Alpha', content: 'first', enabled: true },
     };
     preset.promptOrder = ['a'];
-    preset.clearHistory();
-    preset.updatePromptDetail({ promptId: 'a', field: 'content', value: 'local-unsynced' });
-    expect(preset.canUndo).toBe(true);
-    expect(sync.pendingSync).toBe(false);
+    preset.saveActivePreset();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(cloud.has('My Preset')).toBe(true);
+    expect(cloud.size).toBe(1);
 
-    cloudDoc = { updatedAt: 'T1', data: cloudData('cloud-v1') };
-    await cloudSync.initCloudSync();
-
-    // The user is asked; nothing was silently overwritten or blindly pushed.
-    expect(preset.confirmState.open).toBe(true);
-    expect(sync.status).toBe('conflict');
-    expect(preset.prompts.a.content).toBe('local-unsynced');
-    expect(puts).toHaveLength(0);
+    // Keep editing — the same record is replaced, never a second one.
+    preset.updatePromptDetail({ promptId: 'a', field: 'content', value: 'second' });
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(cloud.size).toBe(1);
+    expect(cloud.get('My Preset').data.prompts.a.content).toBe('second');
   });
 
-  it('adopts the cloud silently on a fresh, unedited device (no nag)', async () => {
-    // No local edits (canUndo === false) → normal sign-in must not prompt.
-    expect(preset.canUndo).toBe(false);
-    cloudDoc = { updatedAt: 'T1', data: cloudData('cloud-v1') };
+  it('deleting a preset deletes its cloud record', async () => {
+    cloud.set('Gone', record('Gone', 'v1', 'T1'));
     await cloudSync.initCloudSync();
+    const id = Object.keys(preset.savedPresets).find((k) => preset.savedPresets[k].name === 'Gone');
+    preset.deletePreset(id);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(cloud.has('Gone')).toBe(false);
+  });
 
-    expect(preset.confirmState.open).toBe(false);
-    expect(preset.prompts.a.content).toBe('cloud-v1');
-    expect(sync.status).toBe('synced');
-    expect(sync.lastSyncedAt).toBe('T1');
+  it('renaming a preset moves the record (new name written, old name deleted)', async () => {
+    cloud.set('Old', record('Old', 'v1', 'T1'));
+    await cloudSync.initCloudSync();
+    const id = Object.keys(preset.savedPresets).find((k) => preset.savedPresets[k].name === 'Old');
+    preset.updatePreset(id, 'New');
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(cloud.has('New')).toBe(true);
+    expect(cloud.has('Old')).toBe(false);
+    expect(cloud.size).toBe(1);
+  });
+
+  it('snapshot changes sync too (they do not bump updatedAt)', async () => {
+    cloud.set('P', record('P', 'v1', 'T1'));
+    await cloudSync.initCloudSync();
+    const id = Object.keys(preset.savedPresets).find((k) => preset.savedPresets[k].name === 'P');
+    preset.createSnapshot(id, 'before big edit');
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(cloud.get('P').snapshots.some((s) => s.name === 'before big edit')).toBe(true);
   });
 });
 
-describe('restart safety: the persisted merge base (RC2/RC3)', () => {
-  /** Simulate closing and reopening the app: fresh modules + fresh stores.
-   *  Only what really persists carries over — the merge base rides in
-   *  localStorage automatically; document state and sync flags are re-seeded
-   *  explicitly (standing in for the pinia persist plugin, which the tests
-   *  don't install). */
-  async function reloadApp({ pendingSync }) {
-    vi.resetModules();
-    setActivePinia(createPinia());
-    cloudSync = await import('../src/stores/cloudSync.js');
-    const { usePresetStore } = await import('../src/stores/presetStore.js');
-    const { useSyncStore } = await import('../src/stores/syncStore.js');
-    preset = usePresetStore();
-    sync = useSyncStore();
-    const data = cloudData('v1');
-    preset.rawJson = data.rawJson;
-    preset.originalFilename = data.originalFilename;
-    preset.prompts = JSON.parse(JSON.stringify(data.prompts));
-    preset.promptOrder = [...data.promptOrder];
-    sync.set({ lastSyncedAt: 'T1', pendingSync });
-  }
-
-  it('RC2: pending edits after a reload MERGE — remote additions survive', async () => {
-    await initAdopted(); // seeds + persists the merge base at T1
-
-    // Another device stored a new library entry (cloud moves to T2)…
-    cloudDoc = {
-      updatedAt: 'T2',
-      data: {
-        ...cloudData('v1'),
-        savedPresets: {
-          webp: { id: 'webp', name: 'Web', updatedAt: '2026-07-09T00:00:00.000Z', data: {} },
-        },
-      },
-    };
-
-    // …while this device reloads carrying an un-pushed edit (pendingSync was
-    // persisted true — the window closed inside the push-debounce gap).
-    await reloadApp({ pendingSync: true });
-    preset.prompts.a.content = 'local-edit';
+describe('explicit refresh', () => {
+  it('picks up presets another device added, without pushing anything', async () => {
     await cloudSync.initCloudSync();
-
-    // Pre-fix behavior: the null in-memory base made "local win everywhere",
-    // wiping webp from the cloud. With the persisted base this merges.
-    expect(preset.confirmState.open).toBe(false); // library divergence never dialogs
-    expect(cloudDoc.data.prompts.a.content).toBe('local-edit'); // local edit survived
-    expect(cloudDoc.data.savedPresets.webp?.name).toBe('Web'); // remote addition survived
-    expect(sync.status).toBe('synced');
-    expect(sync.pendingSync).toBe(false);
-  });
-
-  it('RC3: offline changes with an unchanged cloud are pushed, not sealed as synced', async () => {
-    await initAdopted();
-
-    // Reload with NO pending flag (edits happened while sync was off), cloud
-    // still at T1. Pre-fix behavior: the final "already in sync" branch seeded
-    // the base from the differing local snapshot and the change never uploaded.
-    await reloadApp({ pendingSync: false });
-    preset.prompts.a.content = 'offline-edit';
-    await cloudSync.initCloudSync();
-
-    expect(puts.length).toBeGreaterThan(0);
-    expect(cloudDoc.data.prompts.a.content).toBe('offline-edit');
-    expect(sync.status).toBe('synced');
+    cloud.set('FromCursor', record('FromCursor', 'sent', 'T5'));
+    requests = [];
+    const ok = await cloudSync.refreshCloudLibrary();
+    expect(ok).toBe(true);
+    expect(localNames()).toContain('FromCursor');
+    expect(requests.some((r) => r.method === 'PUT')).toBe(false);
   });
 });

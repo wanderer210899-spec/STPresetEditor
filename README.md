@@ -127,13 +127,24 @@ and sets their **own** password. Two people who deploy the fork never share data
 Browser (the app)  ──►  Cloudflare Worker  (https://<name>.<you>.workers.dev)
                           ├─ serves the built SPA            (ASSETS binding)
                           ├─ /api/auth/* , /api/keys  ──►  Cloudflare D1   (accounts)
-                          └─ /api/presets  GET/PUT     ──►  Cloudflare KV   (library)
+                          └─ /api/presets              ──►  Cloudflare KV
+                                 GET    /api/presets         the index (names)
+                                 GET    /api/presets/:name   one preset
+                                 PUT    /api/presets/:name   create/replace (newest wins;
+                                                             ?snapshot=1 keeps the old version)
+                                 DELETE /api/presets/:name   remove it
                                  authenticated by EITHER
                                    • the owner's session cookie (web sign-in)
                                    • an API key  → X-API-Key   (VS Code / clients)
-                                 both resolve to key: user:<id>
+                                 both resolve to keys: user:<id>:p:<preset name>
                                  no identity ⇒ 401, the app stays local-only
 ```
+
+**The cloud is passive, named storage.** A cloud preset is identified by its
+**name** — there is never more than one cloud preset with the same name, so a
+preset can't fork into duplicates across devices. Writing an existing name
+replaces it (newest wins); the explicit "Send to cloud" keeps the replaced
+version as a restorable snapshot.
 
 **One deployment = one owner.** You sign in with **email + password**; the first
 sign-up claims the instance (then sign-up closes). Recovery needs **no email
@@ -146,9 +157,11 @@ service** — see the owner-recovery backdoor below.
   API keys are stored only as hashes. Fails closed (401) with no identity.
 - `wrangler.jsonc` — Worker config. The KV namespace and **D1** auth database have
   no id committed, so each deployer's storage is auto-provisioned and private.
-- `src/stores/cloudSync.js` — pulls on load, pushes on change (localStorage stays
-  as an offline cache). If the API is unreachable or signed-out the app silently
-  runs local-only, so `npm run dev` is unaffected.
+- `src/stores/cloudSync.js` — the per-preset cloud client: the web app adopts the
+  cloud list on load and auto-saves changed presets under their names; the VS Code
+  extension only ever talks to the cloud on explicit actions. If the API is
+  unreachable or signed-out the app silently runs local-only, so `npm run dev`
+  is unaffected.
 
 The toolbar shows a small dot: green = synced, amber = syncing, red = error,
 grey = local only. The **Settings** dialog footer shows the deployed build commit.
@@ -195,18 +208,46 @@ string, then in **Settings → Cloud sync → Forgot password?** enter that toke
 a new password. The token is single-use; delete the variable afterwards. Only you
 (holder of the Cloudflare dashboard) can do this — that's the security gate.
 
-### 3. Sync — web and VS Code
+### 3. Using the cloud — web and VS Code
 
-- **Web (PC + mobile):** open the URL on each device, sign in with the same
-  account, and your library syncs both ways automatically.
-- **VS Code extension:** in the web app, **Settings → Cloud sync → Generate key**,
-  copy the key (shown once), and paste it into the extension's settings. The
-  extension sends it as `X-API-Key`, so it shares the same library without a
-  browser sign-in. Revoke a key anytime from the same panel.
+- **Web (PC + mobile):** open the URL on each device and sign in with the same
+  account. The web app keeps its auto-save workflow: editing the open preset
+  updates its cloud copy in place (by name), and the toolbar dot doubles as an
+  explicit **Refresh from cloud** button.
+- **VS Code / Cursor extension** — connect once: in the web app,
+  **Settings → Cloud sync → Generate key**, copy the key (shown once), and paste
+  it (plus your Worker URL) into the editor's **Settings → Cloud sync**. The
+  extension sends it as `X-API-Key`. Revoke a key anytime from the same panel.
+  Nothing syncs by itself from the extension; there are two interfaces:
+  - **File editor** (right-click a `.json` → _Open in STPresetEditor_): edits
+    save to the file on disk only. The explicit **Send to cloud** button uploads
+    the open file under its file name — a new name creates exactly one cloud
+    preset; an existing name is replaced (newest wins) with the previous version
+    kept as a snapshot. There is deliberately no "load from cloud" here.
+  - **Cloud browser** (_STPresetEditor: Open cloud library_): browse the cloud
+    list, open a preset into the editor, and use the normal **Save** button to
+    write it into any workspace folder you pick (a same-named file there is
+    overwritten — never a "(2)" copy). Deleting or renaming in its Preset
+    Manager deletes/renames the cloud preset.
 
-> To test the synced API locally, run `npm run cf-preview` and apply the auth
+> To test the API locally, run `npm run cf-preview` and apply the auth
 > migrations to the local DB first:
 > `wrangler d1 migrations apply stpreseteditor-auth --local`.
+
+### Upgrading from the automatic-sync versions (≤ 0.8.x)
+
+The old engine stored the whole library as ONE blob under `user:<id>`; the new
+model stores one KV record per preset under `user:<id>:p:<name>`. Old data is
+simply ignored (the maintainer chose a clean start — restore from your local
+library or files and the web app re-uploads on first sign-in). Optional cleanup
+of the legacy blob and any experimental per-record D1 tables:
+
+```bash
+wrangler kv key list --binding PRESETS --remote            # find legacy keys (no :p: segment)
+wrangler kv key delete --binding PRESETS --remote "user:<id>"
+wrangler d1 execute stpreseteditor-auth --remote --command \
+  "SELECT name FROM sqlite_master WHERE type='table'"      # auth needs only: users, sessions, api_keys, used_reset_tokens
+```
 
 > **Not on Cloudflare?** `npm run build` still produces a static `dist/` you can host
 > anywhere (GitHub Pages, Netlify, Vercel) — it just runs in local-only mode.

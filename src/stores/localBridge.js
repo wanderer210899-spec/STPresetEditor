@@ -1,35 +1,35 @@
 // Local-file bridge + cloud transport for the Cursor/VSCode extension (the "host").
 //
 // File seam: mirrors the OPEN preset to a local file via the webview <-> host
-// postMessage bridge (parseFromJson in, finalJson out). The open file is ALSO
-// linked to a stable library entry (openFileAsPreset), so it cloud-syncs
-// two-way INSIDE savedPresets — never as top-level active-area keys.
+// postMessage bridge (parseFromJson in, finalJson out). Edits to the open file
+// are entirely local — they are never pushed to the cloud automatically.
 //
-// Cloud transport (A4 — account auth): the webview can't ride the web app's
-// session cookie (different origin), so the extension authenticates with a
-// generated **API key** (`X-API-Key`) the user creates in the web app's
+// Cloud transport (explicit actions only): the webview can't ride the web
+// app's session cookie (different origin), so the extension authenticates with
+// a generated **API key** (`X-API-Key`) the user creates in the web app's
 // Settings → Cloud sync. The key is held by the HOST (VS Code SecretStorage),
-// never here. This file does NOT orchestrate cloud sync; it (a) connects /
-// validates the key with the host and (b) exposes `hostCloudGet()` /
-// `hostCloudPut()` so the SHARED engine in cloudSync.js can reconcile the preset
-// LIBRARY (saved presets + prefs) over the host's Node HTTP — exactly like the
-// web app, just with a different transport.
+// never here. This file exposes one-shot request/reply wrappers — list, load,
+// send, delete, rename, save-into-workspace — that stores/cloudSync.js and the
+// toolbar call for the EXPLICIT cloud actions. There is no background engine.
 //
 // Protocol (this file <-> extension/extension.js):
 //   webview -> host : ready | save{path,json} | createFile{name,json}
 //                     | cloudStateRequest | cloudConnect{url,key} | cloudDisconnect
-//                     | cloudPullRequest | cloudPush{data,baseUpdatedAt?}
+//                     | cloudList | cloudLoad{name}
+//                     | cloudSend{name,data,snapshots?,updatedAt,snapshot}
+//                     | cloudDelete{name} | cloudRename{oldName,newName}
+//                     | saveToWorkspace{name,json}
 //   host -> webview : load{...} | fileCreated{ok,path,name,reason}
 //                     | cloudState{url,connected,email}
 //                     | cloudReady{ok,email,reason,url}
-//                     | cloudPulled{connected,data,updatedAt}
-//                     | cloudAck{ok,conflict?,updatedAt}
-//                     | cloudReconcile  (status-bar "Sync library" → re-reconcile)
-//                     | fileState{standalone,linked,state,fileName}  (open file's
-//                                 link to the cloud library, for the status chip)
+//                     | cloudListResult{connected,presets}
+//                     | cloudLoaded{ok,entry} | cloudSent{ok,existed,updatedAt}
+//                     | cloudDeleted{ok} | cloudRenamed{ok,updatedAt}
+//                     | workspaceSaved{ok,path,fileName,reason}
+//                     | shortcut{action}
 import { debounce } from 'lodash-es';
 import { toPlainClone } from '../utils/clone';
-import { isVsCodeHost } from '../utils/host';
+import { isLibraryHost, isVsCodeHost } from '../utils/host';
 import { usePresetStore } from './presetStore';
 import { useSyncStore } from './syncStore';
 
@@ -38,6 +38,8 @@ export { isVsCodeHost };
 
 const SAVE_DEBOUNCE_MS = 800;
 const REPLY_TIMEOUT_MS = 12000;
+// The workspace save opens a folder picker the user may ponder over.
+const WORKSPACE_REPLY_TIMEOUT_MS = 120000;
 
 let vscodeApi = null;
 let subscribed = false;
@@ -51,12 +53,18 @@ let cloudConnected = false;
 let cloudEmail = '';
 let cloudUrlValue = '';
 
-// Invoked when the host asks the webview to re-reconcile (status-bar "Sync
-// library"). cloudSync.js registers it in host mode; avoids a circular import.
-let reconcileHandler = null;
-
 // One-shot resolvers awaiting a host reply, keyed by reply kind.
-const pending = { connect: [], state: [], pull: [], push: [], file: [] };
+const pending = {
+  connect: [],
+  state: [],
+  file: [],
+  list: [],
+  load: [],
+  send: [],
+  delete: [],
+  rename: [],
+  workspace: [],
+};
 
 function getApi() {
   if (!vscodeApi && isVsCodeHost()) vscodeApi = window.acquireVsCodeApi();
@@ -76,7 +84,7 @@ function settle(kind, value) {
 }
 
 /** Promise that resolves on the next host reply of `kind` (or a timeout fallback). */
-function awaitReply(kind, fallback) {
+function awaitReply(kind, fallback, timeoutMs = REPLY_TIMEOUT_MS) {
   return new Promise((resolve) => {
     let timer = null;
     const done = (value) => {
@@ -88,13 +96,11 @@ function awaitReply(kind, fallback) {
       const idx = pending[kind].indexOf(done);
       if (idx !== -1) pending[kind].splice(idx, 1);
       resolve(fallback);
-    }, REPLY_TIMEOUT_MS);
+    }, timeoutMs);
   });
 }
 
-/** Mirror the host's connection snapshot into module + sync-store state. The
- *  authoritative sync STATUS is owned by cloudSync.js (the reconcile engine);
- *  here we only reflect whether a credential is present. */
+/** Mirror the host's connection snapshot into module + sync-store state. */
 function applyConnection({ connected, email, url }) {
   cloudConnected = Boolean(connected);
   cloudEmail = email || '';
@@ -119,7 +125,18 @@ function handleShortcut(action) {
       store.openGlobalSearch();
       break;
     case 'save':
-      if (store.saveActivePreset()) store.showToast(store.t('toolbar.saved'), 'success');
+      if (isLibraryHost()) {
+        // The cloud browser's Save = write the preset into a workspace folder.
+        saveActiveToWorkspace().then((res) => {
+          if (res?.ok) {
+            store.showToast(store.t('toolbar.savedToWorkspace', { file: res.fileName }), 'success');
+          } else if (res?.reason && res.reason !== 'cancelled') {
+            store.showToast(store.t('toolbar.saveToWorkspaceFailed'), 'error');
+          }
+        });
+      } else if (store.saveActivePreset()) {
+        store.showToast(store.t('toolbar.saved'), 'success');
+      }
       break;
     default:
       break;
@@ -129,22 +146,18 @@ function handleShortcut(action) {
 // --- File seam ---------------------------------------------------------------
 
 /** Stable library id for a local file, derived from its path so reopening the
- *  same file maps to the same synced preset (no duplicates). */
+ *  same file maps to the same local entry (snapshots survive reopens). */
 function filePresetId(path) {
   return path ? `file:${path}` : '';
 }
 
-/** Apply a preset file pushed from the host. The open file is linked to a stable
- *  library entry so it autosaves + syncs like the web app's active preset;
- *  opening does not rewrite the file (the baseline is the just-loaded state).
- *  The host supplies the folder mapping's presetId when the workspace is
- *  linked, so the file syncs under ONE identity; otherwise fall back to the
- *  path-derived `file:` id. */
+/** Apply a preset file pushed from the host. The open file is linked to a
+ *  stable LOCAL library entry so autosave/snapshots work like the web app;
+ *  nothing about that entry reaches the cloud without the explicit Send. */
 function applyLoad(message) {
   if (typeof message.json !== 'string') return;
   if (message.path) activePath = message.path;
-  const presetId =
-    (typeof message.presetId === 'string' && message.presetId) || filePresetId(activePath);
+  const presetId = filePresetId(activePath);
   if (presetId) {
     store.openFileAsPreset(message.json, message.name, presetId); // parse + link + analyze
   } else {
@@ -189,14 +202,9 @@ export function requestCloudState() {
   return awaitReply('state', { url: cloudUrlValue, connected: cloudConnected, email: cloudEmail });
 }
 
-/** Register the callback the status-bar "Sync library" command triggers. */
-export function setReconcileHandler(fn) {
-  reconcileHandler = fn;
-}
-
 /**
  * Ask the host to write a preset JSON to a NEW file next to the open one and
- * open it in its own editor tab. Used by the Preset Manager in host mode so
+ * open it in its own editor tab. Used by the Preset Manager in file mode so
  * loading a library preset never overwrites the open file on disk.
  * Resolves to { ok, path?, name?, reason? }.
  */
@@ -206,50 +214,90 @@ export function createPresetFile(name, json) {
   return awaitReply('file', { ok: false, reason: 'timeout' });
 }
 
-// --- Cloud transport for cloudSync.js (host mode) ----------------------------
+// --- Cloud transport (explicit actions; used by stores/cloudSync.js) ----------
 
-/**
- * GET the cloud document via the host. Mirrors cloudSync.fetchCloudDocument:
- * resolves to `{ updatedAt, data }` when connected (data may be null for an
- * empty cloud), or `null` when not connected / unreachable (⇒ local-only).
- */
-export function hostCloudGet() {
+/** GET the cloud index. Resolves to [{name, updatedAt}] or null when the cloud
+ *  is not connected / unreachable (⇒ local-only). */
+export function hostCloudList() {
   if (!isVsCodeHost()) return Promise.resolve(null);
-  post({ type: 'cloudPullRequest' });
-  return awaitReply('pull', null).then((msg) => {
-    if (!msg || !msg.connected) return null;
-    return { updatedAt: msg.updatedAt || null, data: msg.data || null };
+  post({ type: 'cloudList' });
+  return awaitReply('list', null).then((msg) => {
+    if (!msg || !msg.connected || !Array.isArray(msg.presets)) return null;
+    return msg.presets;
   });
 }
 
+/** GET one named cloud preset. Resolves to the stored record or null. */
+export function hostCloudLoad(name) {
+  if (!isVsCodeHost()) return Promise.resolve(null);
+  post({ type: 'cloudLoad', name });
+  return awaitReply('load', null).then((msg) => (msg && msg.ok && msg.entry ? msg.entry : null));
+}
+
 /**
- * PUT a snapshot to the cloud via the host (host does the read-merge-write so
- * only the library keys we send are overlaid). Forwards `baseUpdatedAt` when
- * present so the host can detect conflicts before merging (F2); omit it for
- * the explicit "keep mine" force push. Resolves to
- * `{ ok, conflict?, updatedAt }`.
+ * PUT one named cloud preset (create or replace — newest wins). `snapshot`
+ * asks the worker to keep the replaced version as a restorable snapshot (the
+ * explicit "Send to cloud" semantics). Resolves to { ok, updatedAt?, existed? }.
  */
-export function hostCloudPut(payload) {
+export function hostCloudSend(name, payload, { snapshot = false } = {}) {
   if (!isVsCodeHost()) return Promise.resolve({ ok: false });
-  // The snapshot comes straight from the Pinia store, so its values are Vue
-  // reactive PROXIES — and `postMessage` (structured clone) throws DataCloneError
-  // on those. Serialise to a plain, JSON-safe object before crossing the bridge
-  // (the same normalisation the web transport gets for free via JSON.stringify).
-  const data = toPlainClone(payload && payload.data);
-  const message = { type: 'cloudPush', data };
-  if (payload && 'baseUpdatedAt' in payload) message.baseUpdatedAt = payload.baseUpdatedAt ?? null;
-  post(message);
-  return awaitReply('push', { ok: false }).then((msg) => ({
+  // Store values are Vue reactive PROXIES — postMessage (structured clone)
+  // throws DataCloneError on those. Serialise to plain JSON-safe data first.
+  const plain = toPlainClone(payload || {});
+  post({
+    type: 'cloudSend',
+    name,
+    data: plain.data,
+    snapshots: plain.snapshots,
+    updatedAt: plain.updatedAt,
+    snapshot: Boolean(snapshot),
+  });
+  return awaitReply('send', { ok: false }).then((msg) => ({
     ok: Boolean(msg && msg.ok),
-    conflict: Boolean(msg && msg.conflict),
+    updatedAt: msg && msg.updatedAt,
+    existed: Boolean(msg && msg.existed),
+  }));
+}
+
+/** DELETE one named cloud preset. Resolves to { ok }. */
+export function hostCloudDelete(name) {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false });
+  post({ type: 'cloudDelete', name });
+  return awaitReply('delete', { ok: false }).then((msg) => ({ ok: Boolean(msg && msg.ok) }));
+}
+
+/** Rename a cloud preset (read old → write new → delete old, host-side).
+ *  Resolves to { ok, updatedAt? }. */
+export function hostCloudRename(oldName, newName) {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false });
+  post({ type: 'cloudRename', oldName, newName });
+  return awaitReply('rename', { ok: false }).then((msg) => ({
+    ok: Boolean(msg && msg.ok),
     updatedAt: msg && msg.updatedAt,
   }));
 }
 
 /**
+ * The cloud browser's Save button: write the OPEN preset into a workspace
+ * folder the user picks (host shows the picker). A same-named file in that
+ * folder is overwritten — name = identity, never a second copy.
+ * Resolves to { ok, path?, fileName?, reason? } ('cancelled' when dismissed).
+ */
+export function saveActiveToWorkspace() {
+  if (!isVsCodeHost()) return Promise.resolve({ ok: false, reason: 'not_host' });
+  const json = store?.finalJson || '';
+  const base =
+    (store?.currentPresetName || '').trim() ||
+    (store?.originalFilename || '').replace(/\.[^/.]+$/, '').trim();
+  if (!json || !base) return Promise.resolve({ ok: false, reason: 'empty' });
+  post({ type: 'saveToWorkspace', name: `${base}.json`, json });
+  return awaitReply('workspace', { ok: false, reason: 'timeout' }, WORKSPACE_REPLY_TIMEOUT_MS);
+}
+
+/**
  * Initialise the host file bridge: receive the open file and mirror edits back
- * to disk (debounced). Cloud sync is handled separately by cloudSync.js using
- * the transport above. No-op outside a webview.
+ * to disk (debounced). Cloud actions are handled by the explicit wrappers
+ * above. No-op outside a webview.
  */
 export async function initLocalBridge() {
   if (!isVsCodeHost()) return;
@@ -275,35 +323,31 @@ export async function initLocalBridge() {
           reason: message.reason || '',
         });
         break;
-      case 'cloudPulled':
-        settle('pull', message);
+      case 'cloudListResult':
+        settle('list', message);
         break;
-      case 'cloudAck':
-        settle('push', message);
+      case 'cloudLoaded':
+        settle('load', message);
+        break;
+      case 'cloudSent':
+        settle('send', message);
+        break;
+      case 'cloudDeleted':
+        settle('delete', message);
+        break;
+      case 'cloudRenamed':
+        settle('rename', message);
+        break;
+      case 'workspaceSaved':
+        settle('workspace', message);
         break;
       case 'fileCreated':
         settle('file', message);
-        break;
-      case 'cloudReconcile':
-        if (reconcileHandler) reconcileHandler();
         break;
       case 'shortcut':
         // A keybinding VS Code would otherwise swallow (Ctrl+F/K/S), forwarded by
         // the host so shortcuts work like the web app.
         handleShortcut(message.action);
-        break;
-      case 'fileState':
-        // The host reports how the open file relates to the cloud library so the
-        // toolbar can show a clear "Linked · synced/pending" status.
-        sync.set({
-          fileLink: {
-            linked: Boolean(message.linked),
-            state: message.state || (message.standalone ? 'standalone' : 'unlinked'),
-            standalone: Boolean(message.standalone),
-            fileName: message.fileName || '',
-            connected: Boolean(message.connected),
-          },
-        });
         break;
     }
   });

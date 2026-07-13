@@ -8,6 +8,7 @@ import {
   Bars3Icon,
   BookmarkIcon,
   CameraIcon,
+  CloudArrowUpIcon,
   Cog6ToothIcon,
   DocumentCheckIcon,
   EllipsisHorizontalIcon,
@@ -17,12 +18,17 @@ import {
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
 import { formatTokenCount } from '../utils/tokens';
+import { getEditorMode } from '../utils/host';
 import { usePresetStore } from '../stores/presetStore';
 import { useSyncStore } from '../stores/syncStore';
-import { syncNow } from '../stores/cloudSync';
+import { refreshCloudLibrary, sendActivePresetToCloud } from '../stores/cloudSync';
+import { saveActiveToWorkspace } from '../stores/localBridge';
 
 // Initialize the preset store
 const store = usePresetStore();
+
+// 'web' (browser SPA) | 'file' (VS Code file editor) | 'library' (cloud browser)
+const mode = getEditorMode();
 
 const takeSnapshot = () => {
   if (store.createSnapshot()) {
@@ -30,30 +36,56 @@ const takeSnapshot = () => {
   }
 };
 
-// Explicit "Save now" for the current preset. Autosave already runs, so this
-// just flushes the latest edit into the library entry (and to disk in the
-// extension) and confirms it — the reassurance the file workflow expects.
-const saveCurrent = () => {
+// The app's normal Save. Web + file editor: flush the latest edit into the
+// library entry (and to disk in the extension). Cloud browser: the SAME button
+// instead writes the preset into a workspace folder the user picks (a
+// same-named file there is overwritten — never a second copy).
+const saveCurrent = async () => {
+  if (mode === 'library') {
+    const res = await saveActiveToWorkspace();
+    if (res?.ok) {
+      store.showToast(store.t('toolbar.savedToWorkspace', { file: res.fileName }), 'success');
+    } else if (res?.reason && res.reason !== 'cancelled') {
+      store.showToast(store.t('toolbar.saveToWorkspaceFailed'), 'error');
+    }
+    return;
+  }
   if (store.saveActivePreset()) store.showToast(store.t('toolbar.saved'), 'success');
 };
 
-// Cloud sync status (Cloudflare KV) for the indicator
+// Cloud storage status for the indicator
 const sync = useSyncStore();
 
-// Manual "Sync now" (S2): force an immediate remote pull into the open editor,
-// bypassing the focus/visibility/30s auto-pull (which a VS Code webview can miss
-// when it reports itself hidden). Same conflict-safe merge as the auto-pull.
-const doSyncNow = async () => {
+// Explicit "refresh from cloud": re-list the cloud presets and adopt changes
+// (per-name, newest wins). This replaces the old background auto-pull.
+const doRefresh = async () => {
   if (!sync.cloudEnabled) {
-    store.showToast(store.t('sync.syncNowOffline'), 'info');
+    store.showToast(store.t('sync.notConnected'), 'info');
     return;
   }
-  const pulled = await syncNow();
-  store.showToast(
-    store.t(pulled ? 'sync.syncNowPulled' : 'sync.syncNowUpToDate'),
-    pulled ? 'success' : 'info',
-  );
+  const ok = await refreshCloudLibrary();
+  store.showToast(store.t(ok ? 'sync.refreshed' : 'sync.refreshFailed'), ok ? 'success' : 'error');
 };
+
+// Explicit "Send to cloud" (VS Code only): upload the open preset under its
+// name — same name is replaced (newest wins), previous version kept as a
+// restorable snapshot. Nothing is ever sent automatically from the extension.
+const sendToCloud = async () => {
+  if (!sync.cloudEnabled) {
+    store.showToast(store.t('sync.notConnected'), 'info');
+    return;
+  }
+  const res = await sendActivePresetToCloud();
+  if (res.ok) {
+    store.showToast(
+      store.t(res.existed ? 'sync.sentUpdated' : 'sync.sentCreated', { name: res.name }),
+      'success',
+    );
+  } else {
+    store.showToast(store.t('sync.sendFailed'), 'error');
+  }
+};
+
 const syncDotClass = computed(() => {
   if (!sync.cloudEnabled) return 'bg-gray-300 dark:bg-gray-600';
   switch (sync.status) {
@@ -61,8 +93,6 @@ const syncDotClass = computed(() => {
       return 'bg-green-500';
     case 'syncing':
       return 'bg-amber-400 animate-pulse';
-    case 'conflict':
-      return 'bg-orange-500';
     case 'error':
       return 'bg-red-500';
     default:
@@ -149,24 +179,39 @@ const menuItemClass =
       >
         {{ store.t('toolbar.tokenTotal', { count: formatTokenCount(store.enabledTokenTotal) }) }}
       </span>
-      <!-- Cloud-library sync status + click-to-"Sync now" (same everywhere now
-           that the extension's open file syncs like the web app's active preset). -->
+      <!-- Cloud status + click-to-refresh (explicit pull; the file editor has
+           no cloud engine, so it shows the Send button only). -->
       <button
+        v-if="mode !== 'file'"
         type="button"
         class="mr-1 flex items-center gap-1.5 rounded px-1 py-0.5 text-xs text-gray-500 transition hover:bg-gray-100 disabled:hover:bg-transparent dark:text-gray-400 dark:hover:bg-gray-700/50"
-        :title="sync.cloudEnabled ? store.t('sync.syncNow') : sync.statusLabel"
+        :title="sync.cloudEnabled ? store.t('sync.refresh') : sync.statusLabel"
         :disabled="sync.status === 'syncing'"
-        @click="doSyncNow"
+        @click="doRefresh"
       >
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
         <span class="hidden lg:inline">{{ sync.statusLabel }}</span>
       </button>
-      <!-- Save the current preset now (autosave already runs; this is the
-           explicit "commit + confirm" the file workflow expects). Kept out front
-           as an everyday essential. -->
+      <!-- Explicit "Send to cloud" (VS Code only): the ONLY way editor content
+           reaches the cloud from the extension. -->
+      <button
+        v-if="mode !== 'web'"
+        class="btn btn-sm btn-secondary"
+        :title="store.t('toolbar.sendToCloudTitle')"
+        @click="sendToCloud"
+      >
+        <CloudArrowUpIcon class="h-4 w-4" />
+        <span class="hidden lg:inline">{{ store.t('toolbar.sendToCloud') }}</span>
+      </button>
+      <!-- Save: web/file — commit + confirm the current preset; cloud browser —
+           write the preset into a workspace folder you pick. -->
       <button
         class="btn btn-sm btn-secondary"
-        :title="store.t('toolbar.saveTitle')"
+        :title="
+          mode === 'library'
+            ? store.t('toolbar.saveToWorkspaceTitle')
+            : store.t('toolbar.saveTitle')
+        "
         @click="saveCurrent"
       >
         <DocumentCheckIcon class="h-4 w-4" />
@@ -256,13 +301,14 @@ const menuItemClass =
 
     <!-- Mobile: Action Group with Right Sidebar Toggle and Menu -->
     <div v-if="store.isMobile" class="flex items-center">
-      <!-- Cloud sync status dot — tap to "Sync now" -->
+      <!-- Cloud status dot — tap to refresh from the cloud -->
       <button
+        v-if="mode !== 'file'"
         type="button"
         class="mr-1 flex h-6 w-6 items-center justify-center rounded"
-        :title="sync.cloudEnabled ? store.t('sync.syncNow') : sync.statusLabel"
+        :title="sync.cloudEnabled ? store.t('sync.refresh') : sync.statusLabel"
         :disabled="sync.status === 'syncing'"
-        @click="doSyncNow"
+        @click="doRefresh"
       >
         <span class="inline-block h-2 w-2 rounded-full" :class="syncDotClass"></span>
       </button>
